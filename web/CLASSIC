@@ -1,15 +1,2 @@
-# Earlier versions the public installer offers next to the current one (web/STABLE), each built from its own commit
-# by .github/workflows/emulator.yml (never a package taken from the live site). One per line: the commit, then a note.
-# Newest first. Up to make_site.py's KEEP_OLD are offered. A version in web/WITHDRAWN stays out.
-# (0.9.9-beta4) one milestone per line of the history, so anyone can pick the version they liked.
-# (2026-10-30) JIANT FM V10 is the new base. (2026-11-02) a pick of earlier versions back, a user's ask: anyone can
-# install the one they want.
-43b8ea8111949c990bf76523c7d4f4e77b715114  # V10.60 before public V10.6c (USB INPUT fixes)
-5db7ffcd2185030ca776404c990c58f2ed54f822  # JIANT FM V10.26 (2026-11-01): the public version before V10.35
-4b5f5c666f8bbfdb5450629aff132cf7412075a7  # JIANT FM V10 (2026-10-30): the first V10 (TIMELINE, VAR, ADD), before EUCLID and Bluetooth
-527c7e462a1542cbbde2c2cbf6b4bf151954127d  # JIANT 0.9.9-par12 (2026-10-27): the last public 0.9.9
-fe81db8885d13d17f88b1268e3641c04f199b2d5  # JIANT 0.9.9-gen2 (2026-10-25): ULTRA STABLE, the 0.9.9 to go back to
-73726deba23052e10c957e66aa7f3e9b7b30b6de  # JIANT 0.9.17 (2026-10-20): the last of the 0.9.1x line (glitcher, generator, dice, THEME)
-cd49edcdac53e5c7d48b79d775df3afb3cf53593  # JIANT 0.8.9 (2026-10-17): USB audio fixed, skins COLORS / BOTTOM / HUD
-1aade034da0b1d4b62fed00dec39ec7ada1461b7  # JIANT 0.6.82 (2026-10-14): the last 0.6; step components
-6522453c2893322ea574e39b579277775fde650b  # JIANT 0.6.2 (2026-10-10): six tracks, one core, the line users ask for
+# (UMBRA OBSCURA) Earlier versions the installer offers next to the current one, one commit a line: none yet.
+# Jiant's own list is in juanjiant-bit/JIANT; this fork's installer offers only what this fork builds.

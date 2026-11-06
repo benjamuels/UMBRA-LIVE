@@ -84,6 +84,7 @@ if (typeof registerProcessor === "function") {
       else if (m.type === "buttons" || m.type === "keys") this.queue.push(m);
       else if (m.type === "enc") ex.web_enc(m.role, m.n | 0);
       else if (m.type === "master") ex.web_master(m.value | 0);
+      else if (m.type === "umb" && ex.web_umb) ex.web_umb(m.i | 0, m.v | 0);   // (UMBRA OBSCURA) KILN's knobs
       else if (m.type === "midi") ex.web_midi(m.data[0] | 0, m.data[1] | 0, m.data[2] | 0);
       else if (m.type === "visible") this.period = m.on ? 1 / 30 : 1 / 4;
     }
