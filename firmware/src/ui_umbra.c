@@ -16,7 +16,7 @@
  *
  * Fixed point throughout, sized for what the firmware has left (V10.6x: ~18 KB of RAM, ~9 KB of pool, ~16 KB of flash):
  *   the field 60 x 60 cells (a cell 4 x 4 px), a byte a chemical: 10.8 KB; no second copy: a step reads a rolling window
- *   of five rows of Moore averages (1.8 KB) and writes the field in place; the noise table 64 x 64 (4 KB, in the pool);
+ *   of five rows of Moore averages (1.8 KB) and writes the field in place; the noise table 64 x 64 (4 KB, in flash);
  *   lit once a 2 x 2 px block (14,400 a frame), each block's colour dithered per pixel. Under LOAD LITE / ECO, or when
  *   the audio governor lightens the load, it steps at 10 Hz instead of 20 (the same speed, half the work). */
 #define UMB_ON 1
@@ -27,7 +27,7 @@
 #define UMB_FLOOR 3                                     /* the least of each chemical a cell keeps (of 255) */
 enum { UK_RATE, UK_FLOW, UK_SWIRL, UK_RELIEF, UK_COARSE, UK_FINE, UK_BLEND, UK_GRAIN, UK_DECAY, UK_COUNT };
 static uint8_t umb_p[UK_COUNT] = {45, 50, 35, 60, 35, 55, 40, 35, 40};   /* 0..99 (the emulator's sliders: web_umb) */
-static uint8_t umb_tn[UMB_T * UMB_T] __attribute__((section(".pool"), aligned(4)));
+#include "ui_umbra_noise.h"                            /* umb_tn: the noise table, in flash (tools/gen_umbra_noise.py) */
 static struct {                                         /* the knobs as the step and the frame use them (umb_consts) */
     int32_t sA, sB, bl, gr, depth, gd, oA, oB, life;    /* layers' scales (texels a cell, Q8), BLEND, GRAIN (Q8), relief
                                                          * and grain depth (x 16), the layers' drift, a wave's life */
@@ -48,12 +48,6 @@ static struct {
     uint8_t init;
 } umb;
 
-static uint32_t umb_hash(int32_t x, int32_t y, int32_t s)
-{
-    uint32_t h = (uint32_t)x * 374761393u + (uint32_t)y * 668265263u + (uint32_t)s * 1442695041u;
-    h = (h ^ (h >> 13)) * 1274126177u;
-    return h ^ (h >> 16);
-}
 static uint32_t umb_rnd(void)                          /* mulberry32 */
 {
     uint32_t t = umb.rs += 0x6D2B79F5u;
@@ -79,15 +73,6 @@ static uint32_t umb_isqrt(uint32_t v)
 static int32_t umb_clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 #define UMB_K(k) ((int32_t)umb_p[k] * 256 / 99)        /* a knob, Q8 (0..256) */
 
-/* the noise table: two octaves of value noise that tile (lattices of 8 and 16) */
-static int32_t umb_oct(int32_t x, int32_t y, int32_t per, int32_t s)
-{
-    int32_t gx = x * per, gy = y * per, xi = gx >> 6, yi = gy >> 6, xf = (gx & 63) << 2, yf = (gy & 63) << 2;
-    int32_t u = (xf * xf * (768 - 2 * xf)) >> 16, v = (yf * yf * (768 - 2 * yf)) >> 16;
-    int32_t a = (int32_t)(umb_hash(xi % per, yi % per, s) >> 24), b = (int32_t)(umb_hash((xi + 1) % per, yi % per, s) >> 24);
-    int32_t c = (int32_t)(umb_hash(xi % per, (yi + 1) % per, s) >> 24), d = (int32_t)(umb_hash((xi + 1) % per, (yi + 1) % per, s) >> 24);
-    return a + (((b - a) * u) >> 8) + (((c - a) * v) >> 8) + (((a - b - c + d) * u * v) >> 16);
-}
 /* the table at X, Y (texels, Q8; it wraps): its value x 256 */
 static int32_t umb_tbil(int32_t X, int32_t Y)
 {
@@ -151,19 +136,16 @@ static void umb_consts(void)
 /* the noise blend (0..255) at cell x, y, as the step uses it */
 static int32_t umb_noise(int32_t x, int32_t y)
 {
-    int32_t A = umb_tbil(x * uf.sA + uf.oA, y * uf.sA), B = umb_tbil(x * uf.sB - uf.oB, y * uf.sB + 4429);
+    int32_t X = x * 256, Y = y * 256;
+    int32_t A = umb_tbil(((((X * 211 - Y * 145) >> 8) * uf.sA) >> 8) + uf.oA, (((X * 145 + Y * 211) >> 8) * uf.sA) >> 8);
+    int32_t B = umb_tbil(((((X * 116 + Y * 228) >> 8) * uf.sB) >> 8) - uf.oB, ((((Y * 116 - X * 228) >> 8) * uf.sB) >> 8) + 4429);
     return ((256 - uf.bl) * (A >> 8) + uf.bl * (B >> 8)) >> 8;
 }
 static void umb_start(void)
 {
-    int32_t x, y, ns;
     uint32_t i;
     umb.rs = 218u + fm1_ms;
-    ns = (int32_t)(umb_rnd() % 1000u);
     umb_consts();
-    for (y = 0; y < UMB_T; y++)
-        for (x = 0; x < UMB_T; x++)
-            umb_tn[y * UMB_T + x] = (uint8_t)((umb_oct(x, y, 8, ns) * 159 + umb_oct(x, y, 16, ns + 1) * 97) >> 8);
     for (i = 0; i < UMB_S; i++) {
         umb.a[i] = (uint8_t)(70 + umb_rnd() % 30u);    /* (near the rest state: the first notes stand out) */
         umb.b[i] = (uint8_t)(85 + umb_rnd() % 30u);
@@ -415,13 +397,15 @@ static void umb_block(int32_t px, int32_t py, int32_t vg, uint8_t *o)
     int32_t sA = uf.sA, sB = uf.sB, bl = uf.bl, gr = uf.gr, depth = uf.depth, gd = uf.gd, oA = uf.oA, oB = uf.oB;
     int32_t life = uf.life;
     int32_t X = px * 64 - 128, Y = py * 64 - 128;      /* (cells, Q8) */
-    int32_t XA = ((X * sA) >> 8) + oA, YA = (Y * sA) >> 8, XB = ((X * sB) >> 8) - oB, YB = ((Y * sB) >> 8) + 4429;
+    /* the two layers, each turned its own way (no lattice lined up with the light: no glints in rows) */
+    int32_t XA = ((((X * 211 - Y * 145) >> 8) * sA) >> 8) + oA, YA = (((X * 145 + Y * 211) >> 8) * sA) >> 8;
+    int32_t XB = ((((X * 116 + Y * 228) >> 8) * sB) >> 8) - oB, YB = ((((Y * 116 - X * 228) >> 8) * sB) >> 8) + 4429;
     int32_t tA = umb_tbil(XA, YA), tB = umb_tbil(XB, YB);
     int32_t nn = ((256 - bl) * (tA >> 8) + bl * (tB >> 8)) >> 8;
-    int32_t ngx = ((256 - bl) * ((((umb_tbil(XA + 256, YA) - umb_tbil(XA - 256, YA)) >> 1) * sA) >> 8) +   /* (centred: */
-                   bl * ((((umb_tbil(XB + 256, YB) - umb_tbil(XB - 256, YB)) >> 1) * sB) >> 8)) >> 8;   /* no seams) */
-    int32_t ngy = ((256 - bl) * ((((umb_tbil(XA, YA + 256) - umb_tbil(XA, YA - 256)) >> 1) * sA) >> 8) +
-                   bl * ((((umb_tbil(XB, YB + 256) - umb_tbil(XB, YB - 256)) >> 1) * sB) >> 8)) >> 8;
+    int32_t axA = (umb_tbil(XA + 256, YA) - umb_tbil(XA - 256, YA)) >> 1, ayA = (umb_tbil(XA, YA + 256) - umb_tbil(XA, YA - 256)) >> 1;
+    int32_t axB = (umb_tbil(XB + 256, YB) - umb_tbil(XB - 256, YB)) >> 1, ayB = (umb_tbil(XB, YB + 256) - umb_tbil(XB, YB - 256)) >> 1;
+    int32_t ngx = ((256 - bl) * ((((axA * 211 + ayA * 145) >> 8) * sA) >> 8) + bl * ((((axB * 116 - ayB * 228) >> 8) * sB) >> 8)) >> 8;
+    int32_t ngy = ((256 - bl) * ((((ayA * 211 - axA * 145) >> 8) * sA) >> 8) + bl * ((((axB * 228 + ayB * 116) >> 8) * sB) >> 8)) >> 8;
     int32_t gx = (umb_fbil(umb.a, X + 256, Y) - umb_fbil(umb.a, X - 256, Y)) >> 1;   /* the relief's slope (x 256 a cell) */
     int32_t gy = (umb_fbil(umb.a, X, Y + 256) - umb_fbil(umb.a, X, Y - 256)) >> 1;
     int32_t v = (umb_fbil(umb.a, X, Y) >> 8) + (((nn - 128) * gr * 26) >> 16), t, sm, nx, ny, len, dif, sp, sh, r, g, b;
