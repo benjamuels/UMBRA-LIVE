@@ -53,8 +53,8 @@ static struct {
     uint8_t en[NTRK];                                   /* each track's level, 0..255 */
     uint16_t bx[NTRK], by[NTRK];                        /* .. and its body (cells, Q8) */
     uint16_t pulse;                                     /* the flow's push, Q8 */
-    uint32_t f0, ms, rs, qr, steps, en_n;
-    uint8_t init;
+    uint32_t f0, ms, rs, qr, steps, en_n, lastf, fav;   /* .. fav: the frames' interval, averaged (ms x 16) */
+    uint8_t init, lite;                                 /* lite: frames slow (a full song): lighter until they recover */
 } umb;
 
 static uint32_t umb_rnd(void)                          /* mulberry32 */
@@ -227,7 +227,7 @@ static void umb_spark(uint32_t c, uint32_t lane, int32_t v)
         }
     }
     if (c < NTRK) {
-        uint32_t q = umb.en_n++ % UMB_NE, p0;
+        uint32_t q = umb.en_n++ % (umb.lite ? 6u : UMB_NE), p0;   /* (the oldest goes first; 6 when lite) */
         int32_t pos = (int32_t)(drum ? UMB_LANE_POS[lane % NLANE] : (c * 3u) % 8u) * 256 + (k1 - 500) * 2048 / 1000, f;
         pos &= 2047;                                    /* (eight places, Q8, round) */
         p0 = (uint32_t)pos >> 8;
@@ -239,10 +239,10 @@ static void umb_spark(uint32_t c, uint32_t lane, int32_t v)
         umb.ey[q] = (int16_t)(cy * 4 / 256 + 2);
         umb.et[q] = fm1_ms;
         umb.ev[q] = (uint8_t)(drum ? 102 + v * 153 / 256 : 38 + v * 77 / 256);
-        umb.er0[q] = (uint8_t)umb_clamp((drum ? 7 : 4) * (400 + 16 * k2 / 10) * (154 + v * 102 / 256) / 256000, 2, 60);
-        umb.ew[q] = (uint8_t)(3 + 7 * k2 / 1000);
+        umb.er0[q] = (uint8_t)umb_clamp((drum ? 7 : 3) * (400 + 16 * k2 / 10) * (154 + v * 102 / 256) / 256000, 2, 60);
+        umb.ew[q] = (uint8_t)(drum ? 3 + 7 * k2 / 1000 : 0);   /* (a melodic note: no ring, a small flash where it lands) */
         umb.eamp[q] = (uint16_t)((77 + 691 * k3 / 1000) * (drum ? 256 : 154) / 256);
-        umb.espd[q] = (uint16_t)(1920 - 1632 * k4 / 1000);
+        umb.espd[q] = (uint16_t)(drum ? 1920 - 1632 * k4 / 1000 : 0);
         umb.bx[c] = (uint16_t)cx;
         umb.by[c] = (uint16_t)cy;
         v = drum ? 256 : 51 + v * 77 / 256;             /* a played note pushes the flow (a drum hardest) */
@@ -371,12 +371,28 @@ static void umb_events(void)
     uint32_t q;
     for (q = 0; q < UMB_NE; q++) {
         int32_t age = (int32_t)(fm1_ms - umb.et[q]), life = uf.life * 50, R0 = umb.er0[q], w = umb.ew[q], R, Rt;   /* (ms) */
-        ue.on[q] = age >= 0 && age < life;
+        ue.on[q] = age >= 0 && age < life && (!umb.lite || (w && q < 6u));   /* (lite: the drums' rings only) */
         if (!ue.on[q])
             continue;
+        if (!w) {                                       /* a melodic note's flash: no ring, a short glow, its tint */
+            ue.fe[q] = age * 2 < life ? (umb.ev[q] * (256 - age * 512 / life)) >> 8 : 0;
+            ue.fc[q] = ue.fe[q];
+            ue.on[q] = ue.fe[q] > 4;
+            ue.R[q] = ue.R2[q] = ue.iu[q] = ue.kw[q] = ue.iR[q] = ue.w4[q] = 0;
+            ue.o2[q] = ue.c2[q] = 9 * R0 * R0;
+            ue.t2[q] = 8 * R0 * R0;
+            ue.kc[q] = 2097152 / (R0 * R0);
+            ue.kg[q] = ((8192 * (int32_t)umb.eamp[q]) >> 8) / (R0 * R0);
+            ue.kt[q] = 2097152 / (R0 * R0);
+            continue;
+        }
         ue.fe[q] = (umb.ev[q] * (256 - age * 256 / life)) >> 8;
         ue.fc[q] = age * 20 < life * 7 ? (umb.ev[q] * (256 - age * 5120 / (life * 7 + 1))) >> 8 : 0;
         R = R0 + ((age * umb.espd[q] * 41) >> 19);      /* (x 41 >> 19: / 50 ms / 256) */
+        if (R > 120 || ue.fe[q] < 6) {                  /* (spread past half the screen, or nearly gone: done) */
+            ue.on[q] = 0;
+            continue;
+        }
         Rt = R + w;
         ue.R[q] = R;
         ue.R2[q] = R * R;
@@ -397,13 +413,25 @@ static void umb_events(void)
  * are timed by the clock, so they spread smoothly at whatever rate the screen draws */
 static void umb_tick(void)
 {
-    uint32_t n = 0, c, l, dt = (sys_load || gov_lite) ? 100u : 50u;   /* (20 steps a second; 10 when the load is lightened) */
+    uint32_t n = 0, c, l, dt = (sys_load || gov_lite || umb.lite) ? 100u : 50u;   /* (20 steps a second; 10 when lite) */
     uint8_t vm[NTRK][NLANE];
     if (!umb.init)
         umb_start();
     if (umb.f0 == ui.frame)
         return;
     umb.f0 = ui.frame;
+    {                                                   /* the governor: the frames' interval, averaged; over 55 ms
+                                                         * (a full song taking the core) lite, under 38 ms full again */
+        uint32_t dtf = fm1_ms - umb.lastf;
+        umb.lastf = fm1_ms;
+        if (dtf > 500u)
+            dtf = 500u;
+        umb.fav = umb.fav - (umb.fav >> 3) + dtf * 2u;
+        if (umb.fav > 55u * 16u)
+            umb.lite = 1;
+        else if (umb.fav < 38u * 16u)
+            umb.lite = 0;
+    }
     umb.srj[0] = umb.srj[1] = -99;
     umb_consts();
     umb_events();
@@ -472,7 +500,7 @@ static void umb_sample(int32_t i, int32_t j, int32_t vg, uint8_t *o)
         gr_ += umb.er[q] * (ring + core);
         gg_ += umb.eg[q] * (ring + core);
         gb_ += umb.eb[q] * (ring + core);
-        if (d2 < ue.t2[q]) {
+        if (!umb.lite && d2 < ue.t2[q]) {
             e = (ue.fe[q] * umb_exp((d2 * ue.kt[q]) >> 16)) >> 8;
             tw += e;
             tr += umb.er[q] * e;
@@ -510,19 +538,19 @@ static void umb_sample(int32_t i, int32_t j, int32_t vg, uint8_t *o)
 }
 /* row j of cell centres (-1 .. 60), centres lo .. hi of it lit, kept two rows at a time (a slot by parity: rows j and
  * j + 1 never share one) and only what a strip needs: strips side by side (the knob row's) light each centre once */
-static const uint8_t *umb_row(int32_t j, int32_t lo, int32_t hi)
+static const uint8_t *umb_row(int32_t j, int32_t lo, int32_t hi, int32_t m)
 {
     uint32_t s = (uint32_t)j & 1u;
-    int32_t yc = j * 4 + 2, vg = yc < 56 ? 108 : yc < 76 ? 108 + (yc - 56) * 7 : yc >= 226 ? 128 : 256, i;
+    int32_t yc = j * m * 4 + 2, vg = yc < 56 ? 108 : yc < 76 ? 108 + (yc - 56) * 7 : yc >= 226 ? 128 : 256, i;
     if (umb.srj[s] != j) {
         umb.srj[s] = (int16_t)j;
         umb.srlo[s] = (int16_t)(hi + 1);                /* (none lit) */
         umb.srhi[s] = (int16_t)hi;
     }
-    for (i = lo; i < umb.srlo[s]; i++)
-        umb_sample(i, j, vg, umb.sr[s] + (i + 1) * 3);
+    for (i = lo; i < umb.srlo[s]; i++)                  /* (m: 1 a cell; 2 every other cell, when lite) */
+        umb_sample(i * m, j * m, vg, umb.sr[s] + (i + 1) * 3);
     for (i = umb.srhi[s] + 1; i <= hi; i++)
-        umb_sample(i, j, vg, umb.sr[s] + (i + 1) * 3);
+        umb_sample(i * m, j * m, vg, umb.sr[s] + (i + 1) * 3);
     if (lo < umb.srlo[s])
         umb.srlo[s] = (int16_t)lo;
     if (hi > umb.srhi[s])
@@ -538,14 +566,15 @@ static void umb_backdrop(int32_t x0, int32_t y0)
     uint32_t cx, cy;
     umb_tick();
     for (cy = 0; cy < cv_h; cy++) {
-        int32_t py = y0 + (int32_t)cy, ty = (2 * py - 3) * 32, j0 = ty >> 8, fy = ty & 255, k;
-        int32_t lo = ((2 * x0 - 3) * 32) >> 8, hi = (((2 * (x0 + (int32_t)cv_w - 1) - 3) * 32) >> 8) + 1;   /* (centres) */
-        const uint8_t *r0 = umb_row(j0, lo, hi), *r1 = umb_row(j0 + 1, lo, hi);
+        int32_t m = umb.lite ? 2 : 1, sh = umb.lite ? 4 : 5;   /* (the centres 4 px apart; 8 when lite) */
+        int32_t py = y0 + (int32_t)cy, ty = (2 * py - 3) << sh, j0 = ty >> 8, fy = ty & 255, k;
+        int32_t lo = ((2 * x0 - 3) << sh) >> 8, hi = (((2 * (x0 + (int32_t)cv_w - 1) - 3) << sh) >> 8) + 1;   /* (centres) */
+        const uint8_t *r0 = umb_row(j0, lo, hi, m), *r1 = umb_row(j0 + 1, lo, hi, m);
         uint16_t *row = cv_px + cy * cv_w;
         for (k = (lo + 1) * 3; k < (hi + 2) * 3; k++)
             vr[k] = (uint16_t)((r0[k] << 8) + (r1[k] - r0[k]) * fy);
         for (cx = 0; cx < cv_w; cx += 2) {               /* (a colour blended every two pixels; each its own dither) */
-            int32_t px = x0 + (int32_t)cx, tx = (2 * px - 2) * 32, p = ((tx >> 8) + 1) * 3, fx = tx & 255, k2;
+            int32_t px = x0 + (int32_t)cx, tx = (2 * px - 2) << sh, p = ((tx >> 8) + 1) * 3, fx = tx & 255, k2;
             int32_t R0 = (vr[p] + (((vr[p + 3] - vr[p]) * fx) >> 8)) >> 8;
             int32_t G0 = (vr[p + 1] + (((vr[p + 4] - vr[p + 1]) * fx) >> 8)) >> 8;
             int32_t B0 = (vr[p + 2] + (((vr[p + 5] - vr[p + 2]) * fx) >> 8)) >> 8;
