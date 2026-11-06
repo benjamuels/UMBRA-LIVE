@@ -676,7 +676,6 @@ static volatile uint8_t asleep_hit;                     /* (0.6.28) a note went 
                                                          * their sounds and steps kept (fx.c mix_part) */                                /* (0.6.15) bit k: track k muted by GLO's solo / the FX layer's
                                                          * black key (perform.c): no new notes, as MUTE (a MIDI mute: a
                                                          * silenced track's voices end, it costs nothing) */
-#ifdef FELUCCA_WEB
 /* (UMBRA OBSCURA) every note played, for HOME's plates (ui_umbra.c): its track, note and velocity in a small ring the UI
  * reads once a frame (one writer, one reader; a burst over 32 notes keeps the newest) */
 #define UMB_NQ 32u
@@ -690,9 +689,6 @@ static void umb_note(uint32_t c, uint32_t note, uint32_t vel)
     umb_q.w = w + 1u;
 }
 #define UMB_NOTE(t, n, v) umb_note((uint32_t)((t) - trk), (n), (v))
-#else
-#define UMB_NOTE(t, n, v) ((void)0)
-#endif
 static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t any = 0, i, mode = trk_vmode(t);
