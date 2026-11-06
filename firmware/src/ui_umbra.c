@@ -9,8 +9,9 @@
  * in the cold palette (near-black, deep blue, pale teal).
  * The six tracks are bodies: every note played (keys, sequencer, arp, MIDI: voice.c trk_note_on's ring) sparks a fresh
  * reaction at a new spot, its size the velocity, and moves its track's body there; while the track sounds, its level
- * keeps stirring that spot; each note gives the flow a push (the first track's the hardest). With nothing playing a
- * slow ember wanders and feeds the field, and a field gone still is sparked again: it never settles.
+ * keeps stirring that spot; each note gives the flow a push (the first track's the hardest). Between notes the field
+ * relaxes, each step, toward a rest state drawn from the two noise layers (dark, a slow landscape always drifting): a
+ * spark's waves fade back into it in DECAY's time (default about 1 s), so each hit reads as its own event.
  * Drawn as the backdrop of HOME's ECO page (SKIN AIR / HUD: every strip draws the part of the screen under it, the
  * words outlined over it; ui_graph.c lz_begin), stepped at 20 Hz of fm1_ms, once a UI frame at most twice.
  *
@@ -23,8 +24,8 @@
 #define UMB_S (UMB_N * UMB_N)
 #define UMB_FLOOR 0.012f                              /* the least of each chemical a cell keeps */
 #define UMB_T 64                                        /* the noise table: 64 x 64, tiling */
-enum { UK_RATE, UK_FLOW, UK_SWIRL, UK_RELIEF, UK_COARSE, UK_FINE, UK_BLEND, UK_GRAIN, UK_COUNT };
-static uint8_t umb_p[UK_COUNT] = {45, 50, 35, 60, 35, 55, 40, 35};   /* 0..99 (web_umb sets them) */
+enum { UK_RATE, UK_FLOW, UK_SWIRL, UK_RELIEF, UK_COARSE, UK_FINE, UK_BLEND, UK_GRAIN, UK_DECAY, UK_COUNT };
+static uint8_t umb_p[UK_COUNT] = {45, 50, 35, 60, 35, 55, 40, 35, 40};   /* 0..99 (web_umb sets them) */
 static struct {
     float a[UMB_S], b[UMB_S], c[UMB_S], sa[UMB_S], sb[UMB_S], sc[UMB_S];
     float h[UMB_S], gx[UMB_S], gy[UMB_S], nf[UMB_S], nfx[UMB_S], nfy[UMB_S];
@@ -175,12 +176,15 @@ static void umb_levels(void)
     }
 }
 /* a spark: a fresh reaction at a new spot (the track's body moves there), a core of one chemical in a ring of the next,
- * its size the velocity (0..1); a push to the flow */
+ * its size the velocity (0..1), a glow ring and a push to the flow: a drum track's large and bright, a melodic one's
+ * smaller and quieter */
 static void umb_spark(uint32_t c, float v)
 {
     float *f3[3] = {umb.a, umb.b, umb.c};
-    float cx = umb_rand(&umb.rs) * UMB_N, cy = (0.22f + umb_rand(&umb.rs) * 0.72f) * UMB_N, r = 2.0f + v * 3.5f, r2 = r * r;
-    uint32_t k = c % 3u;
+    float cx = umb_rand(&umb.rs) * UMB_N, cy = (0.22f + umb_rand(&umb.rs) * 0.72f) * UMB_N, r, r2;
+    uint32_t k = c % 3u, drum = c < NTRK && trk[c].engine == ENGI_DRUM;
+    r = drum ? 2.5f + v * 5.0f : 1.5f + v * 2.5f;   /* (a drum's the big one) */
+    r2 = r * r;
     int32_t x, y;
     for (y = (int32_t)floorf(cy - r); y <= (int32_t)ceilf(cy + r); y++)
         for (x = (int32_t)floorf(cx - r); x <= (int32_t)ceilf(cx + r); x++) {
@@ -199,11 +203,11 @@ static void umb_spark(uint32_t c, float v)
         umb.gx0[umb.gn % 8u] = cx * 3 + 1;              /* (a played note glows; the ember's own sparks don't) */
         umb.gy0[umb.gn % 8u] = cy * 3 + 1;
         umb.gage[umb.gn % 8u] = 0;
-        umb.gv[umb.gn % 8u] = 0.35f + 0.65f * v;
+        umb.gv[umb.gn % 8u] = drum ? 0.35f + 0.65f * v : 0.12f + 0.25f * v;
         umb.gn++;
     }
     if (c < NTRK) {                                     /* a played note pushes the flow (the first track hardest) */
-        v = c == 0u ? 1.0f : 0.3f + 0.5f * v;
+        v = drum ? 1.0f : 0.2f + 0.3f * v;
         umb.pulse = umb.pulse > v ? umb.pulse : v;
     }
     umb.quiet = 0;
@@ -212,29 +216,13 @@ static void umb_step(void)
 {
     float *f3[3] = {umb.a, umb.b, umb.c};
     float sA = 0.12f + UMB_M(UK_COARSE) * 0.5f, sB = 0.7f + UMB_M(UK_FINE) * 2.6f, bl = UMB_M(UK_BLEND), gr = UMB_M(UK_GRAIN);
-    float oA = umb.t * 0.35f, oB = umb.t * 0.8f, k, th, ct, st, s, gamp;
+    float oA = umb.t * 0.35f, oB = umb.t * 0.8f, k, th, ct, st, s, gamp, kd;
     uint32_t i;
     int32_t x, y;
     for (i = 0; i < NTRK; i++)                          /* a sounding track keeps stirring its spot */
         if (umb.en[i] >= 0.03f)
             umb_stamp(f3[i % 3u], umb.bx[i], umb.by[i], 1.2f + umb.en[i] * 2.5f, umb.en[i] * 0.06f);
-    {                                                   /* the ember: wanders slowly, always feeding */
-        float ex = (0.5f + 0.34f * sinf(umb.t * 0.11f)) * UMB_N, ey = (0.58f + 0.26f * sinf(umb.t * 0.071f + 1.3f)) * UMB_N;
-        umb_stamp(f3[(umb.steps / 60u) % 3u], ex, ey, 2.0f, 0.07f);
-    }
-    if (++umb.quiet > 70u)                              /* 3.5 s without a note: a small spark of its own */
-        umb_spark(NTRK + (umb.steps % 3u), 0.35f);   /* (NTRK and up: KILN's own, no track's) */
-    if ((++umb.steps % 20u) == 0u) {                    /* once a second: a field that hardly moved since, sparked */
-        float d = 0;
-        uint32_t n = 0;
-        for (y = 4; y < UMB_N; y += 8)
-            for (x = 4; x < UMB_N; x += 8, n++) {
-                d += fabsf(umb.a[y * UMB_N + x] - umb.was[n]);
-                umb.was[n] = umb.a[y * UMB_N + x];
-            }
-        if (d / (float)n < 0.09f)
-            umb_spark(NTRK + (umb.steps % 3u), 0.7f);
-    }
+    umb.steps++;
     umb.pulse *= 0.82f;
     for (i = 0; i < 8u; i++)
         umb.gage[i] += 0.05f;
@@ -251,6 +239,10 @@ static void umb_step(void)
     ct = cosf(th);
     st = sinf(th);
     s = 0.6f + UMB_M(UK_RATE) * 0.8f;
+    {                                                   /* DECAY: a wave's life 0.25 .. 8 s (40: ~1 s), to 5 % of itself */
+        float life = 0.25f * powf(2.0f, UMB_M(UK_DECAY) * 5.0f);
+        kd = expf(-0.15f / life);
+    }
     gamp = gr * 8;
     for (y = 0; y < UMB_N; y++) {
         int32_t ym = ((y + UMB_N - 1) % UMB_N) * UMB_N, y0 = y * UMB_N, yp = ((y + 1) % UMB_N) * UMB_N;
@@ -270,9 +262,15 @@ static void umb_step(void)
             na = A + s * A * (1.2f * B - C) + (umb.nf[j] - 0.5f) * 0.04f * gr;
             nb = B + s * B * (C - 1.2f * A);
             nc = C + s * C * (A - B);
-            umb.a[j] = na < UMB_FLOOR ? UMB_FLOOR : na > 1 ? 1 : na;   /* (a trace of each everywhere: none dies out, */
-            umb.b[j] = nb < UMB_FLOOR ? UMB_FLOOR : nb > 1 ? 1 : nb;   /* so the cycle can always come back) */
-            umb.c[j] = nc < UMB_FLOOR ? UMB_FLOOR : nc > 1 ? 1 : nc;
+            na = na < UMB_FLOOR ? UMB_FLOOR : na > 1 ? 1 : na;   /* (a trace of each everywhere: none dies out) */
+            nb = nb < UMB_FLOOR ? UMB_FLOOR : nb > 1 ? 1 : nb;
+            nc = nc < UMB_FLOOR ? UMB_FLOOR : nc > 1 ? 1 : nc;
+            {                                           /* the falloff: back toward the drifting dark rest state */
+                float ra = 0.3f + (umb.nf[j] - 0.5f) * 0.3f, rb = (1 - ra) * 0.5f;
+                umb.a[j] = ra + (na - ra) * kd;
+                umb.b[j] = rb + (nb - rb) * kd;
+                umb.c[j] = rb + (nc - rb) * kd;
+            }
         }
     }
     umb_moore(umb.a, umb.h, UMB_N);
@@ -290,10 +288,18 @@ static void umb_tick(void)
     umb_levels();
     if (umb_q.w - umb.qr > UMB_NQ)                      /* (a burst: the newest only) */
         umb.qr = umb_q.w - UMB_NQ;
-    for (; umb.qr != umb_q.w; umb.qr++) {               /* every note played since: a spark */
-        uint32_t q = umb.qr % UMB_NQ;
-        if (umb_q.c[q] < NTRK && !eco_off(umb_q.c[q]))
-            umb_spark(umb_q.c[q], (float)umb_q.vel[q] / 127.0f);
+    {                                                   /* the notes played since: one spark a track (a chord's loudest) */
+        float vm[NTRK] = {0};
+        uint32_t c;
+        for (; umb.qr != umb_q.w; umb.qr++) {
+            uint32_t q = umb.qr % UMB_NQ;
+            float v = (float)umb_q.vel[q] / 127.0f + 0.001f;
+            if (umb_q.c[q] < NTRK && v > vm[umb_q.c[q]])
+                vm[umb_q.c[q]] = v;
+        }
+        for (c = 0; c < NTRK; c++)
+            if (vm[c] > 0 && !eco_off(c))
+                umb_spark(c, vm[c] > 1 ? 1 : vm[c]);
     }
     while ((uint32_t)(fm1_ms - umb.ms) >= 50u && n < 2u) {
         umb.ms += 50u;

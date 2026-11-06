@@ -508,7 +508,7 @@ document.addEventListener("visibilitychange", () => send({ type: "visible", on: 
 </section>
 <script>
 (() => {
-  const K = [["RATE",45],["FLOW",50],["SWIRL",35],["RELIEF",60],["COARSE",35],["FINE",55],["BLEND",40],["GRAIN",35]];
+  const K = [["RATE",45],["FLOW",50],["SWIRL",35],["RELIEF",60],["COARSE",35],["FINE",55],["BLEND",40],["GRAIN",35],["DECAY",40]];
   const box = document.getElementById("umb-k");
   K.forEach(([name, v], i) => {
     const row = document.createElement("label");
