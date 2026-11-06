@@ -393,7 +393,7 @@ static void umb_events(void)
     }
 }
 /* once a UI frame: the levels, the notes played since (one spark a track and drum sound: a chord, its loudest note),
- * then the steps owed (20 a second; 10, each as two, when the load is lightened), never more than two; the rings
+ * then the steps owed (20 a second; 10, each as two, when the load is lightened), never more than four; the rings
  * are timed by the clock, so they spread smoothly at whatever rate the screen draws */
 static void umb_tick(void)
 {
@@ -426,7 +426,7 @@ static void umb_tick(void)
         for (l = 0; l < NLANE; l++)
             if (vm[c][l] && !eco_off(c))
                 umb_spark(c, l, vm[c][l]);
-    while ((uint32_t)(fm1_ms - umb.ms) >= dt && n < 2u) {
+    while ((uint32_t)(fm1_ms - umb.ms) >= dt && n < 4u) {   /* (up to four: slow frames keep real time) */
         umb.ms += dt;
         umb_step(dt / 50u);
         n++;
@@ -544,16 +544,16 @@ static void umb_backdrop(int32_t x0, int32_t y0)
         uint16_t *row = cv_px + cy * cv_w;
         for (k = (lo + 1) * 3; k < (hi + 2) * 3; k++)
             vr[k] = (uint16_t)((r0[k] << 8) + (r1[k] - r0[k]) * fy);
-        for (cx = 0; cx < cv_w; cx++) {
-            int32_t px = x0 + (int32_t)cx, tx = (2 * px - 3) * 32, p = ((tx >> 8) + 1) * 3, fx = tx & 255;
-            int32_t d = bayer[((py & 3) << 2) | (px & 3)] - 8;
-            int32_t R = ((vr[p] + (((vr[p + 3] - vr[p]) * fx) >> 8)) >> 8) + d / 2;
-            int32_t G = ((vr[p + 1] + (((vr[p + 4] - vr[p + 1]) * fx) >> 8)) >> 8) + d / 4;
-            int32_t B = ((vr[p + 2] + (((vr[p + 5] - vr[p + 2]) * fx) >> 8)) >> 8) + d / 2;
-            R = umb_clamp(R, 0, 255);
-            G = umb_clamp(G, 0, 255);
-            B = umb_clamp(B, 0, 255);
-            row[cx] = swap16((uint32_t)(((R & 0xF8) << 8) | ((G & 0xFC) << 3) | (B >> 3)));
+        for (cx = 0; cx < cv_w; cx += 2) {               /* (a colour blended every two pixels; each its own dither) */
+            int32_t px = x0 + (int32_t)cx, tx = (2 * px - 2) * 32, p = ((tx >> 8) + 1) * 3, fx = tx & 255, k2;
+            int32_t R0 = (vr[p] + (((vr[p + 3] - vr[p]) * fx) >> 8)) >> 8;
+            int32_t G0 = (vr[p + 1] + (((vr[p + 4] - vr[p + 1]) * fx) >> 8)) >> 8;
+            int32_t B0 = (vr[p + 2] + (((vr[p + 5] - vr[p + 2]) * fx) >> 8)) >> 8;
+            for (k2 = 0; k2 < 2 && cx + (uint32_t)k2 < cv_w; k2++) {
+                int32_t d = bayer[((py & 3) << 2) | ((px + k2) & 3)] - 8;
+                int32_t R = umb_clamp(R0 + d / 2, 0, 255), G = umb_clamp(G0 + d / 4, 0, 255), B = umb_clamp(B0 + d / 2, 0, 255);
+                row[cx + (uint32_t)k2] = swap16((uint32_t)(((R & 0xF8) << 8) | ((G & 0xFC) << 3) | (B >> 3)));
+            }
         }
     }
 }

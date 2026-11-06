@@ -8,7 +8,9 @@
  * while the last strip of a frame goes out. */
 /* pins and SPI1: hal/fm1_lcd_hw.h */
 #ifndef LCD_BAUD
-#define LCD_BAUD 4u                /* lsb/(BAUD+1): 4 = 12 MHz */
+#define LCD_BAUD 1u                /* lsb/(BAUD+1): (UMBRA OBSCURA) 1 = ~26.7 MHz at the 320 MHz clock (LSB 53.3 MHz): a whole
+                                    * screen in ~35 ms, for HOME's moving plates (was 4: ~10.7 MHz, ~86 ms; the ST7789
+                                    * takes a write clock up to ~62.5 MHz) */
 #endif
 
 static uint8_t lcd_small[64];
