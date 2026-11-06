@@ -23,6 +23,7 @@
 #define UMB_N 80                                        /* the field: 80 x 80 cells, a cell 3 x 3 px */
 #define UMB_S (UMB_N * UMB_N)
 #define UMB_FLOOR 0.012f                              /* the least of each chemical a cell keeps */
+#define UMB_NE 16u                                     /* events (notes' waves) drawn at once */
 #define UMB_T 64                                        /* the noise table: 64 x 64, tiling */
 enum { UK_RATE, UK_FLOW, UK_SWIRL, UK_RELIEF, UK_COARSE, UK_FINE, UK_BLEND, UK_GRAIN, UK_DECAY, UK_COUNT };
 static uint8_t umb_p[UK_COUNT] = {45, 50, 35, 60, 35, 55, 40, 35, 40};   /* 0..99 (web_umb sets them) */
@@ -31,8 +32,10 @@ static struct {
     float h[UMB_S], gx[UMB_S], gy[UMB_S], nf[UMB_S], nfx[UMB_S], nfy[UMB_S];
     float tn[UMB_T * UMB_T], tx[UMB_T * UMB_T], ty[UMB_T * UMB_T];
     float lut[256 * 3];
-    float gx0[8], gy0[8], gage[8], gv[8];            /* the sparks' glow: where, how old (s), how strong */
-    uint32_t gn;
+    float ex[UMB_NE], ey[UMB_NE], eage[UMB_NE], ev[UMB_NE];   /* the events (a note's wave): where (px), age (s), strength */
+    float er[UMB_NE], eg[UMB_NE], eb[UMB_NE];                 /* .. its colour */
+    float er0[UMB_NE], ew[UMB_NE], eamp[UMB_NE], espd[UMB_NE];   /* .. its size, ring width, height, speed (px/s) */
+    uint32_t en_n;
     float was[100];                                 /* a sample of the field a second ago (the stall check) */
     float en[NTRK], bx[NTRK], by[NTRK], pulse, t;  /* each track's level (0..1) and its body (cells) */
     uint8_t init;
@@ -133,8 +136,8 @@ static void umb_start(void)
         umb.bx[i] = (0.5f + cosf((float)i * 1.0471976f + 0.5f) * 0.27f) * UMB_N;
         umb.by[i] = (0.5f + sinf((float)i * 1.0471976f + 0.5f) * 0.27f) * UMB_N;
     }
-    for (i = 0; i < 8u; i++)
-        umb.gage[i] = 9;
+    for (i = 0; i < UMB_NE; i++)
+        umb.eage[i] = 99;
     umb.rs = seed;
     umb.qr = umb_q.w;
     umb_palette();
@@ -175,17 +178,40 @@ static void umb_levels(void)
             umb.en[c] = 0;
     }
 }
+/* the events' colours: eight round a cycle (mint, teal, aqua, ice, indigo, violet, rose, amber); each drum sound has its
+ * own place on it, a melodic track its own; the track's knob 1 turns the cycle (centred: these) */
+static const float UMB_EVC[8][3] = {{140, 236, 176}, {120, 222, 196}, {96, 214, 232}, {104, 160, 255},
+                                    {118, 108, 232}, {168, 130, 255}, {232, 124, 196}, {242, 172, 96}};
+static const uint8_t UMB_LANE_POS[NLANE] = {3, 5, 6, 2, 1, 4, 7, 0};   /* KICK ice, SNARE violet, CLAP rose, HATCL aqua,
+                                                                        * HATOP teal, TOM indigo, RIM amber, BELL mint */
+/* a track's HOME knob k (0..3) as its gauge shows it, 0..1 (DRUM-X: MORPH TUNE TONE DECAY) */
+static float umb_knob(uint32_t c, uint32_t k)
+{
+    track_t *t = &trk[c];
+    uint32_t id = trk_engp(t)->knob[k & 3u];
+    const param_desc_t *d = track_desc(t, id);
+    int32_t r = RATIO(d, enum_rank(d, t->p[id]));
+    return (float)(r < 0 ? 0 : r > 1000 ? 1000 : r) * 0.001f;
+}
 /* a spark: a fresh reaction at a new spot (the track's body moves there), a core of one chemical in a ring of the next,
- * its size the velocity (0..1), a glow ring and a push to the flow: a drum track's large and bright, a melodic one's
- * smaller and quieter */
-static void umb_spark(uint32_t c, float v)
+ * its size the velocity (0..1); and, for a played note, its event: a wave in its drum sound's (or track's) colour, its
+ * track's HOME knobs shaping it: knob 1 turns the colour, 2 the size, 3 the height of the wave, 4 how slowly it spreads.
+ * A drum's large and bright, a melodic note's smaller and quieter; each pushes the flow */
+static void umb_spark(uint32_t c, uint32_t lane, float v)
 {
     float *f3[3] = {umb.a, umb.b, umb.c};
     float cx = umb_rand(&umb.rs) * UMB_N, cy = (0.22f + umb_rand(&umb.rs) * 0.72f) * UMB_N, r, r2;
+    float k1 = 0.5f, k2 = 0.5f, k3 = 0.5f, k4 = 0.5f;
     uint32_t k = c % 3u, drum = c < NTRK && trk[c].engine == ENGI_DRUM;
-    r = drum ? 2.5f + v * 5.0f : 1.5f + v * 2.5f;   /* (a drum's the big one) */
-    r2 = r * r;
     int32_t x, y;
+    if (c < NTRK) {
+        k1 = umb_knob(c, 0);
+        k2 = umb_knob(c, 1);
+        k3 = umb_knob(c, 2);
+        k4 = umb_knob(c, 3);
+    }
+    r = (drum ? 2.5f + v * 5.0f : 1.5f + v * 2.5f) * (0.5f + k2);   /* (a drum's the big one; knob 2 its size) */
+    r2 = r * r;
     for (y = (int32_t)floorf(cy - r); y <= (int32_t)ceilf(cy + r); y++)
         for (x = (int32_t)floorf(cx - r); x <= (int32_t)ceilf(cx + r); x++) {
             float d2 = ((float)x - cx) * ((float)x - cx) + ((float)y - cy) * ((float)y - cy);
@@ -198,16 +224,25 @@ static void umb_spark(uint32_t c, float v)
             f3[(m + 2u) % 3u][j] = 0.05f;
         }
     if (c < NTRK) {
+        uint32_t q = umb.en_n++ % UMB_NE, p0;
+        float pos = (float)(drum ? UMB_LANE_POS[lane % NLANE] : (c * 3u) % 8u) + (k1 - 0.5f) * 8.0f, f;
+        pos -= floorf(pos / 8.0f) * 8.0f;
+        p0 = (uint32_t)pos % 8u;
+        f = pos - floorf(pos);
+        umb.er[q] = UMB_EVC[p0][0] + (UMB_EVC[(p0 + 1u) % 8u][0] - UMB_EVC[p0][0]) * f;
+        umb.eg[q] = UMB_EVC[p0][1] + (UMB_EVC[(p0 + 1u) % 8u][1] - UMB_EVC[p0][1]) * f;
+        umb.eb[q] = UMB_EVC[p0][2] + (UMB_EVC[(p0 + 1u) % 8u][2] - UMB_EVC[p0][2]) * f;
+        umb.ex[q] = cx * 3 + 1;
+        umb.ey[q] = cy * 3 + 1;
+        umb.eage[q] = 0;
+        umb.ev[q] = drum ? 0.4f + 0.6f * v : 0.15f + 0.3f * v;
+        umb.er0[q] = (drum ? 7.0f : 4.0f) * (0.4f + 1.6f * k2) * (0.6f + 0.4f * v);
+        umb.ew[q] = 2.5f + 7.0f * k2;
+        umb.eamp[q] = (0.3f + 2.7f * k3) * (drum ? 1.0f : 0.6f);
+        umb.espd[q] = 150.0f * (1.0f - 0.85f * k4);
         umb.bx[c] = cx;
         umb.by[c] = cy;
-        umb.gx0[umb.gn % 8u] = cx * 3 + 1;              /* (a played note glows; the ember's own sparks don't) */
-        umb.gy0[umb.gn % 8u] = cy * 3 + 1;
-        umb.gage[umb.gn % 8u] = 0;
-        umb.gv[umb.gn % 8u] = drum ? 0.35f + 0.65f * v : 0.12f + 0.25f * v;
-        umb.gn++;
-    }
-    if (c < NTRK) {                                     /* a played note pushes the flow (the first track hardest) */
-        v = drum ? 1.0f : 0.2f + 0.3f * v;
+        v = drum ? 1.0f : 0.2f + 0.3f * v;                  /* a played note pushes the flow (a drum hardest) */
         umb.pulse = umb.pulse > v ? umb.pulse : v;
     }
     umb.quiet = 0;
@@ -224,8 +259,8 @@ static void umb_step(void)
             umb_stamp(f3[i % 3u], umb.bx[i], umb.by[i], 1.2f + umb.en[i] * 2.5f, umb.en[i] * 0.06f);
     umb.steps++;
     umb.pulse *= 0.82f;
-    for (i = 0; i < 8u; i++)
-        umb.gage[i] += 0.05f;
+    for (i = 0; i < UMB_NE; i++)
+        umb.eage[i] += 0.05f;
     for (y = 0; y < UMB_N; y++)                         /* the two noise layers, blended (paketa12's two Noise TOPs) */
         for (x = 0; x < UMB_N; x++)
             umb.nf[y * UMB_N + x] = (1 - bl) * umb_bil(umb.tn, UMB_T, (float)x * sA + oA, (float)y * sA) +
@@ -288,18 +323,27 @@ static void umb_tick(void)
     umb_levels();
     if (umb_q.w - umb.qr > UMB_NQ)                      /* (a burst: the newest only) */
         umb.qr = umb_q.w - UMB_NQ;
-    {                                                   /* the notes played since: one spark a track (a chord's loudest) */
-        float vm[NTRK] = {0};
-        uint32_t c;
+    {                                                   /* the notes played since: one spark a track and drum sound (a
+                                                         * chord: its loudest note) */
+        float vm[NTRK][NLANE];
+        uint32_t c, l;
+        for (c = 0; c < NTRK; c++)
+            for (l = 0; l < NLANE; l++)
+                vm[c][l] = 0;
         for (; umb.qr != umb_q.w; umb.qr++) {
             uint32_t q = umb.qr % UMB_NQ;
             float v = (float)umb_q.vel[q] / 127.0f + 0.001f;
-            if (umb_q.c[q] < NTRK && v > vm[umb_q.c[q]])
-                vm[umb_q.c[q]] = v;
+            c = umb_q.c[q];
+            if (c >= NTRK)
+                continue;
+            l = trk[c].engine == ENGI_DRUM ? drum_lane(umb_q.note[q]) % NLANE : 0u;
+            if (v > vm[c][l])
+                vm[c][l] = v;
         }
         for (c = 0; c < NTRK; c++)
-            if (vm[c] > 0 && !eco_off(c))
-                umb_spark(c, vm[c] > 1 ? 1 : vm[c]);
+            for (l = 0; l < NLANE; l++)
+                if (vm[c][l] > 0 && !eco_off(c))
+                    umb_spark(c, l, vm[c][l] > 1 ? 1 : vm[c][l]);
     }
     while ((uint32_t)(fm1_ms - umb.ms) >= 50u && n < 2u) {
         umb.ms += 50u;
@@ -316,6 +360,7 @@ static void umb_backdrop(int32_t x0, int32_t y0)
     static const uint8_t bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
     float sA = 0.12f + UMB_M(UK_COARSE) * 0.5f, sB = 0.7f + UMB_M(UK_FINE) * 2.6f, bl = UMB_M(UK_BLEND), gr = UMB_M(UK_GRAIN);
     float oA = umb.t * 0.35f, oB = umb.t * 0.8f, depth = 3 + UMB_M(UK_RELIEF) * 22, gd = gr * 7;
+    float life = 0.25f * powf(2.0f, UMB_M(UK_DECAY) * 5.0f);   /* an event's life: DECAY's, as the waves' */
     const float lx = -0.5f, ly = -0.62f, lz = 0.6f, hx = -0.2793f, hy = -0.3463f, hz = 0.8953f;   /* light; half vector */
     uint32_t cx, cy;
     umb_tick();
@@ -333,6 +378,40 @@ static void umb_backdrop(int32_t x0, int32_t y0)
             float ngy = (1 - bl) * umb_bil(umb.ty, UMB_T, ua, va) * sA + bl * umb_bil(umb.ty, UMB_T, ub, vb) * sB;
             float v = umb_bil(umb.h, UMB_N, X, Y) + (nn - 0.5f) * 0.1f * gr;
             float nx = -(umb_bil(umb.gx, UMB_N, X, Y) * depth + ngx * gd), ny = -(umb_bil(umb.gy, UMB_N, X, Y) * depth + ngy * gd);
+            float gr_ = 0, gg_ = 0, gb_ = 0, tw = 0, tr = 0, tg = 0, tb = 0;
+            {                                           /* the events: a flash at the heart, then a ring that rises out of
+                                                         * the relief and spreads, in its colour; the lava under it tinted */
+                uint32_t q;
+                for (q = 0; q < UMB_NE; q++) {
+                    float age = umb.eage[q], fade, dx, dy, d2, rad, w, o, d, u, ring, core, dh, t;
+                    if (age >= life)
+                        continue;
+                    fade = 1 - age / life;
+                    dx = (float)px - umb.ex[q];
+                    dy = (float)py - umb.ey[q];
+                    d2 = dx * dx + dy * dy;
+                    rad = umb.er0[q] + age * umb.espd[q];
+                    w = umb.ew[q];
+                    o = rad + 3 * w + umb.er0[q];
+                    if (d2 > o * o)
+                        continue;
+                    d = sqrtf(d2) + 0.001f;
+                    u = d - rad;
+                    ring = umb.ev[q] * fade * expf(-u * u / (w * w));
+                    core = age < 0.35f * life ? umb.ev[q] * (1 - age / (0.35f * life)) * expf(-d2 / (umb.er0[q] * umb.er0[q])) : 0;
+                    dh = umb.eamp[q] * (ring * (-2 * u / (w * w)) + core * (-2 * d / (umb.er0[q] * umb.er0[q])));
+                    nx -= dh * dx / d;
+                    ny -= dh * dy / d;
+                    gr_ += umb.er[q] * (ring + core);
+                    gg_ += umb.eg[q] * (ring + core);
+                    gb_ += umb.eb[q] * (ring + core);
+                    t = umb.ev[q] * fade * expf(-d2 / ((rad + w) * (rad + w)));
+                    tw += t;
+                    tr += umb.er[q] * t;
+                    tg += umb.eg[q] * t;
+                    tb += umb.eb[q] * t;
+                }
+            }
             float inv = 1.0f / sqrtf(nx * nx + ny * ny + 1), dif = (nx * lx + ny * ly + lz) * inv, sp = (nx * hx + ny * hy + hz) * inv;
             float sh, r, g, b, d;
             uint32_t pi, R, G, B;
@@ -344,28 +423,19 @@ static void umb_backdrop(int32_t x0, int32_t y0)
             pi = (uint32_t)((0.17f + umb_smooth(0.36f, 0.64f, v) * 0.5f) * 255.0f) * 3u;
             sh = (0.3f + dif * 0.9f) * vg;
             sp *= vg;
-            {                                           /* the sparks' glow: a soft ring blooming out, ~1.2 s */
-                uint32_t q;
-                for (q = 0; q < 8u; q++) {
-                    float age = umb.gage[q], dx, dy, rr, ring;
-                    if (age > 1.2f)
-                        continue;
-                    dx = (float)px - umb.gx0[q];
-                    dy = (float)py - umb.gy0[q];
-                    if (dx < -60 || dx > 60 || dy < -60 || dy > 60)
-                        continue;
-                    rr = sqrtf(dx * dx + dy * dy);
-                    ring = umb.gv[q] * (1 - age / 1.2f) * expf(-(rr - 6 - age * 40) * (rr - 6 - age * 40) * 0.012f);
-                    if (age < 0.4f)                     /* (a flash at its heart first) */
-                        ring += umb.gv[q] * (1 - age / 0.4f) * expf(-rr * rr * 0.01f);
-                    sh += ring * 0.3f;
-                    sp += ring * 0.6f;
-                }
-            }
             d = (float)bayer[((py & 3) << 2) | (px & 3)] / 16.0f - 0.47f;
-            r = umb.lut[pi] * sh + umb.lut[765] * sp + d * 8;
-            g = umb.lut[pi + 1] * sh + umb.lut[766] * sp + d * 4;
-            b = umb.lut[pi + 2] * sh + umb.lut[767] * sp + d * 8;
+            r = umb.lut[pi] * sh + umb.lut[765] * sp;
+            g = umb.lut[pi + 1] * sh + umb.lut[766] * sp;
+            b = umb.lut[pi + 2] * sh + umb.lut[767] * sp;
+            if (tw > 0.01f) {                           /* the lava under an event takes its colour */
+                float m = tw > 0.75f ? 0.75f : tw, l = (r + g + b) * (1.0f / 450.0f);
+                r = r * (1 - m) + tr / tw * l * m;
+                g = g * (1 - m) + tg / tw * l * m;
+                b = b * (1 - m) + tb / tw * l * m;
+            }
+            r += gr_ * 0.5f * vg + d * 8;               /* (the glow: its colour, added) */
+            g += gg_ * 0.5f * vg + d * 4;
+            b += gb_ * 0.5f * vg + d * 8;
             R = r < 0 ? 0u : r > 255 ? 255u : (uint32_t)r;
             G = g < 0 ? 0u : g > 255 ? 255u : (uint32_t)g;
             B = b < 0 ? 0u : b > 255 ? 255u : (uint32_t)b;
