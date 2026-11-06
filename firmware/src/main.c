@@ -296,8 +296,8 @@ static void fm1_main(void)
                                                * followed (MIDI IN plays under it). (0.5.2) On the clock: drawing the
                                                * beings does not make it longer */
         uint32_t t0 = fm1_ms, n;
-        for (n = 0; n < 600u && (ms = fm1_ms - t0) < SPL_WRITE + SPL_HOLD; n++) {   /* (600: a stalled clock still
-                                                                                   * ends it, in ~2.4 s) */
+        for (n = 0; n < 600u && (ms = fm1_ms - t0) < SPL_TIME; n++) {   /* (600: a stalled clock still ends it, in
+                                                                         * ~2.4 s; UMBRA OBSCURA: SPL_TIME 0, none) */
             splash_write(ms);
             fm1_delay_ms(4);
             master_poll();

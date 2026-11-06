@@ -17,20 +17,29 @@
  * Fixed point throughout, sized for what the firmware has left (V10.6x: ~18 KB of RAM, ~9 KB of pool, ~16 KB of flash):
  *   the field 60 x 60 cells (a cell 4 x 4 px), a byte a chemical: 10.8 KB; no second copy: a step reads a rolling window
  *   of five rows of Moore averages (1.8 KB) and writes the field in place; the noise table 64 x 64 (4 KB, in flash);
- *   lit once a cell, at its centre (3,844 points a frame, tables for the light: no square root, no division), each pixel
- *   blended from the four round it and dithered; the events' constants worked out once a frame, so a point near a ring
- *   costs only multiplications (on the FM-1 the first version, lit a 2 x 2 px block with a square root and divisions,
- *   and the rings with nine divisions a point, drew a frame far too slowly). The chemistry steps 20 times a second;
- *   under LOAD LITE / ECO, or when the audio governor lightens the load, 10 (each step as two). */
+ *   lit once a cell, at its centre (3,844 points a frame, tables for the light: no square root, no division), the shade
+ *   and the light blended to a 2 x 2 px block; but each pixel's tone worked out from the field blended there (sharpened
+ *   first), so the lava's edges are a pixel sharp, and the dark base (most of the screen) a pair at once; the rings' glow
+ *   (a fine line) and the flashes' (a dome, its gloss lit there) drawn a pixel pair, only over their bands; the events'
+ *   constants worked out once a frame, so a point near a ring costs only multiplications (on the FM-1 the first version,
+ *   lit a 2 x 2 px block with a square root and divisions, and the rings with nine divisions a point, drew a frame far
+ *   too slowly). The chemistry steps 20 times a second (fewer coarsen it: each step's averaging is what smooths the
+ *   field, and the falloff would pull harder a step); under LOAD LITE / ECO, or when the audio governor lightens the
+ *   load, 10 (each step as two). */
 #define UMB_ON 1
 #define UMB_N 60                                        /* the field: 60 x 60 cells */
 #define UMB_S (UMB_N * UMB_N)
 #define UMB_T 64                                        /* the noise table: 64 x 64, tiling */
 #define UMB_NE 16u                                      /* events (notes' waves) drawn at once */
 #define UMB_FLOOR 3                                     /* the least of each chemical a cell keeps (of 255) */
+#define UMB_SHARP 64                                    /* the field sharpened before it is blended (Q8 of its Laplacian) */
+#define UMB_DOME 24                                     /* the flash's glow a disc, out to 1.5 R0 (x 16) .. */
+#define UMB_DOMEK 205                                   /* .. this bright (of 256) */
+#define UMB_C 4                                         /* a lit centre: the shade, the light added (RGB) */
 enum { UK_RATE, UK_FLOW, UK_SWIRL, UK_RELIEF, UK_COARSE, UK_FINE, UK_BLEND, UK_GRAIN, UK_DECAY, UK_COUNT };
 static uint8_t umb_p[UK_COUNT] = {45, 50, 35, 60, 35, 55, 40, 35, 40};   /* 0..99 (the emulator's sliders: web_umb) */
-#include "ui_umbra_noise.h"                            /* umb_tn: the noise table, in flash (tools/gen_umbra_noise.py) */
+#include "ui_umbra_noise.h"                            /* umb_tn: the noise table; the light's, the lava's colour (umb_tl:
+                                                         * its edge UMB_T0), the profiles: in flash (tools/gen_umbra_noise.py) */
 static struct {                                         /* the knobs as the step and the frame use them (umb_consts) */
     int32_t sA, sB, bl, gr, depth, gd, oA, oB, life;    /* layers' scales (texels a cell, Q8), BLEND, GRAIN (Q8), relief
                                                          * and grain depth (x 16), the layers' drift, a wave's life */
@@ -39,13 +48,17 @@ static struct {                                         /* the events, worked ou
                                                          * only multiplications, no square root, no division */
     int32_t on[UMB_NE], fe[UMB_NE], fc[UMB_NE], R[UMB_NE], R2[UMB_NE], o2[UMB_NE], c2[UMB_NE], t2[UMB_NE];
     int32_t iu[UMB_NE], kw[UMB_NE], iR[UMB_NE], kc[UMB_NE], kg[UMB_NE], kt[UMB_NE], w4[UMB_NE];
+    int32_t ro2[UMB_NE], ri2[UMB_NE];                   /* the ring's glow drawn a pixel: its band, R +- a width (px^2) */
+    int32_t cb2[UMB_NE], kb[UMB_NE];                    /* .. the flash's: a dome cut at its shoulder (px^2), its profile */
 } ue;
 static struct {
     uint8_t a[UMB_S], b[UMB_S], c[UMB_S];               /* the chemicals, 0..255 */
     uint16_t mr[5][UMB_N * 3];                          /* the step's window: five rows of Moore averages, x 16 */
     uint8_t nr[3][UMB_N];                               /* .. and three rows of the noise blend */
-    uint8_t sr[2][(UMB_N + 2) * 3];                     /* the frame: two rows of lit cell centres (RGB), -1 .. 60 */
+    uint8_t sr[2][(UMB_N + 2) * UMB_C];                 /* the frame: two rows of lit cell centres (umb_sample), -1 .. 60 */
     int16_t srj[2], srlo[2], srhi[2];                   /* .. which rows they are (by parity), which centres are lit */
+    uint8_t vr[2][UMB_N + 2];                           /* .. and two rows of the field sharpened, -1 .. 60 (umb_vrow) */
+    int16_t vrj[2];
     int16_t ex[UMB_NE], ey[UMB_NE];                     /* the events: where (px) */
     uint32_t et[UMB_NE];                                /* .. when it was played (fm1_ms): rings timed by the clock */
     uint16_t espd[UMB_NE], eamp[UMB_NE];                /* .. speed (px a 50 ms, Q8), height (Q8) */
@@ -89,30 +102,7 @@ static int32_t umb_tbil(int32_t X, int32_t Y)
     int32_t a = umb_tn[y0 * UMB_T + x0], b = umb_tn[y0 * UMB_T + x1], c = umb_tn[y1 * UMB_T + x0], d = umb_tn[y1 * UMB_T + x1];
     return (a << 8) + (b - a) * fx + (c - a) * fy + (((a - b - c + d) * fx * fy) >> 8);
 }
-/* the cold palette at v (0..255): near-black, deep blue, pale teal, white-teal */
-static void umb_pal(int32_t v, int32_t *r, int32_t *g, int32_t *b)
-{
-    static const uint8_t P[4][4] = {{0, 5, 5, 8}, {97, 24, 44, 74}, {199, 143, 217, 201}, {255, 236, 250, 246}};
-    static const int32_t INV[3] = {2702, 2570, 4681};   /* (1024 x 256 / each span) */
-    uint32_t k = v > 199 ? 2u : v > 97 ? 1u : 0u;
-    int32_t f = ((v - P[k][0]) * INV[k]) >> 10;
-    *r = P[k][1] + (((P[k + 1][1] - P[k][1]) * f) >> 8);
-    *g = P[k][2] + (((P[k + 1][2] - P[k][2]) * f) >> 8);
-    *b = P[k][3] + (((P[k + 1][3] - P[k][3]) * f) >> 8);
-}
-/* 256 x exp(-i / 32), i 0..255: the waves' profiles */
-static int32_t umb_exp(int32_t i)
-{
-    static uint8_t E[256], made;
-    if (!made) {
-        int32_t k;
-        uint32_t v = 255u << 16;                        /* (exp(-1/32) = 0.96923: Q16 steps) */
-        for (k = 0; k < 256; k++, v = ((v >> 8) * 63519u) >> 8)   /* (32-bit: 65280 x 63519 fits) */
-            E[k] = (uint8_t)(v >> 16);
-        made = 1;
-    }
-    return i < 0 ? 255 : i > 255 ? 0 : E[i];
-}
+static int32_t umb_exp(int32_t i) { return i < 0 ? 255 : i > 255 ? 0 : umb_E[i]; }   /* 256 x exp(-i / 32) */
 /* a wave's life in steps, at the DECAY knob (0.25 .. 8 s: 5 .. 160 steps; 40: ~1 s) */
 static int32_t umb_life(void)
 {
@@ -159,7 +149,7 @@ static void umb_start(void)
         umb.et[i] = fm1_ms - 600000u;
     umb.qr = umb_q.w;
     umb.ms = fm1_ms;
-    umb.srj[0] = umb.srj[1] = -99;
+    umb.srj[0] = umb.srj[1] = umb.vrj[0] = umb.vrj[1] = -99;
     umb.init = 1;
 }
 /* add amt (0..255) to f round cx, cy (cells, Q8) within r (cells, Q8), falling off to the edge */
@@ -378,10 +368,12 @@ static void umb_events(void)
             ue.fe[q] = age * 2 < life ? (umb.ev[q] * (256 - age * 512 / life)) >> 8 : 0;
             ue.fc[q] = ue.fe[q];
             ue.on[q] = ue.fe[q] > 4;
-            ue.R[q] = ue.R2[q] = ue.iu[q] = ue.kw[q] = ue.iR[q] = ue.w4[q] = 0;
+            ue.R[q] = ue.R2[q] = ue.iu[q] = ue.kw[q] = ue.iR[q] = ue.w4[q] = ue.ro2[q] = ue.ri2[q] = 0;
             ue.o2[q] = ue.c2[q] = 9 * R0 * R0;
             ue.t2[q] = 8 * R0 * R0;
             ue.kc[q] = 2097152 / (R0 * R0);
+            ue.cb2[q] = (R0 * R0 * UMB_DOME * UMB_DOME) >> 8;
+            ue.kb[q] = 2097152 / (ue.cb2[q] + 1);
             ue.kg[q] = ((8192 * (int32_t)umb.eamp[q]) >> 8) / (R0 * R0);
             ue.kt[q] = 2097152 / (R0 * R0);
             continue;
@@ -403,9 +395,13 @@ static void umb_events(void)
         ue.kw[q] = 8192 / (w * w);                      /* the ring's profile and its slope */
         ue.iR[q] = 4096 / (R > 2 ? R : 2);              /* (its direction: dx / R near the ring) */
         ue.kc[q] = 2097152 / (R0 * R0);                 /* the flash's profile (x 32 / R0^2, Q16) */
+        ue.cb2[q] = (R0 * R0 * UMB_DOME * UMB_DOME) >> 8;   /* .. its dome: out to UMB_DOME R0, then nothing */
+        ue.kb[q] = 2097152 / (ue.cb2[q] + 1);
         ue.kg[q] = ((8192 * (int32_t)umb.eamp[q]) >> 8) / (R0 * R0);   /* .. its slope (Q12) */
         ue.kt[q] = 2097152 / (Rt * Rt);                 /* the tint's */
         ue.w4[q] = 64 * w;                              /* (beyond 4 widths the ring is nothing) */
+        ue.ro2[q] = (R + w + 1) * (R + w + 1);          /* (its glow, half as wide: beyond a width under 2 %) */
+        ue.ri2[q] = R > w + 1 ? (R - w - 1) * (R - w - 1) : 0;
     }
 }
 /* once a UI frame: the levels, the notes played since (one spark a track and drum sound: a chord, its loudest note),
@@ -432,7 +428,7 @@ static void umb_tick(void)
         else if (umb.fav < 38u * 16u)
             umb.lite = 0;
     }
-    umb.srj[0] = umb.srj[1] = -99;
+    umb.srj[0] = umb.srj[1] = umb.vrj[0] = umb.vrj[1] = -99;
     umb_consts();
     umb_events();
     umb_levels();
@@ -462,22 +458,46 @@ static void umb_tick(void)
     if ((uint32_t)(fm1_ms - umb.ms) >= dt)
         umb.ms = fm1_ms;                                /* (behind: drop the steps, never catch up in a burst) */
 }
+/* the field sharpened (its Laplacian, UMB_SHARP) at cell x, y (in the field) */
+static int32_t umb_vs(int32_t x, int32_t y)
+{
+    int32_t xm = x ? x - 1 : UMB_N - 1, xp = x < UMB_N - 1 ? x + 1 : 0, ym = y ? y - 1 : 0, yp = y < UMB_N - 1 ? y + 1 : y;
+    const uint8_t *ar = umb.a + y * UMB_N;
+    int32_t v = ar[x];
+    return umb_clamp(v + (((4 * v - ar[xm] - ar[xp] - umb.a[ym * UMB_N + x] - umb.a[yp * UMB_N + x]) * UMB_SHARP) >> 8), 0, 255);
+}
+/* row j of the field sharpened (-1 .. 60; up and down it stops at the edge), two rows kept (by parity): each pixel's
+ * tone is worked out from them (always the field's own cells, 4 px apart: lite lights fewer, never coarsens the lava) */
+static const uint8_t *umb_vrow(int32_t j)
+{
+    uint32_t s = (uint32_t)j & 1u;
+    if (umb.vrj[s] != j) {
+        int32_t y = umb_clamp(j, 0, UMB_N - 1), i;
+        umb.vrj[s] = (int16_t)j;
+        umb.vr[s][0] = (uint8_t)umb_vs(UMB_N - 1, y);
+        umb.vr[s][UMB_N + 1] = (uint8_t)umb_vs(0, y);
+        for (i = 0; i < UMB_N; i++)
+            umb.vr[s][i + 1] = (uint8_t)umb_vs(i, y);
+    }
+    return umb.vr[s];
+}
 /* a cell centre lit (cell i, j: across it wraps, up and down it stops at the edge; px, py its place on the screen,
- * unwrapped, for the events), RGB 0..255 into o; vg darkens it under the knob row and the footer */
+ * unwrapped, for the events) into o: the shade (Q7) and the light added (RGB: the gloss, the tint the events give the
+ * lava); vg darkens it under the knob row and the footer. The events' glow and the flashes' gloss are drawn a pixel pair
+ * (umb_glow): here only their relief */
 static void umb_sample(int32_t i, int32_t j, int32_t vg, uint8_t *o)
 {
     static const int32_t LX = -128, LY = -159, LZ = 154, HX = -72, HY = -89, HZ = 229;   /* the light; half vector (Q8) */
-    int32_t x = ((i % UMB_N) + UMB_N) % UMB_N, y = umb_clamp(j, 0, UMB_N - 1), px = i * 4 + 2, py = j * 4 + 2;
+    int32_t x = i < 0 ? i + UMB_N : i >= UMB_N ? i - UMB_N : i, y = umb_clamp(j, 0, UMB_N - 1), px = i * 4 + 2, py = j * 4 + 2;
     int32_t xm = x ? x - 1 : UMB_N - 1, xp = x < UMB_N - 1 ? x + 1 : 0, ym = y ? y - 1 : 0, yp = y < UMB_N - 1 ? y + 1 : y;
-    const uint8_t *a = umb.a;
-    int32_t v = a[y * UMB_N + x], n2, rs, t, sm, nx, ny, dif, sp, sh, r, g, b;
-    int32_t gr_ = 0, gg_ = 0, gb_ = 0, tw = 0, tr = 0, tg = 0, tb = 0;
+    const uint8_t *a = umb.a, *ar = a + y * UMB_N;
+    int32_t n2, rs, nx, ny, fx = 0, fy = 0, dif, sp, sh, tw = 0, tr = 0, tg = 0, tb = 0, Ar = 0, Ag = 0, Ab = 0;
     uint32_t q;
-    nx = -(((a[y * UMB_N + xp] - a[y * UMB_N + xm]) * uf.depth) >> 5);   /* the relief's slope: the normal (Q8) */
+    nx = -(((ar[xp] - ar[xm]) * uf.depth) >> 5);        /* the relief's slope: the normal (Q8) */
     ny = -(((a[yp * UMB_N + x] - a[ym * UMB_N + x]) * uf.depth) >> 5);
     for (q = 0; q < UMB_NE; q++) {                      /* the events: a flash at the heart, then a ring that rises out
-                                                         * of the relief and spreads, in its colour; the lava tinted */
-        int32_t dx, dy, d2, u4, ring = 0, core = 0, dh = 0, e = 0;
+                                                         * of the relief and spreads; the lava tinted */
+        int32_t dx, dy, d2, u4, ring, core, dh, e;
         if (!ue.on[q])
             continue;
         dx = px - umb.ex[q];
@@ -494,12 +514,9 @@ static void umb_sample(int32_t i, int32_t j, int32_t vg, uint8_t *o)
         }
         if (ue.fc[q] && d2 < ue.c2[q]) {               /* the flash: exp(-d2 / R0^2), its slope -2 dx / R0^2 */
             core = (ue.fc[q] * umb_exp((d2 * ue.kc[q]) >> 16)) >> 8;
-            nx += (core * dx * ue.kg[q]) >> 12;
-            ny += (core * dy * ue.kg[q]) >> 12;
+            fx += (core * dx * ue.kg[q]) >> 12;         /* (its gloss is drawn a pixel pair: umb_glow) */
+            fy += (core * dy * ue.kg[q]) >> 12;
         }
-        gr_ += umb.er[q] * (ring + core);
-        gg_ += umb.eg[q] * (ring + core);
-        gb_ += umb.eb[q] * (ring + core);
         if (!umb.lite && d2 < ue.t2[q]) {
             e = (ue.fe[q] * umb_exp((d2 * ue.kt[q]) >> 16)) >> 8;
             tw += e;
@@ -512,29 +529,34 @@ static void umb_sample(int32_t i, int32_t j, int32_t vg, uint8_t *o)
     ny = umb_clamp(ny, -16000, 16000);
     n2 = nx * nx + ny * ny;                             /* 1 / |normal| from the tables (Q8) */
     rs = n2 < 262144 ? umb_rsa[n2 >> 10] : n2 < 16777216 ? umb_rsb[n2 >> 16] : umb_rsb[255];
-    dif = umb_clamp((((nx * LX + ny * LY + LZ * 256) >> 8) * rs) >> 8, 0, 256);
-    sp = umb_clamp((((nx * HX + ny * HY + HZ * 256) >> 8) * rs) >> 8, 0, 256);
-    sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8;
-    t = umb_clamp(((v - 92) * 3692) >> 10, 0, 256);     /* the tone: two of them, softly (0.17 .. 0.67 of the palette) */
-    sm = (t * t * (768 - 2 * t)) >> 16;
-    umb_pal(43 + ((sm * 128) >> 8), &r, &g, &b);
-    sh = ((77 + ((dif * 230) >> 8)) * vg) >> 8;
-    sp = (sp * vg) >> 8;
-    r = ((r * sh) >> 8) + ((236 * sp) >> 8);
-    g = ((g * sh) >> 8) + ((250 * sp) >> 8);
-    b = ((b * sh) >> 8) + ((246 * sp) >> 8);
-    if (tw > 2) {                                       /* the lava under an event takes its colour */
-        int32_t m = tw > 192 ? 192 : tw, l = ((r + g + b) * 582) >> 10;   /* (x 256 / 450) */
-        r = (r * (256 - m) + (tr / tw) * l / 256 * m) >> 8;
-        g = (g * (256 - m) + (tg / tw) * l / 256 * m) >> 8;
-        b = (b * (256 - m) + (tb / tw) * l / 256 * m) >> 8;
+    sp = umb_clamp((((nx * HX + ny * HY + HZ * 256) >> 8) * rs) >> 8, 0, 256);   /* (the gloss: the lava's, the rings') */
+    if (fx | fy) {                                      /* (the shade: the flashes' too) */
+        nx = umb_clamp(nx + fx, -16000, 16000);
+        ny = umb_clamp(ny + fy, -16000, 16000);
+        n2 = nx * nx + ny * ny;
+        rs = n2 < 262144 ? umb_rsa[n2 >> 10] : n2 < 16777216 ? umb_rsb[n2 >> 16] : umb_rsb[255];
     }
-    r += ((gr_ >> 9) * vg) >> 8;                        /* (the glow: its colour, added) */
-    g += ((gg_ >> 9) * vg) >> 8;
-    b += ((gb_ >> 9) * vg) >> 8;
-    o[0] = (uint8_t)umb_clamp(r, 0, 255);
-    o[1] = (uint8_t)umb_clamp(g, 0, 255);
-    o[2] = (uint8_t)umb_clamp(b, 0, 255);
+    dif = umb_clamp((((nx * LX + ny * LY + LZ * 256) >> 8) * rs) >> 8, 0, 256);
+    sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8;
+    sp = (sp * vg) >> 8;
+    sh = ((77 + ((dif * 230) >> 8)) * vg) >> 9;         /* (Q7: 0 .. 153) */
+    if (tw > 2) {                                       /* the lava under an event takes its colour: the shade lent to it */
+        const uint8_t *P = umb_tl + umb_vs(x, y) * 3;
+        int32_t m = tw > 192 ? 192 : tw, iw = 65536 / tw;
+        int32_t l = ((((P[0] + P[1] + P[2]) * sh) >> 7) * 582) >> 10;   /* (its light: x 256 / 450) */
+        int32_t k = (l * m) >> 8;
+        Ar = (((tr * iw) >> 16) * k) >> 8;
+        Ag = (((tg * iw) >> 16) * k) >> 8;
+        Ab = (((tb * iw) >> 16) * k) >> 8;
+        sh = (sh * (256 - m)) >> 8;
+    }
+    Ar += (236 * sp) >> 8;                              /* (the gloss: white-teal) */
+    Ag += (250 * sp) >> 8;
+    Ab += (246 * sp) >> 8;
+    o[0] = (uint8_t)sh;
+    o[1] = (uint8_t)(Ar > 255 ? 255 : Ar);
+    o[2] = (uint8_t)(Ag > 255 ? 255 : Ag);
+    o[3] = (uint8_t)(Ab > 255 ? 255 : Ab);
 }
 /* row j of cell centres (-1 .. 60), centres lo .. hi of it lit, kept two rows at a time (a slot by parity: rows j and
  * j + 1 never share one) and only what a strip needs: strips side by side (the knob row's) light each centre once */
@@ -548,40 +570,189 @@ static const uint8_t *umb_row(int32_t j, int32_t lo, int32_t hi, int32_t m)
         umb.srhi[s] = (int16_t)hi;
     }
     for (i = lo; i < umb.srlo[s]; i++)                  /* (m: 1 a cell; 2 every other cell, when lite) */
-        umb_sample(i * m, j * m, vg, umb.sr[s] + (i + 1) * 3);
+        umb_sample(i * m, j * m, vg, umb.sr[s] + (i + 1) * UMB_C);
     for (i = umb.srhi[s] + 1; i <= hi; i++)
-        umb_sample(i * m, j * m, vg, umb.sr[s] + (i + 1) * 3);
+        umb_sample(i * m, j * m, vg, umb.sr[s] + (i + 1) * UMB_C);
     if (lo < umb.srlo[s])
         umb.srlo[s] = (int16_t)lo;
     if (hi > umb.srhi[s])
         umb.srhi[s] = (int16_t)hi;
     return umb.sr[s];
 }
-/* the canvas as the screen's x0, y0 .. : KILN, each pixel blended from the four lit cell centres round it, RGB565 with a
- * 4 x 4 ordered dither */
+/* the events' glow on pixel row py (vg its darkening), a pixel pair a slot from x0 (np pairs) into gl (RGB): each ring a
+ * fine line (half its relief's width) over its band (R +- 1 width: beyond, under 2 %), and each flash, worked out there,
+ * so a ring is as fine as the screen; 0: nothing on this row (gl untouched) */
+static int32_t umb_glow(int32_t py, int32_t x0, int32_t np, int32_t vg, int16_t *gl)
+{
+    uint32_t q;
+    int32_t any = 0, k;
+    for (q = 0; q < UMB_NE; q++) {
+        int32_t dy, dy2, cr, cg, cb, sa[3], sb[3], sk[3], ns = 0, n, ex = umb.ex[q];
+        if (!ue.on[q])
+            continue;
+        dy = py - umb.ey[q];
+        dy2 = dy * dy;
+        if (dy2 >= ue.o2[q])
+            continue;
+        if (ue.ro2[q] > dy2) {                          /* the ring: its band left and right of its hole (or across) */
+            int32_t xo = (int32_t)umb_isqrt((uint32_t)(ue.ro2[q] - dy2));
+            int32_t xi = ue.ri2[q] > dy2 ? (int32_t)umb_isqrt((uint32_t)(ue.ri2[q] - dy2)) : -1;
+            sk[ns] = 0;
+            sa[ns] = ex - xo;
+            sb[ns++] = xi < 0 ? ex + xo : ex - xi;
+            if (xi >= 0) {
+                sk[ns] = 0;
+                sa[ns] = ex + xi;
+                sb[ns++] = ex + xo;
+            }
+        }
+        if (ue.fc[q] && dy2 < ue.cb2[q]) {              /* the flash */
+            int32_t xc = (int32_t)umb_isqrt((uint32_t)(ue.cb2[q] - dy2));
+            sk[ns] = 1;
+            sa[ns] = ex - xc;
+            sb[ns++] = ex + xc;
+        }
+        if (!ns)
+            continue;
+        if (!any) {
+            for (k = 0; k < np * 3; k++)
+                gl[k] = 0;
+            any = 1;
+        }
+        cr = (umb.er[q] * vg) >> 8;
+        cg = (umb.eg[q] * vg) >> 8;
+        cb = (umb.eb[q] * vg) >> 8;
+        for (n = 0; n < ns; n++) {
+            int32_t pa = (sa[n] - x0) >> 1, pb = (sb[n] - x0) >> 1, p, dx2, d2q, f, kk, r2 = 4 * ue.R2[q], iu = ue.iu[q];
+            int16_t *o;
+            if (pa < 0)
+                pa = 0;
+            if (pb > np - 1)
+                pb = np - 1;
+            dx2 = 2 * (x0 + 2 * pa) + 1 - 2 * ex;       /* (the pair's centre, x 2: d2 x 4; a pair on, + 4) */
+            d2q = dx2 * dx2 + 4 * dy2;
+            f = sk[n] ? (ue.fc[q] * UMB_DOMEK) >> 8 : (ue.fe[q] * 5) >> 2;   /* (the ring: half as wide (x 4), a little
+                                                         * brighter, finer) */
+            kk = sk[n] ? ue.kb[q] : ue.kw[q];
+            for (p = pa, o = gl + pa * 3; p <= pb; p++, o += 3, d2q += 8 * dx2 + 16, dx2 += 4) {
+                int32_t i, g;
+                if (sk[n]) {
+                    int32_t c, hx, hy, h2, hr, sp;
+                    i = (d2q * kk) >> 18;               /* (d2 / its edge^2, of 32: the dome's upper half, cut there:
+                                                         * a disc brightest at its heart, its edge sharp) */
+                    if (i > 32)
+                        continue;
+                    g = (f * umb_D[i]) >> 8;
+                    c = (ue.fc[q] * umb_exp((d2q * ue.kc[q]) >> 18)) >> 8;   /* its gloss: the bump's slope here, lit */
+                    hx = (((c * dx2) >> 1) * ue.kg[q]) >> 12;
+                    hy = ((c * dy) * ue.kg[q]) >> 12;
+                    hx = umb_clamp(hx, -16000, 16000);
+                    hy = umb_clamp(hy, -16000, 16000);
+                    h2 = hx * hx + hy * hy;
+                    hr = h2 < 262144 ? umb_rsa[h2 >> 10] : h2 < 16777216 ? umb_rsb[h2 >> 16] : umb_rsb[255];
+                    sp = umb_clamp((((hx * -72 + hy * -89 + 229 * 256) >> 8) * hr) >> 8, 0, 256);
+                    sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8;
+                    sp = (sp * ((ue.fc[q] * vg) >> 8)) >> 8;
+                    o[0] = (int16_t)(o[0] + ((236 * sp) >> 8));
+                    o[1] = (int16_t)(o[1] + ((250 * sp) >> 8));
+                    o[2] = (int16_t)(o[2] + ((246 * sp) >> 8));
+                } else {
+                    int32_t u4 = ((d2q - r2) * iu) >> 14;
+                    i = (u4 * u4 * kk) >> 14;
+                    if (i > 255)
+                        continue;
+                    g = (f * umb_E[i]) >> 8;
+                }
+                o[0] = (int16_t)(o[0] + ((cr * g) >> 9));
+                o[1] = (int16_t)(o[1] + ((cg * g) >> 9));
+                o[2] = (int16_t)(o[2] + ((cb * g) >> 9));
+            }
+        }
+    }
+    return any;
+}
+/* the canvas as the screen's x0, y0 .. : KILN. Each pixel's tone from the field blended there from the four cells round
+ * it (so the lava's edges are a pixel sharp); the shade and the light added blended a 2 x 2 px block from the lit centres
+ * (soft: they vary over cells; 4 px apart, 8 when lite); the events' glow a pixel pair; RGB565 with a 4 x 4 ordered dither */
 static void umb_backdrop(int32_t x0, int32_t y0)
 {
     static const int8_t bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
-    uint16_t vr[(UMB_N + 2) * 3];                       /* a pixel row's centres, blended up and down (x 256) */
+    uint16_t vv[UMB_N + 3], sv[(UMB_N + 3) * UMB_C];   /* a pixel row's cells blended up and down (x 256): the field ..
+                                                         * .. and (every other row) the lit centres' shade and light */
+    uint8_t sb[121 * UMB_C], xi[240], xf[240], pi[121], pf[121], dk[UMB_N + 3];   /* a block's shade and light; each
+                                                         * pixel's cell and blend, each pair's centre; the lava's base */
+    int16_t gl[121 * 3];                                /* a pair's glow */
+    int32_t np = ((int32_t)cv_w + 1) >> 1, m, sh, lo, hi, n, lv, nv, x, p;
     uint32_t cx, cy;
     umb_tick();
+    m = umb.lite ? 2 : 1;                               /* (the lit centres 4 px apart; 8 when lite) */
+    sh = umb.lite ? 4 : 5;
+    lo = ((2 * x0 - 3) << sh) >> 8;                     /* (the lit centres the strip needs: lo .. hi) */
+    hi = (((2 * (x0 + (int32_t)cv_w - 1) - 3) << sh) >> 8) + 1;
+    n = hi - lo + 1;
+    lv = ((2 * x0 - 3) << 5) >> 8;                      /* (.. and the cells: lv .. lv + nv - 1) */
+    nv = ((((2 * (x0 + (int32_t)cv_w - 1) - 3) << 5) >> 8) + 1) - lv + 1;
+    for (x = 0; x < (int32_t)cv_w; x++) {
+        int32_t t = (2 * (x0 + x) - 3) << 5;
+        xi[x] = (uint8_t)((t >> 8) - lv);
+        xf[x] = (uint8_t)(t & 255);
+    }
+    for (p = 0; p < np; p++) {
+        int32_t t = (2 * (x0 + 2 * p) - 2) << sh;
+        pi[p] = (uint8_t)(((t >> 8) - lo) * UMB_C);
+        pf[p] = (uint8_t)(t & 255);
+    }
     for (cy = 0; cy < cv_h; cy++) {
-        int32_t m = umb.lite ? 2 : 1, sh = umb.lite ? 4 : 5;   /* (the centres 4 px apart; 8 when lite) */
-        int32_t py = y0 + (int32_t)cy, ty = (2 * py - 3) << sh, j0 = ty >> 8, fy = ty & 255, k;
-        int32_t lo = ((2 * x0 - 3) << sh) >> 8, hi = (((2 * (x0 + (int32_t)cv_w - 1) - 3) << sh) >> 8) + 1;   /* (centres) */
-        const uint8_t *r0 = umb_row(j0, lo, hi, m), *r1 = umb_row(j0 + 1, lo, hi, m);
+        int32_t py = y0 + (int32_t)cy, ty = (2 * py - 3) << sh, j0 = ty >> 8, fy = ty & 255, tv = (2 * py - 3) << 5, k, any;
+        int32_t vg = py < 56 ? 108 : py < 76 ? 108 + (py - 56) * 7 : py >= 226 ? 128 : 256;
+        const uint8_t *v0 = umb_vrow(tv >> 8) + lv + 1, *v1 = umb_vrow((tv >> 8) + 1) + lv + 1;
         uint16_t *row = cv_px + cy * cv_w;
-        for (k = (lo + 1) * 3; k < (hi + 2) * 3; k++)
-            vr[k] = (uint16_t)((r0[k] << 8) + (r1[k] - r0[k]) * fy);
-        for (cx = 0; cx < cv_w; cx += 2) {               /* (a colour blended every two pixels; each its own dither) */
-            int32_t px = x0 + (int32_t)cx, tx = (2 * px - 2) << sh, p = ((tx >> 8) + 1) * 3, fx = tx & 255, k2;
-            int32_t R0 = (vr[p] + (((vr[p + 3] - vr[p]) * fx) >> 8)) >> 8;
-            int32_t G0 = (vr[p + 1] + (((vr[p + 4] - vr[p + 1]) * fx) >> 8)) >> 8;
-            int32_t B0 = (vr[p + 2] + (((vr[p + 5] - vr[p + 2]) * fx) >> 8)) >> 8;
-            for (k2 = 0; k2 < 2 && cx + (uint32_t)k2 < cv_w; k2++) {
-                int32_t d = bayer[((py & 3) << 2) | ((px + k2) & 3)] - 8;
-                int32_t R = umb_clamp(R0 + d / 2, 0, 255), G = umb_clamp(G0 + d / 4, 0, 255), B = umb_clamp(B0 + d / 2, 0, 255);
-                row[cx + (uint32_t)k2] = swap16((uint32_t)(((R & 0xF8) << 8) | ((G & 0xFC) << 3) | (B >> 3)));
+        const int8_t *bq = bayer + ((py & 3) << 2);
+        for (k = 0, fy = tv & 255; k < nv; k++)
+            vv[k] = (uint16_t)((v0[k] << 8) + (v1[k] - v0[k]) * fy);
+        for (k = 0; k + 1 < nv; k++)                    /* (between cells k and k + 1 the lava's base: one tone) */
+            dk[k] = (uint8_t)(vv[k] < UMB_T0 * 256 && vv[k + 1] < UMB_T0 * 256);
+        if (!cy || !(py & 1)) {                         /* the block's (rows py, py + 1: their centre, the same centres) */
+            const uint8_t *r0 = umb_row(j0, lo, hi, m) + (lo + 1) * UMB_C, *r1 = umb_row(j0 + 1, lo, hi, m) + (lo + 1) * UMB_C;
+            int32_t fb = py & 1 ? ty & 255 : (ty & 255) + (1 << sh), c;
+            for (k = 0; k < n * UMB_C; k++)
+                sv[k] = (uint16_t)((r0[k] << 8) + (r1[k] - r0[k]) * fb);
+            for (p = 0; p < np; p++) {
+                const uint16_t *s0 = sv + pi[p];
+                for (c = 0; c < UMB_C; c++)
+                    sb[p * UMB_C + c] = (uint8_t)((s0[c] + (((s0[c + UMB_C] - s0[c]) * pf[p]) >> 8)) >> 8);
+            }
+        }
+        any = umb_glow(py, x0, np, vg, gl);
+        for (cx = 0, p = 0; cx < cv_w; cx += 2, p++) {
+            const uint8_t *b = sb + p * UMB_C;
+            int32_t S = b[0], Ar = b[1], Ag = b[2], Ab = b[3], k2;
+            if (any) {
+                Ar += gl[p * 3];
+                Ag += gl[p * 3 + 1];
+                Ab += gl[p * 3 + 2];
+            }
+            if (dk[xi[cx]] && (cx + 1u >= cv_w || dk[xi[cx + 1u]])) {   /* (the base: a pair one colour, but its dither) */
+                Ar += (umb_tl[0] * S) >> 7;
+                Ag += (umb_tl[1] * S) >> 7;
+                Ab += (umb_tl[2] * S) >> 7;
+                for (k2 = 0; k2 < 2 && cx + (uint32_t)k2 < cv_w; k2++) {
+                    int32_t d = bq[(x0 + (int32_t)cx + k2) & 3] - 8;
+                    int32_t R = umb_clamp(Ar + d / 2, 0, 255), G = umb_clamp(Ag + d / 4, 0, 255), B = umb_clamp(Ab + d / 2, 0, 255);
+                    row[cx + (uint32_t)k2] = swap16((uint32_t)(((R & 0xF8) << 8) | ((G & 0xFC) << 3) | (B >> 3)));
+                }
+                continue;
+            }
+            for (k2 = 0; k2 < 2 && cx + (uint32_t)k2 < cv_w; k2++) {   /* (a pixel: its tone, its own dither) */
+                uint32_t xq = cx + (uint32_t)k2;
+                int32_t kq = xi[xq], v = (vv[kq] + (((vv[kq + 1] - vv[kq]) * xf[xq]) >> 8)) >> 8;
+                const uint8_t *P = umb_tl + v * 3;
+                int32_t d = bq[(x0 + (int32_t)xq) & 3] - 8;
+                int32_t R = ((P[0] * S) >> 7) + Ar + d / 2, G = ((P[1] * S) >> 7) + Ag + d / 4, B = ((P[2] * S) >> 7) + Ab + d / 2;
+                R = umb_clamp(R, 0, 255);
+                G = umb_clamp(G, 0, 255);
+                B = umb_clamp(B, 0, 255);
+                row[xq] = swap16((uint32_t)(((R & 0xF8) << 8) | ((G & 0xFC) << 3) | (B >> 3)));
             }
         }
     }
