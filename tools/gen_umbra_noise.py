@@ -6,7 +6,8 @@ the noise, 64 x 64 bytes of value noise that tiles, two octaves (lattices of 8 a
 the light's 1 / |normal| (Q8) for a normal's x and y (Q8) squared and summed: below 2^18 in steps of 1024
 (umb_rsa), below 2^24 in steps of 65536 (umb_rsb); the lava's colour at each value of the field (umb_tl: the tone, a dark
 base then a steep rise from UMB_T0 over UMB_TW and a brighter crest, through the cold palette), the waves' profile
-(umb_E: 255 exp(-i / 32)) and the flashes' dome (umb_D: 255 sqrt(1 - i / 64)).
+(umb_E: 255 exp(-i / 32)), the flashes' dome (umb_D: 255 sqrt(1 - i / 64)) and the dither (umb_bn: 16 x 16 blue
+noise, void and cluster).
    python3 tools/gen_umbra_noise.py > firmware/src/ui_umbra_noise.h"""
 import math
 
@@ -61,19 +62,59 @@ def smooth(t):
     return (t * t * (768 - 2 * t)) >> 16
 
 
-tl = []
+V0, B0, B1 = 56, 26, 46                               # the base: from v V0 (palette B0) up to the edge (B1), gently: the
+tl = []                                               # noise's own shapes in the dark lava
 for v in range(256):
     t, u = min(256, max(0, (v - T0) * 256 // TW)), min(256, max(0, (v - 186) * 5))
-    tl += pal(36 + ((smooth(t) * 134) >> 8) + ((smooth(u) * 44) >> 8))
-assert tl[:3] * T0 == tl[:3 * T0]                     # (below T0 one colour: ui_umbra.c draws the base a pair at once)
+    b = B0 + (B1 - B0) * min(T0 - V0, max(0, v - V0)) // (T0 - V0)
+    tl += pal(b + ((smooth(t) * (170 - B1)) >> 8) + ((smooth(u) * 44) >> 8))
 E, e = [], 255 << 16
 for k in range(256):
     E.append(e >> 16)
     e = ((e >> 8) * 63519) >> 8
 D = [math.isqrt(65025 * (64 - i) // 64) for i in range(65)]
+
+
+def blue(n, sigma=1.5):                               # void and cluster (Ulichney): an n x n threshold map, ranks 0..n^2-1
+    def k(dx, dy):
+        dx, dy = min(dx, n - dx), min(dy, n - dy)
+        return math.exp(-(dx * dx + dy * dy) / (2 * sigma * sigma))
+    K = [[k(dx, dy) for dx in range(n)] for dy in range(n)]
+
+    def en(m, i):
+        y, x = divmod(i, n)
+        return sum(K[(y - j // n) % n][(x - j % n) % n] for j in range(n * n) if m[j])
+    seed, m = 12345, [False] * (n * n)
+    for _ in range(n * n // 10):                      # (a sparse start, placed by a fixed LCG)
+        while True:
+            seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
+            if not m[seed % (n * n)]:
+                m[seed % (n * n)] = True
+                break
+    while True:                                       # spread it: the tightest cluster's point into the largest void
+        c = max((i for i in range(n * n) if m[i]), key=lambda i: en(m, i))
+        m[c] = False
+        v = min((i for i in range(n * n) if not m[i]), key=lambda i: en(m, i))
+        m[v] = True
+        if c == v:
+            break
+    rank, ones = [0] * (n * n), sum(m)
+    p = m[:]
+    for r in range(ones - 1, -1, -1):
+        c = max((i for i in range(n * n) if p[i]), key=lambda i: en(p, i))
+        p[c], rank[c] = False, r
+    p = m[:]
+    for r in range(ones, n * n):
+        v = min((i for i in range(n * n) if not p[i]), key=lambda i: en(p, i))
+        p[v], rank[v] = True, r
+    return rank
+
+
+BN = blue(16)                                         # the dither: blue noise, 16 x 16 (a grain, not a cross-hatch)
+assert sorted(BN) == list(range(256))
 print("#define UMB_T0 %d" % T0)
 print("#define UMB_TW %d" % TW)
-for name, tab in (("umb_tl[256 * 3]", tl), ("umb_E[256]", E), ("umb_D[65]", D)):
+for name, tab in (("umb_tl[256 * 3]", tl), ("umb_E[256]", E), ("umb_D[65]", D), ("umb_bn[256]", BN)):
     print("static const uint8_t %s = {" % name)
     for r in range(0, len(tab), 32):
         print("    " + ", ".join(str(v) for v in tab[r:r + 32]) + ",")

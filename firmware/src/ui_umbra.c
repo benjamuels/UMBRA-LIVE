@@ -11,15 +11,18 @@
  * reaction at a new spot, its size the velocity, and moves its track's body there; while the track sounds, its level
  * keeps stirring that spot. Each note is also an event: a flash, then a ring rising out of the relief and spreading, in
  * its drum sound's colour (a melodic track's own), shaped by its track's four HOME knobs (DRUM-X: MORPH turns the
- * colour, TUNE the size, TONE the height, DECAY how slowly it spreads). Between notes the field relaxes toward a rest
- * state drawn from the noise layers (dark, always drifting): a wave fades in DECAY's time (default about 1 s).
+ * colour, TUNE the size, TONE the height, DECAY how slowly it spreads; a closed hat's ring small). Between notes the
+ * field relaxes toward a rest state drawn from the noise layers (dark, always drifting): a wave fades in DECAY's time
+ * (default about 1 s). Over it a surface: the noise table sampled fine (a few pixels a feature), lit by the relief, and
+ * a blue-noise grain: the dark lava's detail. HOME > ECO's third page, TOTALITY, is KILN alone over the whole screen.
  *
  * Fixed point throughout, sized for what the firmware has left (V10.6x: ~18 KB of RAM, ~9 KB of pool, ~16 KB of flash):
  *   the field 60 x 60 cells (a cell 4 x 4 px), a byte a chemical: 10.8 KB; no second copy: a step reads a rolling window
  *   of five rows of Moore averages (1.8 KB) and writes the field in place; the noise table 64 x 64 (4 KB, in flash);
  *   lit once a cell, at its centre (3,844 points a frame, tables for the light: no square root, no division), the shade
  *   and the light blended to a 2 x 2 px block; but each pixel's tone worked out from the field blended there (sharpened
- *   first), so the lava's edges are a pixel sharp, and the dark base (most of the screen) a pair at once; the rings' glow
+ *   first), so the lava's edges are a pixel sharp, and the dark base (most of the screen) a pair at once; the surface
+ *   (two table reads a pixel) and the grain each pixel, the surface left out when lite; the rings' glow
  *   (a fine line) and the flashes' (a dome, its gloss lit there) drawn a pixel pair, only over their bands; the events'
  *   constants worked out once a frame, so a point near a ring costs only multiplications (on the FM-1 the first version,
  *   lit a 2 x 2 px block with a square root and divisions, and the rings with nine divisions a point, drew a frame far
@@ -35,7 +38,22 @@
 #define UMB_SHARP 64                                    /* the field sharpened before it is blended (Q8 of its Laplacian) */
 #define UMB_DOME 24                                     /* the flash's glow a disc, out to 1.5 R0 (x 16) .. */
 #define UMB_DOMEK 205                                   /* .. this bright (of 256) */
+#define UMB_HATCL 3u                                     /* the closed hat's drum lane (params.c LANE 3, HATCL) .. */
+#define UMB_HATK 154                                    /* .. its spark and flash 0.6 the size (Q8) .. */
+#define UMB_HATS 102                                    /* .. its ring spreading 0.4 as fast: a small ring */
 #define UMB_C 4                                         /* a lit centre: the shade, the light added (RGB) */
+#ifndef UMB_SH0
+#define UMB_SH0 40                                      /* the shade: a face turned away (of 256) .. */
+#define UMB_SH1 300                                     /* .. and how much the light adds (was 77, 230: flatter) */
+#endif
+#ifndef UMB_GRAIN
+#define UMB_GRAIN 16                                    /* the dither's reach (levels, red and blue; green half): a grain */
+#endif
+#ifndef UMB_TEX
+#define UMB_TEX 40                                      /* the surface's depth (+ up to 48 with GRAIN): its fine detail */
+#endif
+#define UMB_TX(x) if (kS) { int32_t t_ = (tx[x] * kS) >> 8; R += t_ - (t_ >> 2); G += t_ - (t_ >> 3); B += t_; }   /* (cold:
+                                                         * blue most) */
 enum { UK_RATE, UK_FLOW, UK_SWIRL, UK_RELIEF, UK_COARSE, UK_FINE, UK_BLEND, UK_GRAIN, UK_DECAY, UK_COUNT };
 static uint8_t umb_p[UK_COUNT] = {45, 50, 35, 60, 35, 55, 40, 35, 40};   /* 0..99 (the emulator's sliders: web_umb) */
 #include "ui_umbra_noise.h"                            /* umb_tn: the noise table; the light's, the lava's colour (umb_tl:
@@ -68,6 +86,7 @@ static struct {
     uint16_t pulse;                                     /* the flow's push, Q8 */
     uint32_t f0, ms, rs, qr, steps, en_n, lastf, fav;   /* .. fav: the frames' interval, averaged (ms x 16) */
     uint8_t init, lite;                                 /* lite: frames slow (a full song): lighter until they recover */
+    uint8_t bare;                                       /* TOTALITY being drawn: the whole screen KILN's, nothing darkened */
 } umb;
 
 static uint32_t umb_rnd(void)                          /* mulberry32 */
@@ -189,10 +208,11 @@ static int32_t umb_knob(uint32_t c, uint32_t k)
 static void umb_spark(uint32_t c, uint32_t lane, int32_t v)
 {
     uint8_t *f3[3] = {umb.a, umb.b, umb.c};
-    int32_t cx = (int32_t)(umb_rnd() % (UMB_N * 256u)), cy = (int32_t)((UMB_N * 80 + umb_rnd() % (UMB_N * 150u)));   /* (75 .. 215 px: clear of the knob row
-                                                                                  * and the footer) */
+    int32_t cx = (int32_t)(umb_rnd() % (UMB_N * 256u)), cy = umb.bare ? (int32_t)(UMB_N * 20 + umb_rnd() % (UMB_N * 216u)) :
+             (int32_t)(UMB_N * 80 + umb_rnd() % (UMB_N * 150u));   /* (75 .. 215 px: clear of the knob row and the footer;
+                                                         * TOTALITY: anywhere, 19 .. 221) */
     int32_t k1 = 500, k2 = 500, k3 = 500, k4 = 500, r, r2, x, y;
-    uint32_t k = c % 3u, drum = c < NTRK && trk[c].engine == ENGI_DRUM;
+    uint32_t k = c % 3u, drum = c < NTRK && trk[c].engine == ENGI_DRUM, hat = drum && lane % NLANE == UMB_HATCL;
     if (c < NTRK) {
         k1 = umb_knob(c, 0);
         k2 = umb_knob(c, 1);
@@ -200,6 +220,8 @@ static void umb_spark(uint32_t c, uint32_t lane, int32_t v)
         k4 = umb_knob(c, 3);
     }
     r = (drum ? 480 + v * 960 / 256 : 288 + v * 480 / 256) * (500 + k2) / 1000;   /* (cells, Q8; knob 2 its size) */
+    if (hat)                                            /* (a closed hat: a small ring, UMB_HATK) */
+        r = (r * UMB_HATK) >> 8;
     r2 = (r * r) >> 8;
     for (y = (cy - r) >> 8; y <= (cy + r + 255) >> 8; y++) {
         if (y < 0 || y >= UMB_N)
@@ -229,10 +251,13 @@ static void umb_spark(uint32_t c, uint32_t lane, int32_t v)
         umb.ey[q] = (int16_t)(cy * 4 / 256 + 2);
         umb.et[q] = fm1_ms;
         umb.ev[q] = (uint8_t)(drum ? 102 + v * 153 / 256 : 38 + v * 77 / 256);
-        umb.er0[q] = (uint8_t)umb_clamp((drum ? 7 : 3) * (400 + 16 * k2 / 10) * (154 + v * 102 / 256) / 256000, 2, 60);
-        umb.ew[q] = (uint8_t)(drum ? 3 + 7 * k2 / 1000 : 0);   /* (a melodic note: no ring, a small flash where it lands) */
+        umb.er0[q] = (uint8_t)umb_clamp((((drum ? 7 : 3) * (400 + 16 * k2 / 10) * (154 + v * 102 / 256) / 256000) * (hat ? UMB_HATK : 256)) >> 8,
+                                        2, 60);
+        umb.ew[q] = (uint8_t)(drum ? (hat ? 2 + 4 * k2 / 1000 : 3 + 7 * k2 / 1000) : 0);   /* (a melodic note: no ring, a small
+                                                         * flash where it lands; a closed hat's ring finer) */
         umb.eamp[q] = (uint16_t)((77 + 691 * k3 / 1000) * (drum ? 256 : 154) / 256);
-        umb.espd[q] = (uint16_t)(drum ? 1920 - 1632 * k4 / 1000 : 0);
+        umb.espd[q] = (uint16_t)(drum ? ((1920 - 1632 * k4 / 1000) * (hat ? UMB_HATS : 256)) >> 8 : 0);   /* (a closed hat's
+                                                         * slower: it fades small) */
         umb.bx[c] = (uint16_t)cx;
         umb.by[c] = (uint16_t)cy;
         v = drum ? 256 : 51 + v * 77 / 256;             /* a played note pushes the flow (a drum hardest) */
@@ -539,7 +564,7 @@ static void umb_sample(int32_t i, int32_t j, int32_t vg, uint8_t *o)
     dif = umb_clamp((((nx * LX + ny * LY + LZ * 256) >> 8) * rs) >> 8, 0, 256);
     sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8; sp = (sp * sp) >> 8;
     sp = (sp * vg) >> 8;
-    sh = ((77 + ((dif * 230) >> 8)) * vg) >> 9;         /* (Q7: 0 .. 153) */
+    sh = ((UMB_SH0 + ((dif * UMB_SH1) >> 8)) * vg) >> 9;   /* (Q7: 0 .. 170; the relief's contrast: dark faces 40, lit 340) */
     if (tw > 2) {                                       /* the lava under an event takes its colour: the shade lent to it */
         const uint8_t *P = umb_tl + umb_vs(x, y) * 3;
         int32_t m = tw > 192 ? 192 : tw, iw = 65536 / tw;
@@ -563,7 +588,7 @@ static void umb_sample(int32_t i, int32_t j, int32_t vg, uint8_t *o)
 static const uint8_t *umb_row(int32_t j, int32_t lo, int32_t hi, int32_t m)
 {
     uint32_t s = (uint32_t)j & 1u;
-    int32_t yc = j * m * 4 + 2, vg = yc < 56 ? 108 : yc < 76 ? 108 + (yc - 56) * 7 : yc >= 226 ? 128 : 256, i;
+    int32_t yc = j * m * 4 + 2, vg = umb.bare ? 256 : yc < 56 ? 108 : yc < 76 ? 108 + (yc - 56) * 7 : yc >= 226 ? 128 : 256, i;
     if (umb.srj[s] != j) {
         umb.srj[s] = (int16_t)j;
         umb.srlo[s] = (int16_t)(hi + 1);                /* (none lit) */
@@ -673,18 +698,20 @@ static int32_t umb_glow(int32_t py, int32_t x0, int32_t np, int32_t vg, int16_t 
 }
 /* the canvas as the screen's x0, y0 .. : KILN. Each pixel's tone from the field blended there from the four cells round
  * it (so the lava's edges are a pixel sharp); the shade and the light added blended a 2 x 2 px block from the lit centres
- * (soft: they vary over cells; 4 px apart, 8 when lite); the events' glow a pixel pair; RGB565 with a 4 x 4 ordered dither */
+ * (soft: they vary over cells; 4 px apart, 8 when lite); the events' glow a pixel pair; RGB565 with a grain (a 16 x 16
+ * blue-noise dither, UMB_GRAIN) */
 static void umb_backdrop(int32_t x0, int32_t y0)
 {
-    static const int8_t bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
     uint16_t vv[UMB_N + 3], sv[(UMB_N + 3) * UMB_C];   /* a pixel row's cells blended up and down (x 256): the field ..
                                                          * .. and (every other row) the lit centres' shade and light */
-    uint8_t sb[121 * UMB_C], xi[240], xf[240], pi[121], pf[121], dk[UMB_N + 3];   /* a block's shade and light; each
+    uint8_t sb[121 * UMB_C], xi[240], xf[240], pf[121], dk[UMB_N + 3];
+    uint16_t pi[121];   /* a block's shade and light; each
                                                          * pixel's cell and blend, each pair's centre; the lava's base */
-    int16_t gl[121 * 3];                                /* a pair's glow */
-    int32_t np = ((int32_t)cv_w + 1) >> 1, m, sh, lo, hi, n, lv, nv, x, p;
+    int16_t gl[121 * 3], tx[240];                       /* a pair's glow; a pixel's surface */
+    int32_t np = ((int32_t)cv_w + 1) >> 1, m, sh, lo, hi, n, lv, nv, x, p, kt;
     uint32_t cx, cy;
     umb_tick();
+    kt = umb.lite ? 0 : UMB_TEX + ((uf.gr * 48) >> 8);  /* (the surface's depth: GRAIN's; lite: none) */
     m = umb.lite ? 2 : 1;                               /* (the lit centres 4 px apart; 8 when lite) */
     sh = umb.lite ? 4 : 5;
     lo = ((2 * x0 - 3) << sh) >> 8;                     /* (the lit centres the strip needs: lo .. hi) */
@@ -699,15 +726,29 @@ static void umb_backdrop(int32_t x0, int32_t y0)
     }
     for (p = 0; p < np; p++) {
         int32_t t = (2 * (x0 + 2 * p) - 2) << sh;
-        pi[p] = (uint8_t)(((t >> 8) - lo) * UMB_C);
+        pi[p] = (uint16_t)(((t >> 8) - lo) * UMB_C);
         pf[p] = (uint8_t)(t & 255);
     }
     for (cy = 0; cy < cv_h; cy++) {
         int32_t py = y0 + (int32_t)cy, ty = (2 * py - 3) << sh, j0 = ty >> 8, fy = ty & 255, tv = (2 * py - 3) << 5, k, any;
-        int32_t vg = py < 56 ? 108 : py < 76 ? 108 + (py - 56) * 7 : py >= 226 ? 128 : 256;
+        int32_t vg = umb.bare ? 256 : py < 56 ? 108 : py < 76 ? 108 + (py - 56) * 7 : py >= 226 ? 128 : 256;
         const uint8_t *v0 = umb_vrow(tv >> 8) + lv + 1, *v1 = umb_vrow((tv >> 8) + 1) + lv + 1;
         uint16_t *row = cv_px + cy * cv_w;
-        const int8_t *bq = bayer + ((py & 3) << 2);
+        const uint8_t *bq = umb_bn + ((py & 15) << 4);
+        int8_t dr[16], dg[16];                          /* (this row's grain: the blue noise at its reach) */
+        for (k = 0; k < 16; k++) {
+            dr[k] = (int8_t)(((bq[k] - 128) * UMB_GRAIN) >> 8);
+            dg[k] = (int8_t)(dr[k] >> 1);
+        }
+        if (kt) {                                       /* this row's surface: the noise table sampled fine, two ways
+                                                         * turned (2.4 and 1.6 texels a pixel), drifting with the layers */
+            uint32_t u1 = (uint32_t)(x0 * 125829 + py * 94372) + ((uint32_t)uf.oB << 8), v1 = (uint32_t)(py * 125829 - x0 * 94372);
+            uint32_t u2 = (uint32_t)(py * 100663 - x0 * 29360) - ((uint32_t)uf.oA << 8);
+            uint32_t v2 = (uint32_t)(-x0 * 100663 - py * 29360) + 1234567u;
+            for (x = 0; x < (int32_t)cv_w; x++, u1 += 125829u, v1 -= 94372u, u2 -= 29360u, v2 -= 100663u)
+                tx[x] = (int16_t)(umb_tn[((v1 >> 16) & 63u) << 6 | ((u1 >> 16) & 63u)] + umb_tn[((v2 >> 16) & 63u) << 6 | ((u2 >> 16) & 63u)] -
+                                  256);
+        }
         for (k = 0, fy = tv & 255; k < nv; k++)
             vv[k] = (uint16_t)((v0[k] << 8) + (v1[k] - v0[k]) * fy);
         for (k = 0; k + 1 < nv; k++)                    /* (between cells k and k + 1 the lava's base: one tone) */
@@ -726,19 +767,25 @@ static void umb_backdrop(int32_t x0, int32_t y0)
         any = umb_glow(py, x0, np, vg, gl);
         for (cx = 0, p = 0; cx < cv_w; cx += 2, p++) {
             const uint8_t *b = sb + p * UMB_C;
-            int32_t S = b[0], Ar = b[1], Ag = b[2], Ab = b[3], k2;
+            int32_t S = b[0], Ar = b[1], Ag = b[2], Ab = b[3], k2, kS = (S * kt) >> 7;   /* (kS: the surface lit) */
             if (any) {
                 Ar += gl[p * 3];
                 Ag += gl[p * 3 + 1];
                 Ab += gl[p * 3 + 2];
             }
-            if (dk[xi[cx]] && (cx + 1u >= cv_w || dk[xi[cx + 1u]])) {   /* (the base: a pair one colour, but its dither) */
-                Ar += (umb_tl[0] * S) >> 7;
-                Ag += (umb_tl[1] * S) >> 7;
-                Ab += (umb_tl[2] * S) >> 7;
+            if (dk[xi[cx]] && (cx + 1u >= cv_w || dk[xi[cx + 1u]])) {   /* (the base, gently graded: a pair one tone, but
+                                                         * its dither) */
+                int32_t kq = xi[cx], v = (vv[kq] + (((vv[kq + 1] - vv[kq]) * (xf[cx] + 32)) >> 8)) >> 8;
+                const uint8_t *P = umb_tl + v * 3;
+                Ar += (P[0] * S) >> 7;
+                Ag += (P[1] * S) >> 7;
+                Ab += (P[2] * S) >> 7;
                 for (k2 = 0; k2 < 2 && cx + (uint32_t)k2 < cv_w; k2++) {
-                    int32_t d = bq[(x0 + (int32_t)cx + k2) & 3] - 8;
-                    int32_t R = umb_clamp(Ar + d / 2, 0, 255), G = umb_clamp(Ag + d / 4, 0, 255), B = umb_clamp(Ab + d / 2, 0, 255);
+                    int32_t d = (x0 + (int32_t)cx + k2) & 15, R = Ar + dr[d], G = Ag + dg[d], B = Ab + dr[d];
+                    UMB_TX(cx + (uint32_t)k2)
+                    R = umb_clamp(R, 0, 255);
+                    G = umb_clamp(G, 0, 255);
+                    B = umb_clamp(B, 0, 255);
                     row[cx + (uint32_t)k2] = swap16((uint32_t)(((R & 0xF8) << 8) | ((G & 0xFC) << 3) | (B >> 3)));
                 }
                 continue;
@@ -747,8 +794,9 @@ static void umb_backdrop(int32_t x0, int32_t y0)
                 uint32_t xq = cx + (uint32_t)k2;
                 int32_t kq = xi[xq], v = (vv[kq] + (((vv[kq + 1] - vv[kq]) * xf[xq]) >> 8)) >> 8;
                 const uint8_t *P = umb_tl + v * 3;
-                int32_t d = bq[(x0 + (int32_t)xq) & 3] - 8;
-                int32_t R = ((P[0] * S) >> 7) + Ar + d / 2, G = ((P[1] * S) >> 7) + Ag + d / 4, B = ((P[2] * S) >> 7) + Ab + d / 2;
+                int32_t d = (x0 + (int32_t)xq) & 15;
+                int32_t R = ((P[0] * S) >> 7) + Ar + dr[d], G = ((P[1] * S) >> 7) + Ag + dg[d], B = ((P[2] * S) >> 7) + Ab + dr[d];
+                UMB_TX(xq)
                 R = umb_clamp(R, 0, 255);
                 G = umb_clamp(G, 0, 255);
                 B = umb_clamp(B, 0, 255);
@@ -756,4 +804,24 @@ static void umb_backdrop(int32_t x0, int32_t y0)
             }
         }
     }
+}
+/* TOTALITY (HOME > ECO's third page, ui_lens.c CE_HOME): the visual alone, over the whole screen: no header, tabs, knobs,
+ * words or footer (ui_draw.c ui_draw_body draws nothing else); two strips, sent where they changed (gfx.c cv_blit_cells);
+ * under LOAD LITE / ECO every 50 / 70 ms, as HUD's HOME. The keys, knobs and buttons work as on ECO */
+static int umb_bare(void) { return ui.home && !gen_on() && !ui.hlv && ui.hset[0] == 2u; }
+static void umb_full(void)
+{
+    static uint32_t ms;
+    uint32_t y;
+    if (sys_load && !ui.force && fm1_ms - ms < (sys_load == LOAD_ECO ? 70u : 50u))
+        return;
+    ms = fm1_ms;
+    dc_frame(ui.force);
+    umb.bare = 1;
+    for (y = 0; y < 240u; y += 120u) {
+        cv_begin(240, 120, T_BG);
+        umb_backdrop(0, (int32_t)y);
+        cv_blit_cells(0, y);
+    }
+    umb.bare = 0;
 }

@@ -2128,7 +2128,7 @@ static void ui_input_frame(void)
             if (f == FAM_COUNT) {                       /* HOME held: GEN, HOME's generator */
                 ui.home_t0 |= 2u;
                 if (!pj_sel_ms || fm1_ms - pj_sel_ms > 400u)
-                    nav_go(SEC_HOME, 4u + gen_page(), 1);
+                    nav_go(SEC_HOME, HOME_E_GEN + gen_page(), 1);
             } else if (k) {
                 part_dice(k);
                 btn_used(FAM_BTN[f]);

@@ -2409,6 +2409,21 @@ static void ui_draw_body(uint32_t counting)
         page_entered();
     }
     cursor_fix();
+    if (UMB_ON && umb_bare()) {                         /* (UMBRA OBSCURA) TOTALITY: the visual alone (ui_umbra.c) */
+        umb_full();
+        if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {
+            str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
+            ui.msg2[0] = 0;
+            ui.msg_t = 60;
+        }
+        if (ui.bpm_t)
+            ui.bpm_t--;
+        if (ui.hot_t)
+            ui.hot_t--;
+        pf_on = 0;                                      /* (no page name over it) */
+        ui.force = 0;
+        return;
+    }
     {   /* (0.8.9) SKIN HUD's HOME: every strip on the beings, so all of them each frame (LOAD LITE / ECO: every 50 / 70 ms,
          * as the panel's own pace) */
         static uint8_t was __attribute__((section(".pool")));
