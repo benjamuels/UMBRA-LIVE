@@ -52,8 +52,10 @@ void fm1_timer5_irq(void)
         uac_service();
         /* The host's OUT packets cannot wait for a render either. Only EP4 RX,
          * on its 2 kHz slot; full USB/control/MIDI polling stays outside audio. */
+#if FELUCCA_USB_IN
         if (usb_due && usb.up && usb.config && uin.alt)
             uin_rx();
+#endif
 #endif
         t5_nested_ticks += fm1_ticks() - t0;
         return;

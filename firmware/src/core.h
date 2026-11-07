@@ -19,10 +19,15 @@
 #define FELUCCA_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
 #endif
+#ifndef FELUCCA_USB_IN
+#define FELUCCA_USB_IN 0         /* (UMBRA OBSCURA) the USB audio input: MENU > SYSTEM > USB > IN+OUT and STEMS+IN, and the
+                                  * INPUT engine (V10.54, engine 15: reserved without it, a stored INPUT track plays
+                                  * ANALOG, as a retired engine's); 0: none, its flash and RAM for the plates */
+#endif
 #define NENGINES 16              /* the stores' engine numbers 0..15 (engines.c ENGINES[], append-only; 0.8.3: 14 ANIMAL;
                                   * 0.9.9-snd5: STRING and ADD in the retired GRAIN's 8 and SLICE's 13; V10.54: 15 INPUT) */
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define NENG_SHOWN (NENGINES - !FELUCCA_FM4 - 3)   /* the engines one can pick: PRESETS, the EDIT layer, the editor,
+#define NENG_SHOWN (NENGINES - !FELUCCA_FM4 - 3 - !FELUCCA_USB_IN)   /* the engines one can pick: PRESETS, the EDIT layer, the editor,
                                                 * in the display order of engines.c ENGINE_ORDER (PHYS 9, and in
                                                 * JIANT SAMPLE 4, GRAIN 8, SLICE 13: retired) */
 /* (JIANT 0.6.71) the second core (hal/fm1_multicore.h; fx.c mix_block hands it some synth tracks). MC_CPU(): the core
@@ -269,7 +274,7 @@ static void params_by_count(int16_t *out, const int16_t *in, uint32_t np, const 
  * set as DRUM first: drum_from_perc) */
 static inline int eng_gone(uint32_t e)
 {
-    return e == ENGI_PHYS || e == ENGI_SAMPLE || e == ENGI_TRIO;   /* (0.9.9-snd5: GRAIN's 8 and SLICE's 13 are STRING and ADD) */   /* (0.9.9-snd5: GRAIN's 8 and SLICE's 13 are STRING and ADD) */
+    return e == ENGI_PHYS || e == ENGI_SAMPLE || e == ENGI_TRIO || (!FELUCCA_USB_IN && e == ENGI_INPUT);   /* (0.9.9-snd5: GRAIN's 8 and SLICE's 13 are STRING and ADD) */   /* (0.9.9-snd5: GRAIN's 8 and SLICE's 13 are STRING and ADD) */
 }
 /* (JIANT 0.4) a sound stored before 0.4 -> today's E values, in place: LOFI (3) {.., SWP, VIB, ARP, TONE} -> {.., CUT
  * (its TONE), VIB, BEND 0, MASK 0}; ANALOG (0) KTR -> INT 0 (the key tracking fixed at its old default). Projects

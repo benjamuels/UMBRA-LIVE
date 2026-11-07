@@ -1721,8 +1721,10 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
             nr++;
         }
     }
+#if FELUCCA_USB_IN
     if (e == &ENG_INPUT)                                /* (V10.54) INPUT, PLAY THRU: the input (eng_input.c) */
         nr += AIN_THRU(t, out, n);                     /* (through a pointer: track_render runs from RAM too) */
+#endif
     if (nr && e == &ENG_DRUM)                           /* (0.6.16) DRUM-X: DRV and the knee on the kit's sum */
         drum_bus(t, out, n);
     if (nr && (t->p[P_FTYPE] || t->p[P_FCUT] < 127 || t->p[P_FRES] || tf_on[(uint32_t)(t - trk) % NTRK] ||

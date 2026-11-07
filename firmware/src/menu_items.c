@@ -140,6 +140,8 @@ static void usb_serial_apply(void)
     if (menu_serial_at && fm1_ms - menu_serial_at < 200u)
         return;
     menu_serial_at = 0;
+    if (!FELUCCA_USB_IN && usb_out >= 2u)              /* (UMBRA OBSCURA: no USB input) a saved IN+OUT: STEREO; STEMS+IN: */
+        usb_out = (uint8_t)(usb_out == 3u ? 1u : 0u);  /* STEMS */
 #if FELUCCA_USB_HOST
     uh.want = usb_host_want;                           /* (V10.41: uh_task switches the port, the main loop) */
 #endif
@@ -165,7 +167,7 @@ static const menu_flag_t *menu_flag(uint32_t row)
 static uint32_t menu_n(uint32_t row)
 {
     return row == MI_COLOR ? NPALETTES : row == MI_SKIN ? SKIN_N : row == MI_LOWCUT || (row >= MI_CLICK && row <= MI_COUNTIN) || row == MI_LOAD || row == MI_BT ? 3u :
-           row == MI_HOLD || row == MI_MIDIOUT || row == MI_LEARN ? 4u : row == MI_MIDIMAP ? MLM_N : row == MI_USB ? 6u : row == MI_SERIAL ? 5u + FELUCCA_USB_HOST : row == MI_LEDS ? LEDS_COUNT : row == MI_SCROFF ? NELEM(SCROFF_N) : 2u;
+           row == MI_HOLD || row == MI_MIDIOUT || row == MI_LEARN ? 4u : row == MI_MIDIMAP ? MLM_N : row == MI_USB ? 6u : row == MI_SERIAL ? (FELUCCA_USB_IN ? 5u + FELUCCA_USB_HOST : 3u) : row == MI_LEDS ? LEDS_COUNT : row == MI_SCROFF ? NELEM(SCROFF_N) : 2u;
 }
 static uint32_t menu_get(uint32_t row)
 {
@@ -180,7 +182,10 @@ static uint32_t menu_get(uint32_t row)
     case MI_STYLE: return ui_style == ST_LINE;
     case MI_LOWCUT: return settings.lowcut % 3u;
     case MI_USB: return (ui_prefs & PREF_USB_FIXED) ? 1u + usb_lvl % 5u : 0u;
-    case MI_SERIAL: return usb_host_want ? 5u : usb_out == 3u ? 4u : usb_out == 2u ? 3u : usb_out ? 2u : (ui_prefs & PREF_SERIAL_OFF) ? 1u : 0u;
+    case MI_SERIAL:
+        if (!FELUCCA_USB_IN && usb_out >= 2u)          /* (UMBRA OBSCURA: no IN+OUT, STEMS+IN; usb_serial_apply) */
+            return usb_out == 3u ? 2u : 1u;
+        return usb_host_want ? 5u : usb_out == 3u ? 4u : usb_out == 2u ? 3u : usb_out ? 2u : (ui_prefs & PREF_SERIAL_OFF) ? 1u : 0u;
     case MI_HOLD: return settings_hold % 4u;
     case MI_SCROFF: return scr_get();
     case MI_CLICK: case MI_CLKLVL: case MI_COUNTIN: return rp_get(row - MI_CLICK);

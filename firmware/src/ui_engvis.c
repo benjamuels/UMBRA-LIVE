@@ -1929,6 +1929,7 @@ static VX_CODE void vx_add(const track_t *t, const int32_t *A, int32_t en_home)
     vxs.kc = 0;
 }
 
+#if FELUCCA_USB_IN
 /* (V10.54) INPUT: the audio interface's two inputs as meters (lit: the ones SOURCE takes), GATE's level across them,
  * between them FOLLOW (the matrix's source) and the gate's gain; the source over them */
 static VX_SEG void vx_input(const track_t *t, const int32_t *A, int32_t en_home)
@@ -1961,6 +1962,7 @@ static VX_SEG void vx_input(const track_t *t, const int32_t *A, int32_t en_home)
             cv_rect(cx - 2, by - 6, 5, 3, gg > 16384 ? T_THEME : T_MID);
     }
 }
+#endif
 
 /* ------------------------------------------------------------------------------------------------ the glue --- */
 /* the engine's own creature in the rectangle x y w h (px: EDIT's left panel 8 14 108 112, HOME's middle 146 x 112, or a
@@ -1985,10 +1987,12 @@ static int vx_draw(const track_t *t, int32_t x, int32_t y, int32_t w, int32_t h,
     } else if (trk_eng(t) == ENGI_DRUM) {    /* (the kit ~128 x 92) */
         s = vx_fit(w, h, 128, 92);
         vx_kit(t, cx - (s >> 4), cy + (48 * s >> 8), s, en_home, -1);
+#if FELUCCA_USB_IN
     } else if (e == &ENG_INPUT) {                       /* (V10.54) the inputs' meters */
         if (!bt_hw_seg())
             return 0;
         vx_input(t, A, en_home);
+#endif
     } else if (e == &ENG_ANIMAL)                        /* (the animal ~103 x 78) */
         vx_animal(t, cx, cy, vx_fit(w, h, 103, 78), en_home);
     else if (trk_eng(t) == ENGI_FM6)

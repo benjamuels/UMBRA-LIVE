@@ -144,7 +144,9 @@ static struct {
 #define UI_TARGET 160u           /* the fill the step steers to: ~3.6 ms (a render's 128 and a packet's 45 in hand) */
 #define UI_MAXF 46u              /* frames in the largest packet a host sends at 44.1 kHz (45, one spare) */
 #define UI_STEP_MAX 650          /* the step's range: +-1 % of 65536 (a host clock far off: the ring re-primes) */
+#if FELUCCA_USB_IN
 static uint32_t ui_ring[UI_N] __attribute__((section(".pool")));   /* (2 KiB) */
+#endif
 static volatile uint32_t ui_w, ui_r;
 #define UI_MAXF_RX 50u           /* (V10.57) frames a packet taken at most: a 48 kHz interface on the host port sends 48 + 1 */
 static uint32_t ep4rx[UI_MAXF_RX + 2u] __attribute__((aligned(4)));
@@ -168,7 +170,7 @@ static struct {
     int32_t last_l, last_r;      /* the last frame read (an underrun fades from it) */
     uint32_t pkts, frames, overruns, underruns, starts, bad;   /* bad: a packet not of whole frames / too long */
 } uin;
-#define USB_DUPLEX usb_duplex
+#define USB_DUPLEX (FELUCCA_USB_IN && usb_duplex)   /* (UMBRA OBSCURA: without the USB input, never) */
 #if FELUCCA_UAC_48K
 #include "uac_fir.h"
 /* the resampler's input history: the last 32 frames, written twice so a window of UAC_FIR_N never wraps */
@@ -1665,6 +1667,7 @@ static inline void uac_service(void)                   /* (inline: the guard alo
     }
 }
 
+#if FELUCCA_USB_IN                                      /* (UMBRA OBSCURA: the USB input, or none) */
 /* (0.7.5) MENU > USB IN+OUT, TIMER5: a packet the host played to us (n bytes of L | R << 16 frames) into ui_ring;
  * a full ring drops it (the reader has stopped: it re-primes) */
 static __attribute__((noinline)) void uin_take(const uint32_t *p, uint32_t n)   /* (not in the TIMER5 body: its copy loop) */
@@ -1783,6 +1786,7 @@ static __attribute__((noinline)) void uac_in_fill(uint32_t n)
     uin_on = 1;
 }
 #define UAC_UIN 1                  /* (audio.c: a build with fx.c and usb.c reads the host's audio before the mix) */
+#endif                                                  /* (FELUCCA_USB_IN) */
 #endif
 #endif
 
@@ -1890,8 +1894,10 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
 #endif
 #if FELUCCA_UAC
     uac_service();
+#if FELUCCA_USB_IN
     if (usb.config && uin.alt)                          /* (0.7.5) the host's audio: every poll (a 1 ms packet each */
         uin_rx();                                       /* other poll: an isochronous one not taken is lost) */
+#endif
 #endif
 }
 

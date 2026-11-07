@@ -1499,9 +1499,11 @@ static uint32_t graph_signature(void)
     if (pg->graph == GR_DXIMG)                       /* (0.6.48) IMAGE and how wide it plays */
         h = (h ^ ((uint32_t)t->p[P_DXIMG] << 16 | (uint32_t)dx_img_k(t) | (uint32_t)t->p[P_SIMG] << 24 |
                   (trk_eng(t) != ENGI_DRUM ? vx_on_mask(t) << 9 : 0u))) * 16777619u;   /* (V10.49: a synth's, its voices lit) */
+#if FELUCCA_USB_IN
     if (pg->fam == FAM_EDIT && trk_engp(t) == &ENG_INPUT)   /* (V10.54) INPUT: its meters live */
         h = (h ^ ((uint32_t)(ain_pk[0] >> 10) | (uint32_t)(ain_pk[1] >> 10) << 6 | (uint32_t)(mod_follow >> 10) << 12 |
                   (uint32_t)(ain_gg[(uint32_t)(t - trk) % NTRK] >> 12) << 18)) * 16777619u;
+#endif
     if (DX_KIT3(pg))                                 /* (0.8.8) KIT 3's colony lives every frame, as KIT's (was still) */
         h ^= ui.frame * 2654435761u;
     if (pg->graph >= GR_FMOP && pg->graph <= GR_FMENV)   /* (0.9.6) FM6's operators: the colony lives, as the beings */
