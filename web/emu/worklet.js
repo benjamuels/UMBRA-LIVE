@@ -71,8 +71,10 @@ if (typeof registerProcessor === "function") {
       else if (m.type === "enc") ex.web_enc(m.role, m.n | 0);
       else if (m.type === "master") ex.web_master(m.value | 0);
       else if (m.type === "umb" && ex.web_umb) ex.web_umb(m.i | 0, m.v | 0);   // (UMBRA OBSCURA) the PLATE and its settings
+      else if (m.type === "umbget" && ex.web_umb_get)                  // (UMBRA OBSCURA) the projector's controls
+        this.port.postMessage({ type: "umb", v: [99, 0, 1, 2].map((i) => ex.web_umb_get(i)) });
       else if (m.type === "midi") ex.web_midi(m.data[0] | 0, m.data[1] | 0, m.data[2] | 0);
-      else if (m.type === "visible") this.period = m.on ? 1 / 30 : 1 / 4;
+      else if (m.type === "visible") this.period = m.on ? 1 / (m.fps || 30) : 1 / 4;   // (the projector: 60)
     }
 
     publish() {

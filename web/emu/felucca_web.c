@@ -446,13 +446,20 @@ EXPORT void web_mirror_take(uint32_t n)                 /* the first n bytes rea
     memmove(web_mq, web_mq + n, web_mq_n - n);
     web_mq_n -= n;
 }
-EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) 99: the PLATE (0..5); 0, 1: its two settings, 2 LIGHT */
+EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) 99: the PLATE (0..5); 0, 1: its two settings, 2 LIGHT;
+                                                         * 98: HOME > ECO > TOTALITY (the projector, emu/?projector) */
 {
     uint32_t pl = umb_pl();
     if (i == 99u)
         umb_plate = (uint8_t)(0x80u | v % UMP_NPL);
+    else if (i == 98u)
+        nav_go(SEC_HOME, 3u, 0);                        /* (ui_lens.c CE_HOME: ECO, MACROS, PLATE, TOTALITY) */
     else if (i < 3u)
         umv_put(pl, i, v);
+}
+EXPORT uint32_t web_umb_get(uint32_t i)                /* (UMBRA OBSCURA) 99: the PLATE; 0, 1: its settings, 2 LIGHT (0..99) */
+{
+    return i == 99u ? umb_pl() : i < 3u ? umv(umb_pl(), i) : 0u;
 }
 /* a channel message from Web MIDI, as a USB-MIDI packet arrives (usb.c midi_enqueue): 0 = the ring was full */
 EXPORT uint32_t web_midi(uint32_t status, uint32_t d1, uint32_t d2)
