@@ -10,6 +10,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      repin:
+        description: "(UMBRA OBSCURA) FELUCCA_REPIN for the firmware build: keep (the recorded order, new addresses) or 1; the new tools/audio_layout.txt comes back as an artifact"
+        required: false
+        default: ""
 permissions:
   contents: read
   pages: write
@@ -65,6 +70,7 @@ jobs:
         env:
           AC79_SDK: /home/runner/fw-AC79_AIoT_SDK
           JIELI_TOOLCHAIN: /home/runner/.jieli/toolchain
+          FELUCCA_REPIN: ${{ inputs.repin }}
         run: |
           ver() { sed -n 's/^#define FELUCCA_VERSION "\([^"]*\)".*/\1/p' "$1/firmware/src/felucca.c" | head -1; }
           # the preview: main as it is now, next to the emulator that runs it (preview/webapp/installer)
@@ -122,6 +128,12 @@ jobs:
           mkdir -p build/pages/docs && cp docs/cheatsheet-controls.pdf docs/cheatsheet-sound.pdf docs/cheatsheet-controls.png docs/cheatsheet-sound.png build/pages/docs/
           # (0.9.2) the navigation map the front page shows (tools/gen_nav_map.py), English and Spanish
           cp docs/navigation-map.png docs/navigation-map.svg docs/navigation-map.es.png docs/navigation-map.es.svg build/pages/docs/
+      - name: (UMBRA OBSCURA) the audio layout recorded anew
+        if: inputs.repin != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-layout
+          path: tools/audio_layout.txt
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build/pages
