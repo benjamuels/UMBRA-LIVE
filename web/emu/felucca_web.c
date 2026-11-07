@@ -432,14 +432,13 @@ EXPORT void web_mirror_take(uint32_t n)                 /* the first n bytes rea
     memmove(web_mq, web_mq + n, web_mq_n - n);
     web_mq_n -= n;
 }
-EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) KILN's knobs (FLOW, DECAY: PLATE's); 99: the PLATE */
+EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) 99: the PLATE (0..5); 0, 1: its two settings, 2 LIGHT */
 {
-    if (i == UK_FLOW || i == UK_DECAY)
-        umv_put(0u, i == UK_DECAY, v);
-    else if (i < UK_COUNT)
-        umb_p[i] = (uint8_t)(v > 99u ? 99u : v);
-    else if (i == 99u)
-        umb_plate = (uint8_t)(v % 3u);
+    uint32_t pl = umb_pl();
+    if (i == 99u)
+        umb_plate = (uint8_t)(0x80u | v % UMP_NPL);
+    else if (i < 3u)
+        umv_put(pl, i, v);
 }
 /* a channel message from Web MIDI, as a USB-MIDI packet arrives (usb.c midi_enqueue): 0 = the ring was full */
 EXPORT uint32_t web_midi(uint32_t status, uint32_t d1, uint32_t d2)

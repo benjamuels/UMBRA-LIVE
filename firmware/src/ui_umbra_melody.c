@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 UMBRA OBSCURA contributors */
-/* (included by ui_umbra.c, before KILN's umb_backdrop) built for size, as the main loop is (tools/size_fns.py): the FM-1's
- * slot is nearly full, and these plates are light; umm_backdrop stays a call so KILN's -Os does not take it in */
+/* (included by ui_umbra.c, before umb_backdrop) built for size, as the main loop is (tools/size_fns.py): the FM-1's slot is
+ * nearly full, and these plates are light; umm_backdrop stays a call so umb_backdrop's -Os does not take it in */
 /* ------------------------------------------------------------------------------- SAROS and FILAMENT: the melody --- */
-/* Plates of the melody (MENU > SCREEN 2 > PLATE), from the same ring of notes as KILN (voice.c umb_q; a note let go:
- * velocity 0), their state in KILN's field (umb.m). Unlike KILN they are still between notes, so HOME's changed-cells
+/* Plates of the melody (HOME > ECO > PLATE), from the same ring of notes as the others (voice.c umb_q; a note let go:
+ * velocity 0), their state in the plates' shared block (umb.m). Still between notes, so HOME's changed-cells
  * blit (gfx.c cv_blit_cells) sends little to the panel: fades go in 16 steps and SAROS turns a pixel at a time at its
  * rim. Each strip is filled near-black, then the light added to its pixels (RGB565), dimmed under the knob row and the
- * footer as KILN is (TOTALITY: the whole screen, undimmed).
+ * footer as the field plates are (TOTALITY: the whole screen, undimmed).
  * SAROS: the melody as string art on the circle of fifths, the whole plate turning once in 100 s round a dark umbra. A
  * note lands on its pitch class (its track's root at the marked tick), its octave the ring; each melodic track's notes
  * are joined in turn by a thread in its colour. Fifths and fourths stay near the rim, thirds cut across, tritones pass
@@ -20,7 +20,7 @@
 #define UMM_CX 120                                      /* SAROS's centre (px) */
 #define UMM_CY 120
 static const uint8_t UMM_WT[3] = {236, 250, 246}, UMM_TEAL[3] = {143, 217, 201}, UMM_REST[3] = {34, 60, 96};
-static uint8_t umm_on;                                  /* the plate drawn last (0: KILN) */
+static uint8_t umm_on;                                  /* the melody plate drawn last (0: none: it starts afresh) */
 static int32_t umm_x0, umm_y0;                          /* the strip being drawn: its place on the screen */
 static int32_t umm_lq, umm_fk, umm_damp;                /* HOME > ECO > PLATE, worked out once a frame (umm_tick): LIGHT
                                                          * (Q8), SAROS's FADE (its rate), FILAMENT's RING (released) */
@@ -33,7 +33,7 @@ static void umm_px(int32_t x, int32_t y, int32_t w, int32_t r, int32_t g, int32_
     if (w <= 0 || (uint32_t)(x - umm_x0) >= cv_w || (uint32_t)(y - umm_y0) >= cv_h)
         return;
     w = (((w * umm_lq) >> 8) * (umb.bare ? 256 : y < 56 ? 108 : y < 76 ? 108 + (y - 56) * 7 : y >= 226 ? 128 : 256)) >> 8;
-                                                        /* (LIGHT; KILN's dimming, TOTALITY: none) */
+                                                        /* (LIGHT; the dimming, TOTALITY: none) */
     p = cv_px + (uint32_t)(y - umm_y0) * cv_w + (uint32_t)(x - umm_x0);
     q = swap16(*p);
     R = umb_clamp((int32_t)((q >> 8) & 0xF8u) + ((r * w) >> 8) + 4, 0, 255);
@@ -340,7 +340,7 @@ static void umm_fil_draw(void)
         }
     }
 }
-/* once a frame: a plate just chosen starts afresh (KILN too, when it comes back); the notes since; the plate's work */
+/* once a frame: a plate just chosen starts afresh; the notes since; the plate's work */
 static void umm_tick(uint32_t pl)
 {
     umm_t *m = &umb.m;
