@@ -483,12 +483,19 @@ static void fm1_main(void)
         felucca_dbg.stage = 2;
         ui_leds();
         ui_hold_poll();                               /* (0.9.9-beta4) playing past 60 % of the render: the UI held (ui.c) */
+#if UMB_MIRROR
+        umr_draw();                                     /* (UMBRA OBSCURA) ui_draw, and the screen mirror's repaint round */
+#else
         ui_draw();
+#endif
         felucca_dbg.stage = 9;
         while (fm1_ms - m < (ui_hold ? 50u : 15u)) {             /* ~60 UI frames/s at most; held: 20 */
             ui_input();
 #if FELUCCA_OTA
             ed_service();                       /* editor replies without waiting for the next frame */
+#endif
+#if UMB_MIRROR
+            umr_tick();                         /* (UMBRA OBSCURA) the screen mirror's queue, as USB empties it */
 #endif
         }
     }

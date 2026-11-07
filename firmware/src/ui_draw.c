@@ -335,9 +335,9 @@ static void draw_head(void)
         char a[8];
         fmt_int(a, ui.roll_bpm);
         fmt_int(b, song.g[G_BPM]);
-        roll_note(ROLL_BPM, a, b, ui.force);
+        roll_note(ROLL_BPM, a, b, UI_SNAP);
         ui.roll_bpm = song.g[G_BPM];
-    } else if (ui.force) {
+    } else if (UI_SNAP) {
         ui.roll[ROLL_BPM].from[0] = 0;
     }
     fmt_int(b, song.g[G_BPM]);
@@ -673,7 +673,7 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         str_cpy(ly_card[c].v + str_len(ly_card[c].v), unit, sizeof ly_card[c].v - str_len(ly_card[c].v));
     }
     char key[56];
-    int hot = c == ui.hot_col && ui.hot_t, named = fmt_named, mot = card_mot_next && label[0], strip, snap;
+    int hot = c == ui.hot_col && ui.hot_t, named = fmt_named, mot = card_mot_next && label[0], strip, snap, keep;
     int arm = card_arm_next, free = card_free_next;
     int32_t curve = card_curve_next ? card_curve_next - 256 : DJF_NOCURVE;
     card_curve_next = 0;
@@ -741,6 +741,8 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         vf = &AF_S;
     sig = (uint8_t)str_hash(str_hash(song.sel + TSEL->eng_req * 4u + ux.gen * 64u + lz_on() * 16u, label), unit);
     snap = ui.force || sig != ui.roll[c].sig;           /* what the value is of: label, unit, track, engine, palette */
+    keep = snap && !UI_SNAP && sig == ui.roll[c].sig;   /* (UMBRA OBSCURA: the mirror's repaint round: drawn whole, the roll
+                                                         * kept) */
     if (kind == LK_TALL)
         ui.roll[c].from[0] = 0;                         /* (a tall card: no rolling digits) */
     strip = !snap && !hud && str_eq(key, ui.col[c]);
@@ -765,8 +767,8 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         ov[i] = 0;
         ui.roll[c].sig = sig;
         if (!str_eq(ov, val))
-            roll_note(c, ov, val, snap || named || vf != &AF_M || kid >= 0 || kind == LK_TALL);
-        else if (snap)
+            roll_note(c, ov, val, (snap && !keep) || named || vf != &AF_M || kid >= 0 || kind == LK_TALL);
+        else if (snap && !keep)
             ui.roll[c].from[0] = 0;
         str_cpy(ui.col[c], key, sizeof ui.col[c]);
         if (kind == LK_TALL) {

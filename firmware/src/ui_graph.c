@@ -485,7 +485,7 @@ static void pr_follow(const track_t *t)
     int32_t lo = 127, hi = -1, tgt, d, cur = proll.lo;
     int snap;
     pr_geom();
-    snap = ui.force || !proll.init || proll.trk != song.sel || ui.frame != proll.frame + 1u || ANIM_SNAP();
+    snap = UI_SNAP || !proll.init || proll.trk != song.sel || ui.frame != proll.frame + 1u || ANIM_SNAP();
     if (proll.init && proll.frame == ui.frame)
         return;
     for (i = 0; i < 16u && base + i < len; i++) {
@@ -1320,11 +1320,17 @@ static int drift_on(void)
 }
 static void graph_drift(void)
 {
-    uint32_t k, gh = graph_h();
+    uint32_t k, gh = graph_h(), fr = ui.frame;
+#if UMB_MIRROR
+    static uint32_t drawn;                           /* (UMBRA OBSCURA) the screen mirror's repaint round: where they are */
+    if (umr_round())
+        fr = drawn;
+    drawn = fr;
+#endif
     for (k = 0; k < 14u; k++) {
         uint32_t h = k * 2654435761u + 0x9E37u;
-        int32_t gx = 10 + (int32_t)((h >> 8) % 220u + ui.frame * (1u + (h >> 28)) / 8u) % 220;
-        int32_t gy = 4 + (int32_t)(((h >> 16) % (gh - 8u)) + (uint32_t)(sine_i((ui.frame * 200u + h) << 16) >> 13)) % (int32_t)(gh - 8u);
+        int32_t gx = 10 + (int32_t)((h >> 8) % 220u + fr * (1u + (h >> 28)) / 8u) % 220;
+        int32_t gy = 4 + (int32_t)(((h >> 16) % (gh - 8u)) + (uint32_t)(sine_i((fr * 200u + h) << 16) >> 13)) % (int32_t)(gh - 8u);
         cv_rect(gx, gy, 1 + (int32_t)(h >> 31), 1 + (int32_t)(h >> 31), ux_mix(T_SURF, T_THEME, 18 + (int32_t)(h >> 29) * 3));
     }
 }

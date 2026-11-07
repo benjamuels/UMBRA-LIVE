@@ -251,8 +251,20 @@ static void cdc_task(void) {}
 #define WEB_MQ 65536u
 static uint8_t web_mq[WEB_MQ];
 static uint32_t web_mq_n;
+/* web_mirror_pace(bps): the FM-1's USB SysEx queue (usb.c SXQ 256 packets less the editor's 32: 672 bytes) emptied
+ * at bps bytes a second, as the host reads it (0: no limit, the default) */
+#define WEB_MQ_USB 672u
+static uint32_t web_mq_bps, web_mq_fill, web_mq_ms;    /* (fill: thousandths of a byte) */
 static int web_mirror_put(const uint8_t *m, unsigned n)
 {
+    if (web_mq_bps) {
+        uint32_t dt = fm1_ms - web_mq_ms, out = dt > 1000u ? web_mq_fill : dt * web_mq_bps;
+        web_mq_ms = fm1_ms;
+        web_mq_fill -= out < web_mq_fill ? out : web_mq_fill;
+        if (web_mq_fill + n * 1000u > WEB_MQ_USB * 1000u)
+            return -2;
+        web_mq_fill += n * 1000u;
+    }
     if (web_mq_n + n > WEB_MQ)
         return -2;
     memcpy(web_mq + web_mq_n, m, n);
@@ -309,7 +321,7 @@ static void web_frame(void)
     autosave_poll();
     song_poll();
     ui_leds();
-    ui_draw();
+    umr_draw();                                         /* (UMBRA OBSCURA) ui_draw, and the mirror's repaint round */
     umr_poll();                                         /* (UMBRA OBSCURA) the screen mirror */
 }
 
@@ -351,6 +363,7 @@ static void web_ms(void)
         web_frame();
     } else {
         ui_input();                                       /* main.c's wait loop */
+        umr_tick();                                       /* (UMBRA OBSCURA) and the mirror's queue topped up */
     }
 }
 
@@ -425,6 +438,7 @@ EXPORT void web_mirror_hello(uint32_t k)
 EXPORT const uint8_t *web_mirror_buf(void) { return web_mq; }
 EXPORT uint32_t web_mirror_len(void) { return web_mq_n; }
 EXPORT void web_mirror_clear(void) { web_mq_n = 0; }
+EXPORT void web_mirror_pace(uint32_t bps) { web_mq_bps = bps; web_mq_fill = 0; web_mq_ms = fm1_ms; }
 EXPORT void web_mirror_take(uint32_t n)                 /* the first n bytes read (a viewer at USB's pace) */
 {
     if (n > web_mq_n)

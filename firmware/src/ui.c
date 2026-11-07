@@ -91,6 +91,14 @@ static uint32_t anim_at;                               /* the last frame the ani
 #define anim_fr (ANIM_OFF() ? anim_at : ui.frame)      /* .. the animation's frame: ui.frame while it moves, that one while
                                                         * still (the same frame draws the same picture, held or not) */
 #define ANIM_SNAP() (ANIM_OFF() || sys_load)
+#if UMB_MIRROR
+static int umr_round(void);                            /* (UMBRA OBSCURA: umb_mirror.c) */
+#define UI_SNAP (ui.force && !umr_round())             /* a frame drawn whole that cuts the animations short: not the screen
+                                                        * mirror's repaint round, which draws the frame as it is (the rolling
+                                                        * digits, the roll's glide, the granules where they are) */
+#else
+#define UI_SNAP ui.force
+#endif
 static void ui_hold_poll(void)
 {
     uint32_t pct = load_avg_q8 >> 8;
