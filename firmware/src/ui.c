@@ -276,7 +276,7 @@ static struct {
     uint8_t nmem[13];            /* (0.9.2) each section's page last shown, its chain's entry ^ its default (ui_lens.c
                                   * nav_mem: EDIT one per kind of track) */
     uint8_t fxmod;               /* (0.8.5) FX: the effect last shown (BUSES' tile lit) */
-    uint8_t hlv, hset[2];        /* .. HOME: ECO (0) or BEING (1), each one's page (HOME / MACROS, HOME / ROUTES) */
+    uint8_t hlv, hset[2];        /* .. HOME: ECO (0) or BEING (1), each one's page (HOME / MACROS / PLATE / TOTALITY, HOME / ROUTES) */
     uint8_t focus;               /* .. EDIT > FOCUS: the parameter (E1..E8: 0..7) */
     uint8_t stage;               /* .. ENV > STAGE: the stage (ATK DEC SUS REL: 0..3) */
     uint8_t ent_len, ent_arp, ent_res, ent_ord, ent_oct, ent_nn;   /* (0.6.37) that entry while held (ui_input.c

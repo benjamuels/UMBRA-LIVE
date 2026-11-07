@@ -2353,7 +2353,7 @@ static void ui_input_frame(void)
             if (f == FAM_COUNT) {                       /* HOME held: GEN, HOME's generator */
                 ui.home_t0 |= 2u;
                 if (!pj_sel_ms || fm1_ms - pj_sel_ms > 400u)
-                    nav_go(SEC_HOME, 4u + gen_page(), 1);
+                    nav_go(SEC_HOME, HOME_E_GEN + gen_page(), 1);
             } else if (k) {
                 if (f == FAM_EDIT)                      /* (0.9.9-seq2f) EDIT + SELECT: the sound dice again (SELECT is
                                                          * no sound parameter; the presets: PRESETS only) */
@@ -2786,13 +2786,15 @@ static void ui_input_frame(void)
             ui.bpm_t = 40;                              /* the header's BPM lights up; no message over the header */
         }
     } else if ((s = panel_enc(EN_SELECT)) != 0 && !lay && !ui.menu) {   /* (0.9.2, rule 1) SELECT alone: the section's
-                                                        * chain, a page a detent (HOME's: ECO MACROS BEING ROUTES GEN 1..3) */
+                                                        * chain, a page a detent (HOME's: ECO MACROS PLATE TOTALITY BEING ROUTES GEN 1..3) */
         uint64_t cph = cp_held();
         if (cph)                                        /* (seq2h) step keys held: COPY them (the range between) */
             cp_copy(cph);
         else
             nav_select(s);
     }
+    if (UMB_ON)
+        umv_poll();                                     /* (UMBRA OBSCURA) PLATE's settings saved once the knobs rest */
     for (k = 0; k < 4u && !kq; k++) {
         const page_t *pg = cur_page();
         int16_t *hv;
@@ -2828,6 +2830,8 @@ static void ui_input_frame(void)
         }
         if (home_macros()) {                            /* (0.8.5) HOME's MACROS / ROUTES: M1..M4 */
             macro_v[k] = (uint8_t)clamp(macro_v[k] + accel(EN_K1 + k, s, 127), 0, 127);
+        } else if (UMB_ON && umb_vis()) {               /* (UMBRA OBSCURA) HOME > ECO > PLATE */
+            umv_turn(k, accel(EN_K1 + k, s, k ? 99 : 0));
         } else if (ui.home) {
             int16_t *vp;
             const param_desc_t *d = home_param(k, &vp);

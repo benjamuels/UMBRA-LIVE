@@ -271,7 +271,7 @@ static void web_power_on(void)
     boot_leds();                          /* main.c: the power-on LED sweep, from the scan's start */
     autosave_boot(boot_clean);            /* main.c: the last session's music (1.2, project.c) */
     session_dice(web_seed_v);             /* main.c (JIANT 0.4): this session's macros (the page's seed: web_seed) */
-    web_boot_ms = fm1_ms + 30u + SPL_WRITE + SPL_HOLD;   /* main.c: 30 ms + the splash before the first frame */
+    web_boot_ms = fm1_ms + 30u + SPL_TIME;   /* main.c: 30 ms + the splash before the first frame */
     web_booted = 1;
 }
 
@@ -315,7 +315,7 @@ static void web_ms(void)
         web_half ^= 1u;
     }
     if (web_booted && (int32_t)(fm1_ms - web_boot_ms) < 0 && !(fm1_ms % 20u))   /* main.c: the signature written */
-        splash_write(SPL_WRITE + SPL_HOLD - (web_boot_ms - fm1_ms));
+        splash_write(SPL_TIME - (web_boot_ms - fm1_ms));
     if (!web_booted || (int32_t)(fm1_ms - web_boot_ms) < 0)
         return;
     if (web_boot_ms) {                                    /* main.c: the splash goes, the loop starts */
@@ -393,6 +393,15 @@ EXPORT void web_enc(uint32_t role, int32_t n)
         web_enc_steps[panel.enc[role] % 7u] += n * panel.dir[role];
 }
 EXPORT void web_master(uint32_t v) { web_master_adc = v > 1023u ? 1023u : v; }
+EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) KILN's knobs (FLOW, DECAY: PLATE's); 99: the PLATE */
+{
+    if (i == UK_FLOW || i == UK_DECAY)
+        umv_put(0u, i == UK_DECAY, v);
+    else if (i < UK_COUNT)
+        umb_p[i] = (uint8_t)(v > 99u ? 99u : v);
+    else if (i == 99u)
+        umb_plate = (uint8_t)(v % 3u);
+}
 /* a channel message from Web MIDI, as a USB-MIDI packet arrives (usb.c midi_enqueue): 0 = the ring was full */
 EXPORT uint32_t web_midi(uint32_t status, uint32_t d1, uint32_t d2)
 {

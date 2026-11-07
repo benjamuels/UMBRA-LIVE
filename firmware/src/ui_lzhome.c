@@ -227,6 +227,7 @@ static uint32_t routes_count(void)                      /* the MOD slots whose S
         }
     return n;
 }
+#include "ui_umbra.c"                                  /* (UMBRA OBSCURA) HOME's plates: KILN */
 /* ECO: 0.8.4's HOME (graph_ecosys) in the lens's panel: the cytoplasm's granules drifting, the six beings swimming free
  * over the whole panel (0.9.7: variant A, eco_being), each with its number under it (the selected one larger, its number in
  * the theme's colour; a mutation landed, white). (0.8.9) Drawn into the canvas as the water's x0, y0 .. (eco_draw); SKIN HUD's HOME: the
@@ -236,6 +237,11 @@ static void eco_draw(int32_t x0, int32_t y0, int words)
 {
     uint32_t c, k, still = ANIM_OFF() != 0;
     int32_t bx[ECO_N], by[ECO_N], bot = eco_bot(), hud = hud_home();
+    if (UMB_ON) {                                       /* (UMBRA OBSCURA) KILN in place of the beings (ui_umbra.c); the */
+        umb_backdrop(x0, y0);                           /* MACROS words still over it */
+        cv_oy = -y0;
+        goto words;
+    }
     (void)eco_step();                                   /* (the swim, once a frame) */
     (void)bg_energy();                                  /* (the output's level kept as it was read: once a frame) */
     char b[16];
@@ -262,6 +268,7 @@ static void eco_draw(int32_t x0, int32_t y0, int words)
             cv_text_in(px - 30 - x0, ny, 60, &AF_S, num, c == song.sel ? T_THEME : eco_off(c) ? T_DIM :
                        hud ? T_TEXT : T_MID, T_SURF);   /* (0.9.0 HUD: TEXT, over the beings; 0.9.7: a mutation, white) */
     }
+words:
     if (words && home_set()) {                          /* MACROS: the routes, LATCH */
         int32_t y = hud ? (int32_t)graph_y() + 3 : 2;
         fmt_int(b, (int32_t)routes_count());

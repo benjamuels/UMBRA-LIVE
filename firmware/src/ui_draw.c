@@ -1359,6 +1359,10 @@ static void draw_columns(void)
         }
         return;
     }
+    if (UMB_ON && umb_vis()) {                          /* (UMBRA OBSCURA) HOME > ECO > PLATE: the plate, its settings */
+        umv_cards();
+        return;
+    }
     if (ui.home) {
         for (c = 0; c < 4u; c++) {
             int16_t *vp;
@@ -1858,6 +1862,8 @@ static void draw_columns(void)
 #include "ui_signature.h"
 #define SPL_WRITE 800u                              /* ms: the signature written (was 900; 0.6.51: 600 -> 800) */
 #define SPL_HOLD 900u                               /* .. then shown whole, before the UI (was 1100; 0.6.51: 500 -> 900) */
+#define UMB_SPLASH 0                                /* (UMBRA OBSCURA) no splash: a dark screen, then straight to the UI */
+#define SPL_TIME (UMB_SPLASH ? SPL_WRITE + SPL_HOLD : 0u)   /* ms the splash is up (main.c, web/emu) */
 #define SPL_SY 40                                   /* the signature's canvas on the screen (240 x SIG_H + 12) */
 #define SPL_TY 186                                  /* the two lines under it */
 static const char *const SPLASH_LINES[] = {FELUCCA_VERSION, "by Juan Jiant"};
@@ -1990,6 +1996,10 @@ static void draw_splash(void)
 {
     uint32_t k;
     lcd_fill(0, 0, 240, 240, T_BG);
+    if (!UMB_SPLASH) {
+        lcd_sync();
+        return;
+    }
     cv_begin(240, 36, T_BG);
     for (k = 0; k < 2u; k++)
         cv_text_in(0, (int32_t)k * 16, 240, &AF_S, SPLASH_LINES[k], k ? T_DIM : T_MID, T_BG);
@@ -2000,7 +2010,7 @@ static void draw_splash(void)
 /* main.c's splash loop: the signature as written ms after the start */
 static void splash_write(uint32_t ms)
 {
-    if (!spl_anim || (ui_prefs & PREF_ANIM_OFF))
+    if (!UMB_SPLASH || !spl_anim || (ui_prefs & PREF_ANIM_OFF))
         return;
     splash_sig(ms >= SPL_WRITE ? 0x7FFFFFFF : (int32_t)((int64_t)sig_len() * ms / SPL_WRITE), ms);
     lcd_sync();
@@ -2475,6 +2485,21 @@ static void ui_draw_body(uint32_t counting)
         page_entered();
     }
     cursor_fix();
+    if (UMB_ON && umb_bare()) {                         /* (UMBRA OBSCURA) TOTALITY: the visual alone (ui_umbra.c) */
+        umb_full();
+        if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {
+            str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
+            ui.msg2[0] = 0;
+            ui.msg_t = 60;
+        }
+        if (ui.bpm_t)
+            ui.bpm_t--;
+        if (ui.hot_t)
+            ui.hot_t--;
+        pf_on = 0;                                      /* (no page name over it) */
+        ui.force = 0;
+        return;
+    }
     {   /* (0.8.9) SKIN HUD's HOME: every strip on the beings, so all of them each frame (LOAD LITE / ECO: every 50 / 70 ms,
          * as the panel's own pace) */
         static uint8_t was __attribute__((section(".pool")));
