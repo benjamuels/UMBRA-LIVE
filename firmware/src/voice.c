@@ -677,7 +677,7 @@ static volatile uint8_t asleep_hit;                     /* (0.6.28) a note went 
                                                          * black key (perform.c): no new notes, as MUTE (a MIDI mute: a
                                                          * silenced track's voices end, it costs nothing) */
 /* (UMBRA OBSCURA) every note played, for HOME's plates (ui_umbra.c): its track, note and velocity in a small ring the UI
- * reads once a frame (one writer, one reader; a burst over 32 notes keeps the newest) */
+ * reads once a frame (one writer, one reader; a burst over 32 notes keeps the newest); a note let go: velocity 0 */
 #define UMB_NQ 32u
 static struct { uint8_t c[UMB_NQ], note[UMB_NQ], vel[UMB_NQ]; volatile uint32_t w; } umb_q;
 static void umb_note(uint32_t c, uint32_t note, uint32_t vel)
@@ -754,6 +754,7 @@ static void trk_note_off(track_t *t, uint32_t note)
             t->xp_vel[k++] = t->xp_vel[i];
         }
     t->xp_n = (uint8_t)k;
+    UMB_NOTE(t, note, 0);                              /* (UMBRA OBSCURA) let go: FILAMENT damps its string */
     mono_remove(t, note);                              /* a mode change must not retain a released key */
     if (mode != V_POLY) {
         uint32_t nv = mode == V_UNISON ? trk_nvoice(t) : 1u;

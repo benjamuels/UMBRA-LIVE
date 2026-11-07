@@ -30,6 +30,7 @@
  *   field, and the falloff would pull harder a step); under LOAD LITE / ECO, or when the audio governor lightens the
  *   load, 10 (each step as two). */
 #define UMB_ON 1
+/* PLATE (MENU > SCREEN 2, menu_items.c umb_plate): 0 KILN; 1 SAROS, 2 FILAMENT, the melody plates (this file's end) */
 #define UMB_N 60                                        /* the field: 60 x 60 cells */
 #define UMB_S (UMB_N * UMB_N)
 #define UMB_T 64                                        /* the noise table: 64 x 64, tiling */
@@ -69,8 +70,36 @@ static struct {                                         /* the events, worked ou
     int32_t ro2[UMB_NE], ri2[UMB_NE];                   /* the ring's glow drawn a pixel: its band, R +- a width (px^2) */
     int32_t cb2[UMB_NE], kb[UMB_NE];                    /* .. the flash's: a dome cut at its shoulder (px^2), its profile */
 } ue;
+/* (SAROS and FILAMENT, the melody plates at this file's end: their state, kept in KILN's field: one plate draws at a time) */
+#define UMM_TH 48                                       /* SAROS: threads at most */
+#define UMM_ND 12                                       /* .. the notes' points glowing */
+#define UMM_NP 81                                       /* FILAMENT: a string's points (3 px apart) */
+#define UMM_NH 4                                        /* .. the notes a string holds */
+typedef struct {
+    uint8_t ta[UMM_TH], tb[UMM_TH], tc[UMM_TH], tf[UMM_TH];   /* SAROS: a thread's notes (a < b), track, the note before */
+    uint16_t te[UMM_TH];                                /* .. its energy (Q8: burned up to 2.5) */
+    uint32_t tt[UMM_TH];                                /* .. when it was last played (ms) */
+    int32_t lx[UMM_TH], ly[UMM_TH], lsx[UMM_TH], lsy[UMM_TH];   /* .. as this frame draws it: from, a sample's step (px, Q8) */
+    int16_t ln[UMM_TH];                                 /* .. its samples */
+    uint8_t lc[UMM_TH][3];                              /* .. its light */
+    uint8_t nn[UMM_ND], nc[UMM_ND], nv[UMM_ND];         /* the notes' points: note, track, velocity .. */
+    uint32_t nt[UMM_ND];                                /* .. when */
+    int16_t ux[12], uy[12];                             /* the twelve places on the circle of fifths, turned (Q15) */
+    uint8_t nth, nnd, last[NTRK];                       /* threads in use, the next point; each track's last note + 1 */
+    uint32_t th, tms;                                   /* the turn (2^32 a turn) and its clock */
+    int16_t u[NTRK][UMM_NP], v[NTRK][UMM_NP];           /* FILAMENT: each string's height and speed (px, Q8) */
+    uint8_t c2[NTRK], hn[NTRK][UMM_NH], hx[NTRK][UMM_NH];   /* .. its tension (Q8); the notes it holds (+ 1), where */
+    int16_t ha[NTRK][UMM_NH];                           /* .. how hard they bow it (the side its sign) */
+    uint32_t hf[NTRK][UMM_NH], h0[NTRK][UMM_NH];        /* .. how fast (phase a ms), since when */
+    int8_t dir[NTRK];                                   /* .. the side a pluck goes */
+    uint8_t mv[NTRK];                                   /* .. moving (still: nothing to work out) */
+    uint32_t sub;                                       /* the substeps' clock (ms) */
+} umm_t;
 static struct {
-    uint8_t a[UMB_S], b[UMB_S], c[UMB_S];               /* the chemicals, 0..255 */
+    union {
+        struct { uint8_t a[UMB_S], b[UMB_S], c[UMB_S]; };   /* the chemicals, 0..255 */
+        umm_t m;                                        /* (SAROS, FILAMENT: KILN starts afresh when it comes back) */
+    };
     uint16_t mr[5][UMB_N * 3];                          /* the step's window: five rows of Moore averages, x 16 */
     uint8_t nr[3][UMB_N];                               /* .. and three rows of the noise blend */
     uint8_t sr[2][(UMB_N + 2) * UMB_C];                 /* the frame: two rows of lit cell centres (umb_sample), -1 .. 60 */
@@ -465,7 +494,7 @@ static void umb_tick(void)
     for (; umb.qr != umb_q.w; umb.qr++) {
         uint32_t q = umb.qr % UMB_NQ, v = umb_q.vel[q] * 2u + 1u;
         c = umb_q.c[q];
-        if (c >= NTRK)
+        if (c >= NTRK || !umb_q.vel[q])                 /* (velocity 0: a note let go, FILAMENT's) */
             continue;
         l = trk[c].engine == ENGI_DRUM ? drum_lane(umb_q.note[q]) % NLANE : 0u;
         if (v > vm[c][l])
@@ -696,6 +725,7 @@ static int32_t umb_glow(int32_t py, int32_t x0, int32_t np, int32_t vg, int16_t 
     }
     return any;
 }
+#include "ui_umbra_melody.c"                          /* SAROS and FILAMENT, the melody plates (MENU > SCREEN 2 > PLATE) */
 /* the canvas as the screen's x0, y0 .. : KILN. Each pixel's tone from the field blended there from the four cells round
  * it (so the lava's edges are a pixel sharp); the shade and the light added blended a 2 x 2 px block from the lit centres
  * (soft: they vary over cells; 4 px apart, 8 when lite); the events' glow a pixel pair; RGB565 with a grain (a 16 x 16
@@ -710,6 +740,11 @@ static void umb_backdrop(int32_t x0, int32_t y0)
     int16_t gl[121 * 3], tx[240];                       /* a pair's glow; a pixel's surface */
     int32_t np = ((int32_t)cv_w + 1) >> 1, m, sh, lo, hi, n, lv, nv, x, p, kt;
     uint32_t cx, cy;
+    if (umb_plate % 3u) {                               /* SAROS, FILAMENT */
+        umm_backdrop(umb_plate % 3u, x0, y0);
+        return;
+    }
+    umm_on = 0;
     umb_tick();
     kt = umb.lite ? 0 : UMB_TEX + ((uf.gr * 48) >> 8);  /* (the surface's depth: GRAIN's; lite: none) */
     m = umb.lite ? 2 : 1;                               /* (the lit centres 4 px apart; 8 when lite) */

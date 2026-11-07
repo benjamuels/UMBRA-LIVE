@@ -16,7 +16,7 @@
 enum { MI_COLOR, MI_SKIN, MI_SCOPE, MI_STYLE, MI_LARGE, MI_ANIM, MI_LEDS, MI_SCROFF, MI_HOLD, MI_ACCEL, MI_LATCH, MI_BPMLOCK, MI_SCLLED,
        MI_LOWCUT, MI_USB,
        MI_CLICK, MI_CLKLVL, MI_COUNTIN, MI_TRACKS, MI_LOAD, MI_MIDIOUT, MI_LEARN, MI_LCLEAR, MI_SERIAL, MI_RESTORE, MI_CPU,
-       MI_CLOCK, MI_PANEL, MI_ABOUT, MI_COUNT };   /* (1.1: the metronome's rows; 1.2: RESTORE LAST, SCALE LEDS; 0.9.12: MIDI
+       MI_CLOCK, MI_PLATE, MI_PANEL, MI_ABOUT, MI_COUNT };   /* (1.1: the metronome's rows; 1.2: RESTORE LAST, SCALE LEDS; 0.9.12: MIDI
                       * OUT, LEARN, LEARN CLEAR; CPU, CPU CLOCK, cpu_safe.c; 0.9.18: INIT SYSTEM gone, SAVE > TOOLS > NEW
                       * PROJECT is the same) */
 #define MI_VALUES MI_PANEL
@@ -27,7 +27,7 @@ static const char *const MI_NAME[MI_COUNT] = {"COLOR", "SKIN", "SCOPE", "STYLE",
                                               "HOLD TIME", "KNOB SPEEDUP", "FX LATCH", "BPM LOCK", "SCALE LEDS",
                                               "SPEAKER EQ", "USB LEVEL", "CLICK", "CLICK LEVEL", "COUNT-IN", "TRACKS", "LOAD",
                                               "MIDI OUT", "LEARN", "LEARN CLEAR", "USB AUDIO",
-                                              "RESTORE LAST", "CPU CORES", "CPU CLOCK", "CALIBRATION", "ABOUT"};
+                                              "RESTORE LAST", "CPU CORES", "CPU CLOCK", "PLATE", "CALIBRATION", "ABOUT"};
 /* (0.9.18) the MENU as the rest of the system (rule 1..6): pages of four knobs, KNOB n the page's setting n, SELECT walks
  * the pages, ALGORITHM jumps to the next / previous tab; the tabs the groups (a dot a page), the footer MENU . TAB . page
  * n/N (a page named as its tab, or its tab and a number: MENU . page). Each row on one page (tests/ui_test.c checks it); the editor gets a row's tab after its MENU_DESC reply (tab
@@ -39,7 +39,7 @@ static const char *const MTAB_NAME[MTAB_COUNT] = {"SCREEN", "AUDIO", "MIDI", "US
 typedef struct { char name[9]; uint8_t tab, row[4]; } menu_page_t;
 static const menu_page_t MPAGE[MP_COUNT] = {   /* (a page opens on its first setting: a value, never an action) */
     {"SCREEN", MTAB_SCREEN, {MI_COLOR, MI_SKIN, MI_STYLE, MI_LARGE}},
-    {"SCREEN 2", MTAB_SCREEN, {MI_SCOPE, MI_ANIM, MI_SCROFF, MI_NONE}},
+    {"SCREEN 2", MTAB_SCREEN, {MI_SCOPE, MI_ANIM, MI_SCROFF, MI_PLATE}},   /* (UMBRA OBSCURA: PLATE) */
     {"LEDS", MTAB_SCREEN, {MI_LEDS, MI_SCLLED, MI_NONE, MI_NONE}},
     {"AUDIO", MTAB_AUDIO, {MI_LOWCUT, MI_TRACKS, MI_LOAD, MI_BPMLOCK}},
     {"CLICK", MTAB_AUDIO, {MI_CLICK, MI_CLKLVL, MI_COUNTIN, MI_NONE}},
@@ -76,6 +76,9 @@ static uint32_t mtab_pages(uint32_t t)                 /* .. and how many it has
  * (1.0.2: PIXEL retired, a saved PIXEL reads as LINE) */
 static const char *const STYLE_N[2] = {"FLAT", "LINE"};
 static const char *const SCOPEOPT_N[2] = {"OFF", "ON"};   /* (0.9.7) ui.c ui_scope */
+/* (UMBRA OBSCURA) PLATE: HOME's picture (ui_umbra.c); a byte no engine uses, 0 (KILN) in older settings */
+#define umb_plate (favorites.factory[15][31])
+static const char *const PLATE_N[3] = {"KILN", "SAROS", "FILAMENT"};
 /* (0.8.9) SKIN (ui_skin, gfx.c SKIN_*): COLORS the lens in the 0.6 colours (older settings: 0); HUD the picture full
  * screen, the words floating over it; (0.9.7) AIR, HUD's look with the knobs' row on top (the default of new settings).
  * The menu steps them AIR COLORS HUD (SKIN_MENU: the editor's MENU_DESC lists them so too). (0.9.17) BOTTOM retired: a
@@ -166,7 +169,7 @@ static const menu_flag_t *menu_flag(uint32_t row)
 static uint32_t menu_n(uint32_t row)
 {
     return row == MI_COLOR ? NPALETTES : row == MI_SKIN ? SKIN_MENU_N : row == MI_LOWCUT || (row >= MI_CLICK && row <= MI_COUNTIN) || row == MI_LOAD ? 3u :
-           row == MI_HOLD || row == MI_MIDIOUT ? 4u : row == MI_USB ? 6u : row == MI_SERIAL ? 5u : row == MI_LEDS ? LEDS_COUNT : row == MI_SCROFF ? NELEM(SCROFF_N) : 2u;
+           row == MI_HOLD || row == MI_MIDIOUT ? 4u : row == MI_PLATE ? 3u : row == MI_USB ? 6u : row == MI_SERIAL ? 5u : row == MI_LEDS ? LEDS_COUNT : row == MI_SCROFF ? NELEM(SCROFF_N) : 2u;
 }
 static uint32_t menu_get(uint32_t row)
 {
@@ -186,6 +189,7 @@ static uint32_t menu_get(uint32_t row)
     case MI_SCROFF: return scr_get();
     case MI_CLICK: case MI_CLKLVL: case MI_COUNTIN: return rp_get(row - MI_CLICK);
     case MI_LOAD: return load_get();
+    case MI_PLATE: return umb_plate % 3u;
     case MI_MIDIOUT: return midi_out_mode & 3u;
     case MI_CPU: case MI_CLOCK: return cpu_get(row == MI_CLOCK);
     case MI_LEARN: return ml.on;
@@ -214,6 +218,7 @@ static const char *menu_vname(uint32_t row, uint32_t v)
     case MI_CLKLVL: return CLKLVL_N[v % 3u];
     case MI_COUNTIN: return COUNTIN_N[v % 3u];
     case MI_LOAD: return N_LOAD[v % 3u];
+    case MI_PLATE: return PLATE_N[v % 3u];
     case MI_MIDIOUT: return MIDIOUT_N[v & 3u];
     case MI_CPU: case MI_CLOCK: return CPU_N[row == MI_CLOCK][v & 1u];
     case MI_SCROFF: return SCROFF_N[v % NELEM(SCROFF_N)];
@@ -260,6 +265,7 @@ static void menu_put(uint32_t row, uint32_t v)
     case MI_LEDS: settings_leds = LEDS_MENU[v]; break;
     case MI_CLICK: case MI_CLKLVL: case MI_COUNTIN: rp_put(row - MI_CLICK, v); break;   /* (at once: click.c, seq.c) */
     case MI_LOAD: load_put(v % 3u); break;
+    case MI_PLATE: umb_plate = (uint8_t)(v % 3u); break;   /* (HOME: the next frame) */
     case MI_CPU: case MI_CLOCK: cpu_put(row == MI_CLOCK, v & 1u); break;   /* (0.9.12, cpu_safe.c) */
     case MI_MIDIOUT: midi_out_mode = (uint8_t)(v & 3u); break;
     case MI_LEARN: ml_set(v); break;                   /* (0.9.12: armed, or off; not saved) */   /* (seq.c reads it every frame: ui_input) */         /* (at once: voice.c sys_load) */
