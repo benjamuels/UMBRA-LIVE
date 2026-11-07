@@ -384,6 +384,9 @@ static void fm1_main(void)
         uint32_t m = fm1_ms;
         fm1_wdt_feed();
         usb_retry(fm1_ms);
+#if UMB_MIRROR
+        umr_poll();                                     /* (UMBRA OBSCURA) the screen mirror's queue, repaint, name */
+#endif
 #if FELUCCA_USB_HOST
         if (uh.want && !bt_hw_seg()) {                  /* (V10.41) the host's code is in the Bluetooth segment */
             uh.want = 0;

@@ -31,6 +31,9 @@
 #ifndef FELUCCA_VERSION
 #define FELUCCA_VERSION "WEB"
 #endif
+#define UMB_MIRROR 1                     /* (UMBRA OBSCURA) the screen mirror, as src/felucca.c (its stream: web_mirror_*) */
+#define SM_BUFFER 3072u
+#include "../../firmware/src/screen_mirror/screen_mirror.c"
 
 static uint8_t nor[0x100000];            /* the SPI NOR (erased: 0xFF) */
 #define main hostsim_main
@@ -119,10 +122,13 @@ static void fm1_irq_on(void) {}
 /* ----------------------------------------------------------- the screen --- */
 static uint16_t web_fb[240 * 240];       /* RGB565 as the panel gets it (high byte first) */
 static uint32_t web_draws;
+static void umr_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c);   /* (UMBRA OBSCURA: umb_mirror.c) */
+static void umr_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *px, uint32_t stride);
 static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 {
     uint32_t i, j;
     uint16_t sw = (uint16_t)((c >> 8) | (c << 8));
+    umr_fill(x, y, w, h, c);
     for (j = 0; j < h && y + j < 240u; j++)
         for (i = 0; i < w && x + i < 240u; i++)
             web_fb[(y + j) * 240u + x + i] = sw;
@@ -131,6 +137,7 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 {
     uint32_t i, j;
+    umr_blit(x, y, w, h, p, w);
     for (j = 0; j < h && y + j < 240u; j++)
         for (i = 0; i < w && x + i < 240u; i++)
             web_fb[(y + j) * 240u + x + i] = p[j * w + i];
@@ -239,6 +246,20 @@ static void cdc_task(void) {}
 #define usb_retry(ms) ((void)(ms))
 #define usb_detach() ((void)0)
 #include "../../firmware/src/master.c"
+/* (UMBRA OBSCURA) the screen mirror's messages, as the FM-1 would send them over USB MIDI: the page reads and empties
+ * them (web_mirror_buf / len / clear); full, the mirror waits as it would for USB */
+#define WEB_MQ 65536u
+static uint8_t web_mq[WEB_MQ];
+static uint32_t web_mq_n;
+static int web_mirror_put(const uint8_t *m, unsigned n)
+{
+    if (web_mq_n + n > WEB_MQ)
+        return -2;
+    memcpy(web_mq + web_mq_n, m, n);
+    web_mq_n += n;
+    return 0;
+}
+#include "../../firmware/src/umb_mirror.c"
 #include "../../firmware/src/main.c"
 #undef usb_poll
 #undef usb_start
@@ -289,6 +310,7 @@ static void web_frame(void)
     song_poll();
     ui_leds();
     ui_draw();
+    umr_poll();                                         /* (UMBRA OBSCURA) the screen mirror */
 }
 
 /* output ring, stereo float, filled by web_ms, drained by web_render */
@@ -393,6 +415,23 @@ EXPORT void web_enc(uint32_t role, int32_t n)
         web_enc_steps[panel.enc[role] % 7u] += n * panel.dir[role];
 }
 EXPORT void web_master(uint32_t v) { web_master_adc = v > 1023u ? 1023u : v; }
+/* (UMBRA OBSCURA) the screen mirror: a viewer's hello (k: 0 keep sending, 1 and the whole screen, 2 the name only),
+ * and the SysEx it got back since the last clear */
+EXPORT void web_mirror_hello(uint32_t k)
+{
+    const uint8_t h[6] = {0xF0, 0x7D, 'F', 'S', (uint8_t)k, 0xF7};
+    (void)sm_sysex(h, 6u);
+}
+EXPORT const uint8_t *web_mirror_buf(void) { return web_mq; }
+EXPORT uint32_t web_mirror_len(void) { return web_mq_n; }
+EXPORT void web_mirror_clear(void) { web_mq_n = 0; }
+EXPORT void web_mirror_take(uint32_t n)                 /* the first n bytes read (a viewer at USB's pace) */
+{
+    if (n > web_mq_n)
+        n = web_mq_n;
+    memmove(web_mq, web_mq + n, web_mq_n - n);
+    web_mq_n -= n;
+}
 EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) KILN's knobs (FLOW, DECAY: PLATE's); 99: the PLATE */
 {
     if (i == UK_FLOW || i == UK_DECAY)

@@ -78,6 +78,10 @@
 
 /* ----------------------------------------------------- base, display --- */
 #include "libc.c"
+#define UMB_MIRROR 1             /* (UMBRA OBSCURA) the screen on a computer, over USB MIDI (umb_mirror.c) */
+#define SM_BUFFER 3072u          /* (its queue, in the pool: RAM is short) */
+#define SM_BUFFER_ATTR __attribute__((section(".pool")))
+#include "screen_mirror/screen_mirror.c"   /* Patrick F. Kellogg's FM-1 screen mirror (MIT: screen_mirror/LICENSE) */
 #include "lcd.c"
 #include "gfx.c"
 
@@ -134,6 +138,7 @@
 #if FELUCCA_BT
 #include "bt_hw.c"               /* (V10.12) bt.c's calls into the Bluetooth segment */
 #endif
+#include "umb_mirror.c"         /* (UMBRA OBSCURA) the mirror's side here: the panel's rows, the queue, the name */
 #include "main.c"
 
 

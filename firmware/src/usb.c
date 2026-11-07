@@ -245,7 +245,7 @@ static uint8_t sx_frame[640];
 static uint32_t sx_pos;
 static volatile uint32_t sx_frame_len;
 static volatile uint8_t sx_ready, sx_collect, sx_busy;
-#define SXQ 64u
+#define SXQ 256u                 /* (UMBRA OBSCURA: was 64; the screen mirror's messages share it, umb_mirror.c) */
 static uint32_t sx_out_q[SXQ];
 static volatile uint32_t so_w, so_r;
 #endif
@@ -999,6 +999,10 @@ static void sysex_byte(uint8_t b)
     if (usb.sx_len < sizeof usb.sysex)
         usb.sysex[usb.sx_len++] = b;
     if (b == 0xF7) {
+#if UMB_MIRROR
+        if (usb.sx_len == 6u)
+            (void)sm_sysex(usb.sysex, 6u);              /* (UMBRA OBSCURA) a screen mirror's hello (umb_mirror.c) */
+#endif
         uint32_t i, ok = usb.sx_len == 6u;
         for (i = 0; ok && i < 6u; i++)
             ok = usb.sysex[i] == UBOOT_KEY[i];
