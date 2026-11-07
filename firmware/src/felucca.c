@@ -17,7 +17,8 @@
 #define FELUCCA_OTA_DRYRUN 0     /* 1 = stage, ask "success", then undo: no record, no reset */
 #endif
 #ifndef FELUCCA_CDC
-#define FELUCCA_CDC 1            /* USB CDC-ACM serial console */
+#define FELUCCA_CDC 0            /* USB CDC-ACM serial console (UMBRA OBSCURA: off, its ~7 KB of flash and ~3 KB of
+                                  * RAM for the plates; a build with it: FELUCCA_CDC=1) */
 #endif
 #ifndef FELUCCA_UAC
 #define FELUCCA_UAC 1            /* USB audio input: the master output, 16-bit stereo 44.1 kHz (usb.c) */
@@ -38,7 +39,12 @@
 #define FELUCCA_BT 1             /* (V10.12) MENU > SYSTEM > BLUETOOTH: bt.c, bt_hw.c, the segment firmware/bt/bt_seg.c */
 #endif
 #ifndef FELUCCA_USB_HOST
-#define FELUCCA_USB_HOST 1       /* (V10.41) MENU > SYSTEM > USB > HOST: a USB-MIDI keyboard on the port (usb_host.c) */
+#define FELUCCA_USB_HOST 0       /* (V10.41) MENU > SYSTEM > USB > HOST: a USB-MIDI keyboard on the port (usb_host.c;
+                                  * UMBRA OBSCURA: off, no USB input) */
+#endif
+#ifndef FELUCCA_UAC_48K
+#define FELUCCA_UAC_48K 0        /* (usb.c) USB audio at 48 kHz too (UMBRA OBSCURA: off, 44.1 kHz only: ~5.5 KB of flash and
+                                  * ~16 KB of pool, where KILN's field goes) */
 #endif
 #ifndef FELUCCA_ID
 #define FELUCCA_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */

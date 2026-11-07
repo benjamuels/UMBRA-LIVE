@@ -140,7 +140,7 @@ static struct {
     uint32_t f0, ms, rs, qr, steps, en_n, lastf, fav;   /* .. fav: the frames' interval, averaged (ms x 16) */
     uint8_t init, lite;                                 /* lite: frames slow (a full song): lighter until they recover */
     uint8_t bare;                                       /* TOTALITY being drawn: the whole screen KILN's, nothing darkened */
-} umb;
+} umb __attribute__((section(".pool")));   /* (V10: in the pool, zeroed at boot; RAM's full) */
 
 static uint32_t umb_rnd(void)                          /* mulberry32 */
 {
