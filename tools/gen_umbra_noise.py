@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 UMBRA OBSCURA contributors
 """KILN's tables (firmware/src/ui_umbra.c), made here once so they live in flash (const), not in RAM or the pool:
-the noise, 64 x 64 bytes of value noise that tiles, two octaves (lattices of 8 and 16; ui_umbra.c's own integer maths),
+the noise, 32 x 32 bytes of value noise that tiles, two octaves (lattices of 4 and 8, features 8 and 4 texels apart;
+ui_umbra.c's own integer maths; 64 x 64 with lattices of 8 and 16 until the melody plates needed 3 KB of the FM-1's slot),
 the light's 1 / |normal| (Q8) for a normal's x and y (Q8) squared and summed: below 2^18 in steps of 1024
 (umb_rsa), below 2^24 in steps of 65536 (umb_rsb); the lava's colour at each value of the field (umb_tl: the tone, a dark
 base then a steep rise from UMB_T0 over UMB_TW and a brighter crest, through the cold palette), the waves' profile
@@ -12,7 +13,9 @@ noise, void and cluster).
 import math
 
 M = 0xFFFFFFFF
-NS = 437                                              # the table's seed
+N = 32                                                # the noise table's side (ui_umbra.c UMB_T)
+NS = 719                                              # its seed (the one whose spread, range and slopes are closest to
+                                                      # the 64 x 64 table's of seed 437: KILN's chemistry and relief kept)
 
 
 def h32(x, y, s):
@@ -23,21 +26,21 @@ def h32(x, y, s):
 
 def octave(x, y, per, s):
     gx, gy = x * per, y * per
-    xi, yi, xf, yf = gx >> 6, gy >> 6, (gx & 63) << 2, (gy & 63) << 2
+    xi, yi, xf, yf = gx // N, gy // N, (gx % N) * 256 // N, (gy % N) * 256 // N
     u, v = (xf * xf * (768 - 2 * xf)) >> 16, (yf * yf * (768 - 2 * yf)) >> 16
     a, b = h32(xi % per, yi % per, s) >> 24, h32((xi + 1) % per, yi % per, s) >> 24
     c, d = h32(xi % per, (yi + 1) % per, s) >> 24, h32((xi + 1) % per, (yi + 1) % per, s) >> 24
     return a + (((b - a) * u) >> 8) + (((c - a) * v) >> 8) + (((a - b - c + d) * u * v) >> 16)
 
 
-t = [(octave(x, y, 8, NS) * 159 + octave(x, y, 16, NS + 1) * 97) >> 8 for y in range(64) for x in range(64)]
+t = [(octave(x, y, N // 8, NS) * 159 + octave(x, y, N // 4, NS + 1) * 97) >> 8 for y in range(N) for x in range(N)]
 assert all(0 <= v <= 255 for v in t)
 print("/* SPDX-License-Identifier: GPL-3.0-only")
 print(" * Copyright (C) 2026 UMBRA OBSCURA contributors */")
-print("/* KILN's tables: the noise (64 x 64, tiling), the light's 1 / |normal|, the lava's colour, the waves' and the flashes'")
+print("/* KILN's tables: the noise (%d x %d, tiling), the light's 1 / |normal|, the lava's colour, the waves' and the flashes'" % (N, N))
 print(" * profiles (tools/gen_umbra_noise.py: do not edit) */")
-print("static const uint8_t umb_tn[64 * 64] = {")
-for r in range(0, 4096, 32):
+print("static const uint8_t umb_tn[%d * %d] = {" % (N, N))
+for r in range(0, N * N, 32):
     print("    " + ", ".join(str(v) for v in t[r:r + 32]) + ",")
 print("};")
 rsa = [min(255, round(256 / (1 + (i * 1024 + 512) / 65536) ** 0.5)) for i in range(256)]

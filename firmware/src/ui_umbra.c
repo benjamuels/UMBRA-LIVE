@@ -18,7 +18,7 @@
  *
  * Fixed point throughout, sized for what the firmware has left (V10.6x: ~18 KB of RAM, ~9 KB of pool, ~16 KB of flash):
  *   the field 60 x 60 cells (a cell 4 x 4 px), a byte a chemical: 10.8 KB; no second copy: a step reads a rolling window
- *   of five rows of Moore averages (1.8 KB) and writes the field in place; the noise table 64 x 64 (4 KB, in flash);
+ *   of five rows of Moore averages (1.8 KB) and writes the field in place; the noise table 32 x 32 (1 KB, in flash);
  *   lit once a cell, at its centre (3,844 points a frame, tables for the light: no square root, no division), the shade
  *   and the light blended to a 2 x 2 px block; but each pixel's tone worked out from the field blended there (sharpened
  *   first), so the lava's edges are a pixel sharp, and the dark base (most of the screen) a pair at once; the surface
@@ -33,7 +33,8 @@
 /* PLATE (MENU > SCREEN 2, menu_items.c umb_plate): 0 KILN; 1 SAROS, 2 FILAMENT, the melody plates (this file's end) */
 #define UMB_N 60                                        /* the field: 60 x 60 cells */
 #define UMB_S (UMB_N * UMB_N)
-#define UMB_T 64                                        /* the noise table: 64 x 64, tiling */
+#define UMB_T 32                                        /* the noise table: 32 x 32, tiling (64 x 64 until the melody
+                                                         * plates needed its room: the same features, the tile half) */
 #define UMB_NE 16u                                      /* events (notes' waves) drawn at once */
 #define UMB_FLOOR 3                                     /* the least of each chemical a cell keeps (of 255) */
 #define UMB_SHARP 64                                    /* the field sharpened before it is blended (Q8 of its Laplacian) */
@@ -146,7 +147,8 @@ static int32_t umb_clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo
 /* the table at X, Y (texels, Q8; it wraps): its value x 256 */
 static int32_t umb_tbil(int32_t X, int32_t Y)
 {
-    int32_t x0 = (X >> 8) & 63, y0 = (Y >> 8) & 63, fx = X & 255, fy = Y & 255, x1 = (x0 + 1) & 63, y1 = (y0 + 1) & 63;
+    int32_t x0 = (X >> 8) & (UMB_T - 1), y0 = (Y >> 8) & (UMB_T - 1), fx = X & 255, fy = Y & 255, x1 = (x0 + 1) & (UMB_T - 1),
+            y1 = (y0 + 1) & (UMB_T - 1);
     int32_t a = umb_tn[y0 * UMB_T + x0], b = umb_tn[y0 * UMB_T + x1], c = umb_tn[y1 * UMB_T + x0], d = umb_tn[y1 * UMB_T + x1];
     return (a << 8) + (b - a) * fx + (c - a) * fy + (((a - b - c + d) * fx * fy) >> 8);
 }
@@ -781,7 +783,8 @@ static void umb_backdrop(int32_t x0, int32_t y0)
             uint32_t u2 = (uint32_t)(py * 100663 - x0 * 29360) - ((uint32_t)uf.oA << 8);
             uint32_t v2 = (uint32_t)(-x0 * 100663 - py * 29360) + 1234567u;
             for (x = 0; x < (int32_t)cv_w; x++, u1 += 125829u, v1 -= 94372u, u2 -= 29360u, v2 -= 100663u)
-                tx[x] = (int16_t)(umb_tn[((v1 >> 16) & 63u) << 6 | ((u1 >> 16) & 63u)] + umb_tn[((v2 >> 16) & 63u) << 6 | ((u2 >> 16) & 63u)] -
+                tx[x] = (int16_t)(umb_tn[((v1 >> 16) & (UMB_T - 1u)) * UMB_T | ((u1 >> 16) & (UMB_T - 1u))] +
+                                  umb_tn[((v2 >> 16) & (UMB_T - 1u)) * UMB_T | ((u2 >> 16) & (UMB_T - 1u))] -
                                   256);
         }
         for (k = 0, fy = tv & 255; k < nv; k++)
