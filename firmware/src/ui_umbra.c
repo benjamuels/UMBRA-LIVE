@@ -144,8 +144,46 @@ static uint32_t umb_vel(uint32_t v)
     uint32_t r = umt_get(9u);
     return !v ? 0u : (v = v * (r <= 50u ? r * 256u / 50u : 256u + (r - 50u) * 768u / 49u) >> 8) > 127u ? 127u : v;
 }
-#include "ui_umbra_noise.h"                            /* umb_tn, umb_E, umb_at, umb_ln: in flash
+#include "ui_umbra_noise.h"                            /* umb_at: in flash
                                                          * (tools/gen_umbra_noise.py) */
+/* the noise: 32 x 32 bytes of value noise that tiles, two octaves (lattices of 4 and 8, features 8 and 4 texels apart; seed
+ * 719, its spread, range and slopes closest to KILN's 64 x 64 table's); the fades' profile, 255 exp(-i / 32) (umb_exp); the
+ * log, 512 ln(r / 16), r 16 .. 175 px (CORONA's map, TARN's reflection). Made once before a plate first needs them
+ * (umb_tabs: umb_backdrop, umb_welcome), in RAM. (In flash, made by tools/gen_umbra_noise.py, until the welcome wanted
+ * 1.6 KB of the slot: these are the same values) */
+static uint8_t umb_tn[32 * 32];
+static uint8_t umb_E[256] __attribute__((section(".pool")));
+static uint16_t umb_ln[160] __attribute__((section(".pool")));
+static __attribute__((noinline)) uint32_t umb_h8(uint32_t x, uint32_t y, uint32_t s)   /* a lattice point's value, 0..255 */
+{
+    uint32_t h = x * 374761393u + y * 668265263u + s * 1442695041u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return (h ^ (h >> 16)) >> 24;
+}
+/* an octave at texel x, y: the lattice of per (it wraps) smoothstepped between its points */
+static int32_t umb_oct(uint32_t x, uint32_t y, uint32_t per, uint32_t s)
+{
+    uint32_t gx = x * per, gy = y * per, xi = gx >> 5, yi = gy >> 5, x1 = (xi + 1u) % per, y1 = (yi + 1u) % per;
+    int32_t xf = (int32_t)(gx & 31u) << 3, yf = (int32_t)(gy & 31u) << 3, u = (xf * xf * (768 - 2 * xf)) >> 16,
+            v = (yf * yf * (768 - 2 * yf)) >> 16, a = (int32_t)umb_h8(xi, yi, s), b = (int32_t)umb_h8(x1, yi, s),
+            c = (int32_t)umb_h8(xi, y1, s), d = (int32_t)umb_h8(x1, y1, s);
+    return a + (((b - a) * u) >> 8) + (((c - a) * v) >> 8) + (((a - b - c + d) * u * v) >> 16);
+}
+static void umb_tabs(void)
+{
+    uint32_t k, e;
+    if (umb_tn[0])                                      /* (made: its first byte is 94) */
+        return;
+    for (k = 0, e = 255u << 16; k < 256u; k++, e = ((e >> 8) * 63519u) >> 8)
+        umb_E[k] = (uint8_t)(e >> 16);
+    for (k = 0, e = 0; k < 160u; k++) {                 /* (ln(r / 16) in Q24: 2 atanh(1 / (2j - 1)), j 17 .. r, summed) */
+        uint32_t q = 2u * k + 33u;
+        umb_ln[k] = (uint16_t)((e + (1u << 14)) >> 15);
+        e += (1u << 25) / q + (1u << 25) / (3u * q * q * q);
+    }
+    for (k = 0; k < 32u * 32u; k++)
+        umb_tn[k] = (uint8_t)((umb_oct(k & 31u, k >> 5, 4u, 719u) * 159 + umb_oct(k & 31u, k >> 5, 8u, 720u) * 97) >> 8);
+}
 /* SAROS and FILAMENT (ui_umbra_melody.c) */
 #define UMM_TH 48                                       /* SAROS: threads at most */
 #define UMM_ND 12                                       /* .. the notes' points glowing */
@@ -307,6 +345,7 @@ static const uint8_t UMB_LANE_POS[NLANE] = {3, 5, 6, 2, 1, 4, 7, 0};   /* KICK i
 static void umb_backdrop(int32_t x0, int32_t y0)
 {
     uint32_t pl = umb_pl();
+    umb_tabs();                                         /* (the noise, once) */
     umb_clock();
     if (pl == 1u || pl == 2u) {                         /* SAROS, FILAMENT */
         ump_on = 0xFFu;

@@ -857,3 +857,100 @@ static __attribute__((noinline)) void ump_backdrop(uint32_t pl, int32_t x0, int3
     else
         ump_ta_draw(x0, y0);
 }
+
+/* ------------------------------------------------------------------------------------------------ WELCOME --- */
+/* (UMBRA OBSCURA) the power-on screen, UMW_T ms (ui_draw.c draw_splash, splash_write: main.c boot_splash, web/emu): an
+ * eclipse reaching totality, on CORONA's corona. Out of the black a pale sun, the moon already on it from the lower left,
+ * slowing as it covers it; its last light a bead on the upper right that flares (the diamond ring) with the chromosphere;
+ * the corona unfurling round the black disc, turning slowly to a stop; the name rising out of the dark under it, then the
+ * line under that; by 3.55 s all still, held so 2 s; and in the last 0.45 s all sinks to black. ms: from its start (past
+ * UMW_T: nothing drawn). It borrows CORONA's state (ump_on 0xFE: the plate after it starts afresh) */
+#define UMW_T 6000u                                     /* (3.55 s of the eclipse, 2 s still, 0.45 s to black) */
+#define UMW_DY 24                                       /* (the eclipse 24 px above the screen's centre, CORONA's) */
+static __attribute__((noinline)) int32_t umw_rp(int32_t t, int32_t t0, int32_t d)   /* 0..256 from t0 over d ms */
+{
+    return umb_clamp((t - t0) * 256 / d, 0, 256);
+}
+static __attribute__((noinline)) int32_t umw_in(int32_t t, int32_t t0, int32_t d)   /* .. slowing as it arrives */
+{
+    int32_t q = 256 - umw_rp(t, t0, d);
+    return 256 - (q * q >> 8);
+}
+static __attribute__((noinline)) int32_t umw_out(int32_t dx, int32_t dy, int32_t r2)   /* out of a disc r2 (1/16 px,
+                                                                                         * squared) by dx dy: Q8 */
+{
+    return umb_clamp(128 + ((dx * dx + dy * dy - r2) >> 6), 0, 256);
+}
+static void umb_welcome(uint32_t ms)
+{
+    ump_co_t *s = &umb.co;
+    int32_t t = (int32_t)(ms < 3550u ? ms : 3550u), a, x, y, h, g, c, gl, sg, off, mx, my, r;   /* (t: still from 3.55 s) */
+    if (ump_on != 0xFEu) {                              /* (CORONA started as ump_tick does, its frame left out) */
+        umb_tabs();
+        umb.f0 = ui.frame;
+        ump_tick(4u);
+        umb.f0 = 0;                                     /* (as at power-on) */
+        ump_on = 0xFEu;
+    }
+    if (ms >= UMW_T)
+        return;
+    g = 256 - umw_rp((int32_t)ms, (int32_t)UMW_T - 450, 450);
+    g = g * g >> 8;                                     /* the end: to black over 0.45 s, faster as it goes */
+    c = umw_in(t, 1450, 1000);                          /* the corona */
+    sg = (umw_rp(t, 150, 550) * g) >> 8;                /* the sun, out of the black */
+    a = 256 - umw_rp(t, 200, 1450);
+    off = ((a * (256 + a)) >> 9) * 46;                  /* the moon's way still to go (px, Q8): slowing, its last
+                                                         * pixel at ~1.6 s, as the bead flares */
+    mx = 1912 - (off * 205 >> 12);                      /* (its centre, 1/16 px, less half a pixel: from the lower left) */
+    my = 1912 + (off * 154 >> 12);
+    a = umw_rp(t, 1300, 350);
+    gl = t < 1650 ? a * a >> 8 : umb_exp((t - 1650) * 45 >> 8);   /* the bead: the diamond ring, 0.18 s to fade */
+    r = umw_in(t, 1450, 2100) * 3;                      /* (the corona turning 3 streamers as it shows, slowing to still) */
+    for (a = 0; a <= (int32_t)UMR_NA; a++) {            /* the corona at rest, turned, unfurling (REACH) as it comes;
+                                                         * brighter than the plate's: no notes feed it */
+        int32_t i = (a + (r >> 8)) & (UMR_NA - 1), b = s->base[i], S;
+        S = ((b + (((s->base[(i + 1) & (UMR_NA - 1)] - b) * (r & 255)) >> 8)) * 3) >> 1;
+        s->S[a] = (uint16_t)S;
+        s->K[a] = (int16_t)(947 - (((180 + ((c * 300) >> 8)) * (S > 256 ? 256 : S)) >> 8));
+    }
+    s->P = (uint16_t)gl;                                /* (the chromosphere flaring with the bead) */
+    umr_rm = 30;
+    umr_k = 8192 / 30;
+    umb.bare = 1;
+    for (y = 0; y < 240; y += 120) {
+        cv_begin(240, 120, 0);
+        umm_x0 = 0;
+        umm_y0 = y + UMW_DY;
+        umm_lq = (g * c) >> 8;
+        cv_h = (uint32_t)(240 - umm_y0 < 120 ? 240 - umm_y0 : 120);   /* (CORONA's maps end at its screen's foot) */
+        if (c)
+            ump_co_draw(0, y + UMW_DY);
+        cv_h = 120;
+        umm_lq = g;
+        h = 33 + (off >> 8);                            /* the sun (r 29, its limb darker) and the moon (r 30): a box */
+        for (a = 120 - h; a < 120 + h; a++) {
+            int32_t ry = a - umm_y0;
+            if ((uint32_t)ry >= 120u)
+                continue;
+            for (x = 120 - h; x < 120 + h; x++) {
+                int32_t dx = x * 16 - 1912, dy = a * 16 - 1912, am = umw_out(x * 16 - mx, a * 16 - my, 480 * 480),
+                        as = 256 - umw_out(dx, dy, 464 * 464);
+                if (as || am < 128)
+                    cv_px[ry * 240 + x] = ump_lut[((a & 1) << 1) | (x & 1)][UMP_IX(((((255 - ((dx * dx + dy * dy) >> 12)) * as) >> 8) * am) >> 8, sg)];
+            }
+        }
+        for (a = -14; gl && a <= 14; a++)               /* the bead: a glow, and a star's four rays (none at the edge) */
+            for (x = -14; x <= 14; x++) {
+                int32_t p = a * x < 0 ? -a * x : a * x;
+                umm_px(144 + x, 102 + a, gl * 17 / (6 + a * a + x * x + 6 * p) - gl / 12, 236, 250, 246);
+            }
+        if (y) {                                        /* the name rising, pale teal; the line under it, grey */
+            a = umw_in(t, 2150, 650);
+            cv_text_in(0, 60 - (a * 6 >> 8), 240, &AF_M, "U M B R A   O B S C U R A", swap16(ump_lut[1][(((a * 215) >> 8) * g) >> 8]), 0);
+            a = umw_in(t, 2550, 650);
+            cv_text_in(0, 100, 240, &AF_X, "live visuals system built on Jiant", ux_gray((uint32_t)((((a * 150) >> 8) * g) >> 11)), 0);
+        }
+        cv_blit(0, (uint32_t)y);
+    }
+    umb.bare = 0;
+}

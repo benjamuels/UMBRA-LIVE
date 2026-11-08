@@ -1864,8 +1864,9 @@ static void draw_columns(void)
 #include "ui_signature.h"
 #define SPL_WRITE 800u                              /* ms: the signature written (was 900; 0.6.51: 600 -> 800) */
 #define SPL_HOLD 900u                               /* .. then shown whole, before the UI (was 1100; 0.6.51: 500 -> 900) */
-#define UMB_SPLASH 0                                /* (UMBRA OBSCURA) no splash: a dark screen, then straight to the UI */
-#define SPL_TIME (UMB_SPLASH ? SPL_WRITE + SPL_HOLD : 0u)   /* ms the splash is up (main.c, web/emu) */
+#define UMB_SPLASH 0                                /* (UMBRA OBSCURA) not the signature: its welcome, an eclipse
+                                                     * (ui_umbra_field.c umb_welcome; MENU > ANIM OFF: held still) */
+#define SPL_TIME (UMB_SPLASH ? SPL_WRITE + SPL_HOLD : UMW_T)   /* ms the splash is up (main.c, web/emu) */
 #define SPL_SY 40                                   /* the signature's canvas on the screen (240 x SIG_H + 12) */
 #define SPL_TY 186                                  /* the two lines under it */
 static const char *const SPLASH_LINES[] = {FELUCCA_VERSION, "by Juan Jiant"};
@@ -1999,6 +2000,8 @@ static void draw_splash(void)
     uint32_t k;
     lcd_fill(0, 0, 240, 240, T_BG);
     if (!UMB_SPLASH) {
+        if (ui_prefs & PREF_ANIM_OFF)
+            umb_welcome(3000u);                     /* (UMBRA OBSCURA: still, its totality) */
         lcd_sync();
         return;
     }
@@ -2012,9 +2015,12 @@ static void draw_splash(void)
 /* main.c's splash loop: the signature as written ms after the start */
 static void splash_write(uint32_t ms)
 {
-    if (!UMB_SPLASH || !spl_anim || (ui_prefs & PREF_ANIM_OFF))
+    if (!spl_anim || (ui_prefs & PREF_ANIM_OFF))
         return;
-    splash_sig(ms >= SPL_WRITE ? 0x7FFFFFFF : (int32_t)((int64_t)sig_len() * ms / SPL_WRITE), ms);
+    if (!UMB_SPLASH)
+        umb_welcome(ms);                            /* (UMBRA OBSCURA) */
+    else
+        splash_sig(ms >= SPL_WRITE ? 0x7FFFFFFF : (int32_t)((int64_t)sig_len() * ms / SPL_WRITE), ms);
     lcd_sync();
 }
 
