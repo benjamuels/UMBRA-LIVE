@@ -269,6 +269,11 @@ static void eco_draw(int32_t x0, int32_t y0, int words)
                        hud ? T_TEXT : T_MID, T_SURF);   /* (0.9.0 HUD: TEXT, over the beings; 0.9.7: a mutation, white) */
     }
 words:
+    if (UMB_ON && words && umb_vis()) {                 /* (UMBRA OBSCURA) PLATE, NOTES, ROUTING: the plate (ALGORITHM) */
+        int32_t y = hud ? (int32_t)graph_y() + 3 : 2;
+        cv_text(6, y, &AF_X, UMV_PL[umb_pl()], hud ? T_TEXT : T_DIM);
+        cv_text_r(234, y, &AF_X, "ALGORITHM", T_DIM, T_SURF);
+    }
     if (words && home_set()) {                          /* MACROS: the routes, LATCH */
         int32_t y = hud ? (int32_t)graph_y() + 3 : 2;
         fmt_int(b, (int32_t)routes_count());

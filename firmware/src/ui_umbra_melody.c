@@ -22,8 +22,9 @@
 static const uint8_t UMM_WT[3] = {236, 250, 246}, UMM_TEAL[3] = {143, 217, 201}, UMM_REST[3] = {34, 60, 96};
 static uint8_t umm_on;                                  /* the melody plate drawn last (0: none: it starts afresh) */
 static int32_t umm_x0, umm_y0;                          /* the strip being drawn: its place on the screen */
-static int32_t umm_lq, umm_fk, umm_damp;                /* HOME > ECO > PLATE, worked out once a frame (umm_tick): LIGHT
-                                                         * (Q8), SAROS's FADE (its rate), FILAMENT's RING (released) */
+static int32_t umm_lq, umm_fk, umm_damp, umm_ru;        /* HOME > ECO > PLATE, worked out once a frame (umm_tick): LIGHT
+                                                         * (Q8), SAROS's FADE (its rate), FILAMENT's RING (released), SAROS's
+                                                         * umbra's radius (SIZE: 26 px at 50, px Q8) */
 /* add the light r g b (0..255) x w / 256 to the screen's pixel x, y if the strip has it */
 static void umm_px(int32_t x, int32_t y, int32_t w, int32_t r, int32_t g, int32_t b)
 {
@@ -58,7 +59,8 @@ static void umm_splat(int32_t X, int32_t Y, int32_t a, const uint8_t *c)
 static void umm_pos(uint32_t c, uint32_t n, int32_t *X, int32_t *Y)
 {
     uint32_t k = ((n + 120u - (uint32_t)trk[c].p[P_ROOT] % 12u) % 12u * 7u + (uint32_t)(24 + ((umn.o[c][0] * 12) >> 8))) % 12u;
-    int32_t r = 10240 + umn_at(c, 1u, umb_clamp((int32_t)n / 12 - 3, 0, 5), 5) * 3456;
+    int32_t r = umm_ru + 3584 + umn_at(c, 1u, umb_clamp((int32_t)n / 12 - 3, 0, 5), 5) * (23936 - umm_ru) / 5;   /* (the rings
+                                                         * from 14 px out of the umbra to 107.5) */
     *X = UMM_CX * 256 + ((r * umb.m.ux[k]) >> 15);
     *Y = UMM_CY * 256 + ((r * umb.m.uy[k]) >> 15);
 }
@@ -142,20 +144,21 @@ static void umm_saros_frame(void)
     }
     m->nth = (uint8_t)j;
 }
-static int umm_umbra(int32_t X, int32_t Y)             /* behind the umbra (26 px) */
+static int umm_umbra(int32_t X, int32_t Y)             /* behind the umbra (26 px at SIZE 50) */
 {
     int32_t dx = (X >> 4) - UMM_CX * 16, dy = (Y >> 4) - UMM_CY * 16;
-    return dx * dx + dy * dy < 26 * 26 * 256;
+    return dx * dx + dy * dy < (umm_ru >> 4) * (umm_ru >> 4);
 }
 static void umm_saros_draw(void)
 {
     umm_t *m = &umb.m;
     int32_t i, k, ylo = (umm_y0 - 2) * 256, yhi = (umm_y0 + (int32_t)cv_h + 1) * 256;
-    if (umm_y0 < UMM_CY + 32 && umm_y0 + (int32_t)cv_h > UMM_CY - 32)
+    if (umm_y0 < UMM_CY + (umm_ru >> 8) + 6 && umm_y0 + (int32_t)cv_h > UMM_CY - (umm_ru >> 8) - 6)
         for (i = 0; i < 180; i++) {                     /* the umbra's corona (as it was: a turn leaves it so) */
-            int32_t s = sine_i((uint32_t)i * 23860929u), c = sine_i((uint32_t)i * 23860929u + 0x40000000u);
-            umm_splat(UMM_CX * 256 + ((c * 7040) >> 15), UMM_CY * 256 + ((s * 7040) >> 15), 51, UMM_TEAL);
-            umm_splat(UMM_CX * 256 + ((c * 7680) >> 15), UMM_CY * 256 + ((s * 7680) >> 15), 13, UMM_TEAL);
+            int32_t s = sine_i((uint32_t)i * 23860929u), c = sine_i((uint32_t)i * 23860929u + 0x40000000u), r = umm_ru * 55 / 52;
+            umm_splat(UMM_CX * 256 + ((c * r) >> 15), UMM_CY * 256 + ((s * r) >> 15), 51, UMM_TEAL);
+            r = umm_ru * 60 / 52;
+            umm_splat(UMM_CX * 256 + ((c * r) >> 15), UMM_CY * 256 + ((s * r) >> 15), 13, UMM_TEAL);
         }
     for (i = 0; i < 12; i++)                            /* the dial: the root's tick teal */
         umm_splat(UMM_CX * 256 + ((29696 * m->ux[i]) >> 15), UMM_CY * 256 + ((29696 * m->uy[i]) >> 15), i ? 179 : 128,
@@ -297,8 +300,10 @@ static void umm_fil_step(void)
 static void umm_fil_draw(void)
 {
     umm_t *m = &umb.m;
-    int32_t c, x, nl = trk_live, sp = (nl > 4 ? 24 : 34) + (umb.bare ? 10 : 0), cy = umb.bare ? 120 : 150;   /* (TOTALITY:
-                                                         * the whole screen) */
+    int32_t c, x, nl = trk_live, sp = (((nl > 4 ? 24 : 34) + (umb.bare ? 10 : 0)) * umv_sc(2u)) >> 8, cy = umb.bare ? 120 : 150;
+                                                        /* (TOTALITY: the whole screen; SPREAD: a quarter .. twice) */
+    if (nl > 1 && sp * (nl - 1) > 224)                  /* (all on the screen) */
+        sp = 224 / (nl - 1);
     for (c = 0; c < nl && c < NTRK; c++) {
         const int16_t *u = m->u[c];
         const uint8_t *tc = UMB_EVC[(c * 3) % 8];
@@ -349,6 +354,7 @@ static void umm_tick(uint32_t pl)
     umm_lq = umv_light(pl);
     umm_fk = 506 / ((int32_t)umv(1u, 1u) + 1);         /* (FADE 45: 11) */
     umm_damp = 32768 - (int32_t)(d < 8192u ? d : 8192u);
+    umm_ru = 26 * umv_sc(1u);                           /* (SIZE) */
     if (umm_on != pl) {
         memset(m, 0, sizeof *m);
         umm_on = (uint8_t)pl;

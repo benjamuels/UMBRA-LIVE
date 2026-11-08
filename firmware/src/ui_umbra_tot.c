@@ -4,9 +4,10 @@
  * In: HOME tapped on HOME (its button lit there; on GEN too, which closes), or PLAY on SAVE > SONG > TIMELINE or SAVE >
  * PROJECT > ARRANGE (the song starts, and TOTALITY with it). Out: HOME again (back to the page it came from), or a button
  * that goes to a page (a section's, SAVE, SEQ, HOME held for the menu, a dialog, GEN: umt_check). In it:
- *   SELECT the plates, round, a detent a plate;
- *   KNOB 1..4 what HOME > ECO > ROUTING sends them to (UMT_*: the plate's own two, LIGHT, SPEED, REACT, MOVEMENT,
- *   TRAVEL);
+ *   SELECT the plates, round, a detent a plate; the new one spreads from the middle over the old (DISSOLVE: gfx.c dc_gate,
+ *   the cells not yet reached keep what they showed; HOME > ECO > NOTES, 0 a cut .. 99 four seconds);
+ *   KNOB 1..4 what HOME > ECO > ROUTING sends them to on this plate (UMT_*: the plate's own three, LIGHT, SPEED, REACT,
+ *   MOVEMENT, TRAVEL, DISSOLVE);
  *   FX tapped: KNOB 1..4 the visual effects instead (MIRROR MOSAIC GLITCH SOLAR), FX lit; tapped again: the plate's;
  *   the keys, PLAY, REC, OCT, ALGORITHM, PRESETS and a layer held as on HOME (the layer's map over it while it shows);
  *   PLAY plays the song again when TOTALITY came from TIMELINE or ARRANGE;
@@ -25,13 +26,23 @@ static struct {
     char say[32];
     uint32_t qr, gms;                                   /* GLITCH: the notes read, its clock */
     int32_t ge;                                         /* .. its energy (Q8) */
+    uint32_t fms;                                       /* DISSOLVE: since when (0: none) */
 } umt;
 static const char *const UMT_FXN[4] = {"MIRROR", "MOSAIC", "GLITCH", "SOLAR"};
 static const char *const UMT_MIR[4] = {"OFF", "L-R", "T-B", "QUAD"};
 static const char *umt_tname(uint32_t pl, uint32_t t)   /* routed target t's name on plate pl */
 {
-    static const char *const N[5] = {"LIGHT", "SPEED", "REACT", "MOVEMENT", "TRAVEL"};
-    return t < 2u ? UMV_N[pl % UMP_NPL][t] : N[(t - 2u) % 5u];
+    static const char *const N[6] = {"LIGHT", "SPEED", "REACT", "MOVEMENT", "TRAVEL", "DISSOLVE"};
+    return t < 3u ? UMV_N[pl % UMP_NPL][t] : N[(t - 3u) % 6u];
+}
+static uint32_t umt_ix(uint32_t t) { return t == UMT_FADE ? 0u : t + 4u; }   /* a target past LIGHT: its byte (umt_get) */
+static uint32_t umt_val(uint32_t pl, uint32_t t) { return t <= UMT_LIGHT ? umv(pl, t) : umt_get(umt_ix(t)); }
+static void umt_add(uint32_t pl, uint32_t t, int32_t d)   /* target t turned d (MOVEMENT: a detent a step) */
+{
+    if (t <= UMT_LIGHT)
+        umv_put(pl, t, (uint32_t)umb_clamp((int32_t)umv(pl, t) + d, 0, 99));
+    else
+        umt_put(umt_ix(t), (int32_t)umt_get(umt_ix(t)) + (t == UMT_MOVE ? (d > 0) - (d < 0) : d));
 }
 static uint32_t umt_where(void)
 {
@@ -58,7 +69,7 @@ static void umt_say_knobs(void)                         /* what KNOB 1..4 turn n
     for (k = 0; k < 4u; k++) {
         if (k)
             str_cpy(b + str_len(b), " ", sizeof b - str_len(b));
-        str_cpy(b + str_len(b), umt.fx ? UMT_FXN[k] : umt_tname(pl, umt_get(k)), sizeof b - str_len(b));
+        str_cpy(b + str_len(b), umt.fx ? UMT_FXN[k] : umt_tname(pl, umr_get(pl, k)), sizeof b - str_len(b));
     }
     umt_say(b, 0);
 }
@@ -104,12 +115,13 @@ static int umt_home(void)
         return 0;
     return 1;
 }
-static void umt_select(int32_t s)                       /* SELECT: the next plate, round */
+static void umt_select(int32_t s)                       /* SELECT (HOME's plate pages: ALGORITHM): the next plate, round */
 {
     uint32_t pl = (umb_pl() + (s > 0 ? 1u : UMP_NPL - 1u)) % UMP_NPL;
     umb_plate = (uint8_t)(0x80u | pl);
     umv_dirty = 1;
     umv_ms = fm1_ms;
+    umt.fms = umt.on ? fm1_ms | 1u : 0u;                /* (DISSOLVE: from here) */
     umt_say(UMV_PL[pl], 0);
 }
 static void umt_fx_tap(void)                            /* FX: KNOB 1..4 the effects, or the plate's again */
@@ -132,18 +144,12 @@ static void umt_knob(uint32_t k, int32_t d)
         else if (!v)
             vs = "OFF";
     } else {
-        t = umt_get(k);
+        t = umr_get(pl, k);
         nm = umt_tname(pl, t);
-        if (t <= UMT_LIGHT) {
-            umv_put(pl, t, (uint32_t)umb_clamp((int32_t)umv(pl, t) + d, 0, 99));
-            v = umv(pl, t);
-        } else {                                        /* (SPEED [8], REACT [9], MOVEMENT [10]: a detent a step,
-                                                         * TRAVEL [11]) */
-            umt_put(t + 5u, (int32_t)umt_get(t + 5u) + (t == UMT_MOVE ? (d > 0) - (d < 0) : d));
-            v = umt_get(t + 5u);
-            if (t == UMT_MOVE)
-                vs = UMN_MV[v & 3u];
-        }
+        umt_add(pl, t, d);
+        v = umt_val(pl, t);
+        if (t == UMT_MOVE)
+            vs = UMN_MV[v & 3u];
     }
     fmt_int(b, (int32_t)v);
     umt_say(nm, vs);
@@ -231,10 +237,14 @@ static void umt_fx(uint32_t y, uint32_t mir)
 static void umb_full(void)
 {
     static uint32_t ms;
-    uint32_t y, mir = umt_get(4u);
+    uint32_t y, mir = umt_get(4u), f = umt_get(0u) * umt_get(0u) * 4000u / 9801u, el = fm1_ms - umt.fms;
     if (sys_load && !ui.force && fm1_ms - ms < (sys_load == LOAD_ECO ? 70u : 50u))
         return;
     ms = fm1_ms;
+    if (umt.fms && el < f)                              /* DISSOLVE: the cells let through so far (gfx.c) */
+        dc_gate = (uint16_t)(el * 256u / f);
+    else
+        umt.fms = 0;
     umt_glitch_tick();
     if (umt.say_ms && fm1_ms - umt.say_ms > 1500u)
         umt.say_ms = 0;
@@ -249,4 +259,5 @@ static void umb_full(void)
         cv_blit_cells(0, y);
     }
     umb.bare = 0;
+    dc_gate = 256u;
 }

@@ -336,6 +336,16 @@ static uint16_t dc_roll __attribute__((section(".pool")));   /* (the cell sent a
 static struct { int16_t x, y, w, h; uint16_t base, n; } dc_st[DC_STRIPS] __attribute__((section(".pool")));
 static uint8_t dc_n __attribute__((section(".pool")));
 static uint8_t dc_all __attribute__((section(".pool")));
+/* (UMBRA OBSCURA, ui_umbra_tot.c: DISSOLVE) the cells sent: 256 every one; under it only those whose key is under it, the
+ * others keep what the screen shows (and their hash: sent once reached). A cell's key: its distance from the middle, ragged
+ * (0 .. 255): the new picture spreads from the middle over the old */
+static uint16_t dc_gate = 256u;
+static uint32_t dc_key(uint32_t px, uint32_t py)
+{
+    uint32_t ax = px > 120u ? px - 120u : 120u - px, ay = py > 120u ? py - 120u : 120u - py,
+             d = ax > ay ? ax + (ay >> 1) : ay + (ax >> 1);   /* (round enough: 0 .. 180) */
+    return d + (d >> 4) + ((px * 73856093u ^ py * 19349663u) >> 26);
+}
 #ifndef LCD_HAS_STRIDE
 static void lcd_blit_stride(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *px, uint32_t stride)
 {
@@ -405,7 +415,10 @@ static __attribute__((noinline)) void cv_blit_cells(uint32_t x, uint32_t y)   /*
                         uint32_t idx = cy * ncx + cx, d = idx >= base ? idx - base : idx + ncx * ncy - base;
                         ch = hp[idx] != hs || d < roll;        /* (the roll cells from base: sent anyway) */
                     }
-                    hp[cy * ncx + cx] = (uint16_t)hs;
+                    if (dc_gate < 256u && dc_key(x + cx * DC_CW + DC_CW / 2u, y + y0 + DC_CH / 2u) >= dc_gate)
+                        ch = 0;                         /* (DISSOLVE: not reached yet) */
+                    else
+                        hp[cy * ncx + cx] = (uint16_t)hs;
                 }
                 if (ch && run == 0xFFFFu)
                     run = cx;

@@ -21,16 +21,17 @@
 #define UMB_S (UMB_N * UMB_N)
 #define UMB_T 32                                        /* the noise table: 32 x 32, tiling */
 #define UMP_NPL 6u                                      /* the plates */
-/* HOME > ECO > PLATE (ui_lens.c CE_HOME, the group's third page): KNOB 1 the plate, KNOB 2 and 3 its own two settings,
- * KNOB 4 LIGHT (one for all), kept with the settings in engine 15's spare favourite bytes (ui.c; settings_persist.c): the
- * plate [31] (bit 7: these bytes laid out so), the plates' two [4 + 2 x plate ..] (4 .. 15: bytes 4 .. 12 the hints' before
- * 0.9.5, 13 .. 16 free), LIGHT [16], each as the value ^ its default (0, never set: the default) */
+/* HOME > ECO > PLATE (ui_lens.c CE_HOME, the group's third page; ALGORITHM the plate): KNOB 1..3 the plate's own three
+ * settings, KNOB 4 LIGHT (one for all), kept with the settings in spare favourite bytes (ui.c; settings_persist.c): the
+ * plate engine 15's [31] (bit 7: these bytes laid out so), the plates' first two [15][4 + 2 x plate ..] (4 .. 15: bytes
+ * 4 .. 12 the hints' before 0.9.5, 13 .. 16 free), their third TRIO's retired row's [6][8 + plate] (bytes 8 .. 18 always
+ * 0, bt.c), LIGHT [15][16], each as the value ^ its default (0, never set: the default). The third: CINDER's SWAY, SAROS's,
+ * CORONA's and TARN's SIZE (the eclipse's: a quarter .. twice), FILAMENT's SPREAD, GRANULE's GLOW (umv_sc) */
 #define umb_plate (favorites.factory[15][31])
-static const char *const UMV_PL[UMP_NPL] = {"CINDER", "SAROS", "FILAMNT", "GRANULE", "CORONA", "TARN"};   /* (a knob card's
-                                                         * value: 49 px; FILAMENT 50) */
-static const char *const UMV_N[UMP_NPL][2] = {{"RISE", "COOL"}, {"SPIN", "FADE"}, {"SWING", "RING"}, {"BOIL", "FADE"},
-                                              {"REACH", "FADE"}, {"DRAG", "BEND"}};
-static const uint8_t UMV_D[UMP_NPL][2] = {{45, 50}, {30, 45}, {50, 50}, {35, 45}, {50, 45}, {55, 50}};
+static const char *const UMV_PL[UMP_NPL] = {"CINDER", "SAROS", "FILAMENT", "GRANULE", "CORONA", "TARN"};
+static const char *const UMV_N[UMP_NPL][3] = {{"RISE", "COOL", "SWAY"}, {"SPIN", "FADE", "SIZE"}, {"SWING", "RING", "SPREAD"},
+                                              {"BOIL", "FADE", "GLOW"}, {"REACH", "FADE", "SIZE"}, {"DRAG", "BEND", "SIZE"}};
+static const uint8_t UMV_D[UMP_NPL][2] = {{45, 50}, {30, 45}, {50, 50}, {35, 45}, {50, 45}, {55, 50}};   /* (the third: 50) */
 #define UMV_LD 99u                                      /* LIGHT's default */
 static uint8_t umv_dirty;                               /* turned: saved once the knobs rest (umv_poll) */
 static uint32_t umv_ms;
@@ -45,31 +46,56 @@ static uint32_t umb_pl(void)
     }
     return (f[31] & 7u) < UMP_NPL ? f[31] & 7u : 0u;
 }
-static uint32_t umv(uint32_t pl, uint32_t j)            /* plate pl's setting j (2: LIGHT), 0..99 */
+static uint8_t *umv_at(uint32_t pl, uint32_t j, uint32_t *d)   /* plate pl's setting j's byte (3: LIGHT), its default */
 {
-    uint32_t v = j > 1u ? favorites.factory[15][16] ^ UMV_LD : favorites.factory[15][4u + pl * 2u + j] ^ UMV_D[pl][j];
+    *d = j > 2u ? UMV_LD : j > 1u ? 50u : UMV_D[pl][j];
+    return j > 2u ? &favorites.factory[15][16] : j > 1u ? &favorites.factory[6][8u + pl] : &favorites.factory[15][4u + pl * 2u + j];
+}
+static uint32_t umv(uint32_t pl, uint32_t j)            /* plate pl's setting j (2: its third, 3: LIGHT), 0..99 */
+{
+    uint32_t d, v = *umv_at(pl, j, &d) ^ d;
     return v > 99u ? 99u : v;
 }
 static void umv_put(uint32_t pl, uint32_t j, uint32_t v)
 {
-    v = v > 99u ? 99u : v;
-    if (j > 1u)
-        favorites.factory[15][16] = (uint8_t)(v ^ UMV_LD);
-    else
-        favorites.factory[15][4u + pl * 2u + j] = (uint8_t)(v ^ UMV_D[pl][j]);
+    uint32_t d;
+    uint8_t *b = umv_at(pl, j, &d);
+    *b = (uint8_t)((v > 99u ? 99u : v) ^ d);
     umv_dirty = 1;
     umv_ms = fm1_ms;
 }
-static int32_t umv_light(uint32_t pl) { return ((int32_t)umv(pl, 2u) * 256 + 49) / 99; }   /* LIGHT, Q8 (99: 256) */
+static int32_t umv_light(uint32_t pl) { return ((int32_t)umv(pl, 3u) * 256 + 49) / 99; }   /* LIGHT, Q8 (99: 256) */
+/* plate pl's third as a size (Q8): 0 a quarter, 50 as it was, 99 twice */
+static int32_t umv_sc(uint32_t pl)
+{
+    int32_t v = (int32_t)umv(pl, 2u);
+    return v <= 50 ? 64 + v * 192 / 50 : 256 + (v - 50) * 256 / 49;
+}
 /* TOTALITY's own settings (ui_umbra_tot.c), in SAMPLE's retired favourites row (engine 4: never selectable, nothing reads its
  * stars; its presets were < 64, so its bytes 8.. were always 0; TRIO's row, bt.c, the same way), each as the value ^ its
- * default: [8 + i] i 0..3 the knob KNOB i + 1 is routed to (UMT_*), 4..7 the visual effects (FX), 8 SPEED, 9 REACT,
- * 10 MOVEMENT, 11 TRAVEL (HOME > ECO > NOTES; a routed target t's byte t + 5) */
-enum { UMT_A, UMT_B, UMT_LIGHT, UMT_SPEED, UMT_REACT, UMT_MOVE, UMT_TRAVEL, UMT_NT };   /* a routed knob: the plate's first
-                                                         * or second, LIGHT .. */
+ * default: [8 + i] i 0 DISSOLVE (1..3: the routing as it was, one for all plates), 4..7 the visual effects (FX), 8 SPEED,
+ * 9 REACT, 10 MOVEMENT, 11 TRAVEL (umt_ix: a routed target's); [20 + 2 x plate ..] each plate's routing, a nibble a knob
+ * (umr_get) */
+enum { UMT_A, UMT_B, UMT_C, UMT_LIGHT, UMT_SPEED, UMT_REACT, UMT_MOVE, UMT_TRAVEL, UMT_FADE, UMT_NT };   /* a routed knob: the
+                                                         * plate's own three, LIGHT .. */
 #define UMT_NS 12u
-static const uint8_t UMT_D[UMT_NS] = {UMT_A, UMT_B, UMT_SPEED, UMT_LIGHT, 0, 0, 0, 0, 50, 50, 1, 50};
-static const uint8_t UMT_MAX[UMT_NS] = {UMT_NT - 1, UMT_NT - 1, UMT_NT - 1, UMT_NT - 1, 3, 99, 99, 99, 99, 99, 3, 99};
+static const uint8_t UMT_D[UMT_NS] = {50, 0, 0, 0, 0, 0, 0, 0, 50, 50, 1, 50};
+static const uint8_t UMT_MAX[UMT_NS] = {99, 0, 0, 0, 3, 99, 99, 99, 99, 99, 3, 99};
+static const uint8_t UMR_D[4] = {UMT_A, UMT_B, UMT_C, UMT_LIGHT};   /* a plate's KNOB 1..4 at first */
+static uint32_t umr_get(uint32_t pl, uint32_t k)       /* plate pl's KNOB k + 1 in TOTALITY: its target (UMT_*) */
+{
+    uint32_t v = (favorites.factory[4][20u + pl * 2u + (k >> 1)] >> (k & 1u) * 4u & 15u) ^ UMR_D[k];
+    return v < UMT_NT ? v : UMR_D[k];
+}
+static void umr_put(uint32_t pl, uint32_t k, int32_t v)
+{
+    uint8_t *b = &favorites.factory[4][20u + pl * 2u + (k >> 1)];
+    uint32_t sh = (k & 1u) * 4u;
+    v = v < 0 ? 0 : v > UMT_NT - 1 ? UMT_NT - 1 : v;
+    *b = (uint8_t)((*b & ~(15u << sh)) | (((uint32_t)v ^ UMR_D[k]) & 15u) << sh);
+    umv_dirty = 1;
+    umv_ms = fm1_ms;
+}
 static uint32_t umt_get(uint32_t i)
 {
     uint32_t v = favorites.factory[4][8u + i] ^ UMT_D[i];

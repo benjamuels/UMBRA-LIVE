@@ -446,24 +446,25 @@ EXPORT void web_mirror_take(uint32_t n)                 /* the first n bytes rea
     memmove(web_mq, web_mq + n, web_mq_n - n);
     web_mq_n -= n;
 }
-EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) 99: the PLATE (0..5); 0, 1: its two settings, 2 LIGHT;
+EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) 99: the PLATE (0..5; in TOTALITY it dissolves in);
+                                                         * 0, 1: its first two settings, 2 LIGHT, 3 its third (SIZE ..);
                                                          * 98: TOTALITY, no word at its foot (the projector, emu/?projector) */
 {
     uint32_t pl = umb_pl();
-    if (i == 99u)
+    if (i == 99u) {
+        if (umt.on && pl != v % UMP_NPL)
+            umt.fms = fm1_ms | 1u;                      /* (ui_umbra_tot.c DISSOLVE) */
         umb_plate = (uint8_t)(0x80u | v % UMP_NPL);
-    else if (i == 98u)
-    {
+    } else if (i == 98u) {
         nav_go(SEC_HOME, 0, 0);                         /* (ui_umbra_tot.c) */
         umt_enter(0);
         umt.say_ms = 0;
-    }
-    else if (i < 3u)
-        umv_put(pl, i, v);
+    } else if (i < 4u)
+        umv_put(pl, i == 2u ? 3u : i == 3u ? 2u : i, v);   /* (the plate's setting 3 LIGHT, 2 its third) */
 }
-EXPORT uint32_t web_umb_get(uint32_t i)                /* (UMBRA OBSCURA) 99: the PLATE; 0, 1: its settings, 2 LIGHT (0..99) */
+EXPORT uint32_t web_umb_get(uint32_t i)                /* (UMBRA OBSCURA) 99: the PLATE; 0, 1: its settings, 2 LIGHT, 3 its third */
 {
-    return i == 99u ? umb_pl() : i < 3u ? umv(umb_pl(), i) : 0u;
+    return i == 99u ? umb_pl() : i < 4u ? umv(umb_pl(), i == 2u ? 3u : i == 3u ? 2u : i) : 0u;
 }
 /* a channel message from Web MIDI, as a USB-MIDI packet arrives (usb.c midi_enqueue): 0 = the ring was full */
 EXPORT uint32_t web_midi(uint32_t status, uint32_t d1, uint32_t d2)

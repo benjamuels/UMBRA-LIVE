@@ -2799,9 +2799,13 @@ static void ui_input_frame(void)
         else
             presets_turn(s);
     }
-    if (!lay && (s = panel_enc(EN_ALGO)) != 0)     /* ALGORITHM: the selected track, on every page. (0.6.55) Only
+    if (!lay && (s = panel_enc(EN_ALGO)) != 0) {   /* ALGORITHM: the selected track, on every page. (0.6.55) Only
                                                     * the tracks that play: TRACKS 4 stops at T4 (T5 / T6 asleep) */
-        track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));
+        if (UMB_ON && umb_vis())                        /* (UMBRA OBSCURA) HOME's plate pages: the plate, round */
+            umt_select(s);
+        else
+            track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));
+    }
     if (glo) {                                          /* GLO + SELECT: the tempo (0.6.67: the only way, with TAP) */
         if (sel) {
             song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, sel, 200), GP[G_BPM].min, GP[G_BPM].max);
@@ -2859,8 +2863,8 @@ static void ui_input_frame(void)
         if (home_macros()) {                            /* (0.8.5) HOME's MACROS / ROUTES: M1..M4 */
             macro_v[k] = (uint8_t)clamp(macro_v[k] + accel(EN_K1 + k, s, 127), 0, 127);
         } else if (UMB_ON && umb_vis()) {               /* (UMBRA OBSCURA) HOME > ECO > PLATE */
-            umv_turn(k, accel(EN_K1 + k, s, k && ui.hset[0] < 4u ? 99 : 0));   /* (the plate, MOVEMENT, ROUTING: a detent
-                                                                                 * a step) */
+            umv_turn(k, accel(EN_K1 + k, s, ui.hset[0] == 2u || (k && ui.hset[0] == 3u) ? 99 : 0));   /* (MOVEMENT,
+                                                                                 * ROUTING: a detent a step) */
         } else if (ui.home) {
             int16_t *vp;
             const param_desc_t *d = home_param(k, &vp);

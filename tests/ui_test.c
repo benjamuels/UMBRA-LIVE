@@ -11168,8 +11168,8 @@ static int test_skin(void)
         turn(EN_SELECT, -1); turn(EN_SELECT, -1);
         ok &= umb_pl() == (pl + UMP_NPL - 1u) % UMP_NPL;           /* (round) */
         turn(EN_SELECT, 1);
-        turn(EN_K3, 5);                                            /* (KNOB 3: SPEED) */
-        ok &= umt_get(8u) == 55u && str_eq(umt.say, "SPEED 55");
+        turn(EN_K3, 5);                                            /* (KNOB 3: CINDER's third, SWAY) */
+        ok &= umv(0u, 2u) == 55u && str_eq(umt.say, "SWAY 55");
         press(B_FX); ui_leds();
         ok &= umt.fx && led_of(fm1_led, panel.btn[B_FX]) && ui.home && umt.on;
         turn(EN_K1, 3);                                            /* (MIRROR: a detent a mode) */
@@ -11180,10 +11180,12 @@ static int test_skin(void)
         ok &= !umt.on && ui.home && ui.hset[0] == 1u && !ui.hlv;   /* (MACROS again) */
         press(B_HOME); frame(); press(B_EDIT); frame();
         ok &= !umt.on && !ui.home;
-        nav_go(SEC_HOME, 4, 0); frame();                           /* (ROUTING) */
+        nav_go(SEC_HOME, 4, 0); frame();                           /* (ROUTING: this plate's) */
         turn(EN_K1, 2);
-        ok &= umt_get(0u) == UMT_LIGHT && !umt.on;
-        favorites.factory[4][8] = favorites.factory[4][16] = 0;
+        ok &= umr_get(umb_pl(), 0u) == UMT_C && umr_get((umb_pl() + 1u) % UMP_NPL, 0u) == UMT_A && !umt.on;
+        favorites.factory[4][16] = 0;
+        memset(favorites.factory[4] + 20, 0, 12);
+        memset(favorites.factory[6] + 8, 0, 6);
         bad += check("(UMBRA OBSCURA) TOTALITY: HOME on HOME; SELECT plates round, KNOBs routed, FX effects; LEDs dark; HOME back; EDIT ends it; ROUTING", ok);
     }
     {   /* (UMBRA OBSCURA) NOTE MOVEMENT, HOME > ECO > NOTES: KNOB 1 STATIC MOVE DRIFT RANDOM, a detent each (MOVE at first);
@@ -11193,7 +11195,7 @@ static int test_skin(void)
         int32_t x1, y1, i, inside = 1;
         uint32_t p0, d1, d2;
         ui_power_on(); frame();
-        memset(favorites.factory[4] + 8, 0, 12);
+        memset(favorites.factory[4] + 8, 0, 24);
         nav_go(SEC_HOME, 3, 0); frame();                           /* (NOTES) */
         ok = umb_vis() && umt_get(10u) == 1u && umt_get(11u) == 50u;
         turn(EN_K1, -1);
@@ -11226,13 +11228,53 @@ static int test_skin(void)
         }
         ok &= inside;
         bad += check("(UMBRA OBSCURA) NOTES: DRIFT a step as long as the time since; TRAVEL its size; RANDOM anywhere, folded inside", ok);
-        umt_put(3u, UMT_MOVE);                                     /* (KNOB 4 routed to MOVEMENT) */
+        umr_put(umb_pl(), 3u, UMT_MOVE);                           /* (KNOB 4 routed to MOVEMENT) */
         nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(4);
         turn(EN_K4, -2);
         ok = umt.on && umt_get(10u) == 2u && str_eq(umt.say, "MOVEMENT DRIFT");
         press(B_HOME); frame();
-        memset(favorites.factory[4] + 8, 0, 12);
+        memset(favorites.factory[4] + 8, 0, 24);
         bad += check("(UMBRA OBSCURA) TOTALITY: a knob routed to MOVEMENT, a detent a step, said by name", ok);
+    }
+    {   /* (UMBRA OBSCURA) HOME's plate pages: ALGORITHM the plate (round), not the track; PLATE KNOB 1..3 the plate's own
+         * three, KNOB 4 LIGHT; ROUTING a plate each; DISSOLVE: a plate chosen in TOTALITY spreads from the middle, the cells
+         * not reached yet keep what the screen showed */
+        uint32_t sel0, x, y, same = 1;
+        uint16_t corner[16 * 16];
+        ui_power_on(); frame();
+        memset(favorites.factory[4] + 8, 0, 24);
+        memset(favorites.factory[6] + 8, 0, 6);
+        umb_plate = 0x80u;
+        nav_go(SEC_HOME, 2, 0); frame();                           /* (PLATE) */
+        sel0 = song.sel;
+        turn(EN_ALGO, 1);
+        ok = umb_pl() == 1u && song.sel == sel0;
+        turn(EN_ALGO, -1); turn(EN_ALGO, -1);
+        ok &= umb_pl() == 5u;                                      /* (round: TARN) */
+        turn(EN_K3, 10); frame();                                  /* (TARN's SIZE) */
+        ok &= umv(5u, 2u) == 60u && umv(4u, 2u) == 50u && umv_sc(5u) > 256;
+        nav_go(SEC_HOME, 4, 0); frame();                           /* (ROUTING: TARN's) */
+        turn(EN_K2, 1);
+        ok &= umr_get(5u, 1u) == UMT_C && umr_get(4u, 1u) == UMT_B;
+        nav_go(SEC_HOME, 0, 0); frame();                           /* (ECO: ALGORITHM the track again) */
+        turn(EN_ALGO, trk_live > 1u && sel0 + 1u < trk_live ? 1 : -1);
+        ok &= umb_pl() == 5u && (trk_live < 2u || song.sel != sel0);
+        track_select(sel0);
+        bad += check("(UMBRA OBSCURA) PLATE / ROUTING: ALGORITHM the plate, round (ECO: the track); KNOB 3 its third; routing a plate each", ok);
+        ok = dc_key(120u, 120u) < 64u && dc_key(2u, 2u) >= 188u && dc_gate == 256u;
+        nav_go(SEC_HOME, 2, 0); frame(); press(B_HOME); frames(4);   /* (TOTALITY: TARN) */
+        for (y = 0; y < 16u; y++) for (x = 0; x < 16u; x++) corner[y * 16u + x] = host_screen[y * 240u + x];
+        turn(EN_SELECT, 1);                                        /* (CINDER, dissolving in: a second at 50) */
+        ok &= umt.on && umb_pl() == 0u && umt.fms;
+        fm1_ms += 150; frame();
+        for (y = 0; y < 16u; y++) for (x = 0; x < 16u; x++) same &= corner[y * 16u + x] == host_screen[y * 240u + x];
+        ok &= same && umt.fms && dc_gate == 256u;
+        fm1_ms += 1000; frame();
+        ok &= !umt.fms;
+        press(B_HOME); frame();
+        memset(favorites.factory[4] + 8, 0, 24);
+        memset(favorites.factory[6] + 8, 0, 6);
+        bad += check("(UMBRA OBSCURA) DISSOLVE: the next plate from the middle, the corners kept until it reaches them; over in its time", ok);
     }
     for (sk = 0; sk < SKIN_N; sk++) {                             /* every lens page in each skin */
         int okp = 1;

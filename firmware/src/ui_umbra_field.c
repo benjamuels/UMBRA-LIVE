@@ -161,7 +161,7 @@ static void ump_ci_step(void)
 {
     ump_ci_t *s = &umb.ci;
     int32_t k1 = (int32_t)umv(0u, 1u), rise = 10 + (int32_t)umv(0u, 0u) * 77 / 99, n = 8 + k1 * k1 * 112 / 9801,
-            kd = 4096 - 4096 / n, x, y, i;
+            kd = 4096 - 4096 / n, x, y, i, sw = (38 + rise) * (int32_t)umv(0u, 2u) / 50;   /* (SWAY: 0 none, 99 twice) */
     for (i = 0; i < NTRK; i++)
         if (s->hn[i])
             ump_stamp(s->h, s->hx[i] * 256 + 128, s->hy[i] * 256 + 128, s->hr[i] * 11, 10 + ((14 * s->hv[i]) >> 8));
@@ -170,7 +170,7 @@ static void ump_ci_step(void)
     for (y = 0; y < UMB_N; y++) {
         uint8_t *hr = s->h + y * UMB_N;
         const uint8_t *nx = y < UMB_N - 1 ? hr + UMB_N : s->rc;
-        int32_t w = (sine_i((uint32_t)y * 157286400u + s->T * 27487791u) * (38 + rise)) >> 15;   /* (the sway, cells Q8) */
+        int32_t w = (sine_i((uint32_t)y * 157286400u + s->T * 27487791u) * sw) >> 15;   /* (the sway, cells Q8) */
         memcpy(s->rc, hr, UMB_N);
         for (x = 0; x < UMB_N; x++) {
             int32_t sx = umb_clamp(x * 256 - w, 0, (UMB_N - 1) * 256 - 1), x0 = sx >> 8, fx = sx & 255;
@@ -326,7 +326,7 @@ static void ump_gr_frame(uint32_t dt)
 {
     ump_gr_t *s = &umb.gr;
     int32_t k0 = (int32_t)umv(3u, 0u), k1 = (int32_t)umv(3u, 1u), life = 300 + k1 * k1 * 2 / 5, f = (int32_t)dt * 65536 / life;
-    uint32_t g;
+    uint32_t g, gw = umv(3u, 2u);                       /* (GLOW: the glow at rest, 0 none .. 99 twice) */
     s->tb += dt * (uint32_t)(k0 ? 77 + k0 * 1536 / 99 : 0);
     while (s->tb >= 256000u) {
         int32_t gx, gy, t;
@@ -342,7 +342,7 @@ static void ump_gr_frame(uint32_t dt)
     for (g = 0; g < UMG_N; g++) {
         uint32_t age = umb_now - s->born[g];
         s->E[g] = (uint16_t)(s->E[g] - ((s->E[g] * f) >> 16));
-        s->gb[g] = (uint8_t)(s->amb[g] * (age >= 1600u ? 8u : age / 200u) / 8u);   /* (born: it fades in, 8 steps) */
+        s->gb[g] = (uint8_t)(s->amb[g] * (age >= 1600u ? 8u : age / 200u) * gw / 400u);   /* (born: it fades in, 8 steps) */
         s->gl[g] = (uint16_t)(s->E[g] & ~15u);
     }
 }
@@ -394,7 +394,8 @@ static void ump_gr_draw(int32_t x0, int32_t y0)
 }
 
 /* ------------------------------------------------------------------------------------------------- CORONA --- */
-#define UMR_RM 44                                       /* the moon's radius (px) */
+#define UMR_RM umr_rm                                   /* the moon's radius (px): 44 at SIZE 50, 16 .. 88 */
+static int32_t umr_rm = 44, umr_k = 186;                /* (.. and 8192 / it: a pixel's distance past the limb, Q8) */
 static void ump_co_init(void)
 {
     ump_co_t *s = &umb.co;
@@ -450,6 +451,8 @@ static void ump_co_frame(uint32_t dt)
     ump_co_t *s = &umb.co;
     int32_t k0 = (int32_t)umv(4u, 0u), k1 = (int32_t)umv(4u, 1u), life = 400 + k1 * k1 * 3 / 5, f = (int32_t)dt * 65536 / life,
             reach = 640 * k0 / 99, a;
+    umr_rm = umb_clamp(44 * umv_sc(4u) >> 8, 16, 88);   /* (SIZE) */
+    umr_k = 8192 / umr_rm;
     s->P = (uint16_t)(s->P - ((s->P * (int32_t)dt * 218) >> 16));   /* (the pulse: 0.3 s) */
     for (a = 0; a < (int32_t)UMR_NA; a++) {
         int32_t S;
@@ -496,7 +499,7 @@ static void ump_co_draw(int32_t x0, int32_t y0)
             ump_co_blocks(x0, py, bv);
         for (cx = 0; cx < cv_w; cx++) {
             int32_t px = x0 + (int32_t)cx, dx = 2 * (px - 120) + 1, v;
-            u = ((dx * dx + fdy2) * 186) >> 8;          /* (px past the limb, Q8) */
+            u = ((dx * dx + fdy2) * umr_k) >> 8;        /* (px past the limb, Q8) */
             if (u < -128) {                             /* the disc: earthshine */
                 row[cx] = L[(px & 1) * 256 + UMP_IX(8, vg)];
                 continue;
@@ -634,6 +637,7 @@ static void ump_ta_draw(int32_t x0, int32_t y0)
     ump_ta_t *s = &umb.ta;
     uint8_t xi[240], xf[240], still[UMT_N];
     int32_t m = ((102 + 819 * (int32_t)umv(5u, 1u) / 99) * 164) >> 8, i, sj = -1;   /* (BEND: px a slope unit, Q16) */
+    int32_t q = (1 << 24) / (umv_sc(5u) * umv_sc(5u));  /* (SIZE: the reflection read nearer or further, Q8: 256 as it was) */
     uint32_t cx, cy;
     for (cx = 0; cx < cv_w; cx++) {
         int32_t t = umb_clamp(((x0 + (int32_t)cx - 2) * 256) / 5, 0, (UMT_N - 1) * 256 - 1);
@@ -661,7 +665,7 @@ static void ump_ta_draw(int32_t x0, int32_t y0)
             if (still[xi[cx]]) {                        /* (still water: the reflection as it is) */
                 hl = -1;
                 a = px - UMT_RX;
-                v = s->rl[umb_clamp((a * a + b2) >> 5, 0, 1023)];
+                v = s->rl[umb_clamp((a * a + b2) * q >> 13, 0, 1023)];
                 hh = hx ^ hy;
                 if (!((hh >> 20) & 1023u))
                     v += ((int32_t)((hh >> 8) & 127u) + 40) * 154 >> 8;
@@ -686,7 +690,7 @@ static void ump_ta_draw(int32_t x0, int32_t y0)
             Y = py + oy;
             a = X - UMT_RX;
             c = Y - UMT_RY;
-            v = s->rl[umb_clamp((a * a + c * c) >> 5, 0, 1023)];
+            v = s->rl[umb_clamp((a * a + c * c) * q >> 13, 0, 1023)];
             if ((uint32_t)X < 240u && (uint32_t)Y < 240u) {   /* (the stars: one pixel in 1024) */
                 hh = (uint32_t)X * 73856093u ^ (uint32_t)Y * 19349663u;
                 if (!((hh >> 20) & 1023u))
