@@ -40,14 +40,15 @@ typedef struct { const char *t, *nm; uint8_t g, lv; } nv_t;   /* PAGES title (HO
 typedef struct { const char *nm, *tab; } ng_t;                /* a group: its name, its tab's when the name is too wide */
 typedef struct { const nv_t *e; const ng_t *g; uint8_t n, ng; } ch_t;
 #define NV(t, nm, g, lv) {t, nm, g, lv}
-static const nv_t CE_HOME[] = {NV(0, "ECO", 0, 0), NV(0, "MACROS", 0, 0), NV(0, "PLATE", 0, 0), NV(0, "ROUTING", 0, 0),
-                               NV(0, "BEING", 1, 1), NV(0, "ROUTES", 1, 1), NV(0, "GEN 1", 2, 2), NV(0, "GEN 2", 2, 2),
-                               NV(0, "GEN 3", 2, 2)};
-#define HOME_E_BEING 4u                                 /* (UMBRA OBSCURA: ECO's third, PLATE, the visuals' settings (ui_umbra_plate.c
-                                                         * umb_vis: ui.hset[0] 2); its fourth, ROUTING, what KNOB 1..4 turn in
-                                                         * TOTALITY (3; TOTALITY itself, the plate alone: a HOME tap on HOME,
+static const nv_t CE_HOME[] = {NV(0, "ECO", 0, 0), NV(0, "MACROS", 0, 0), NV(0, "PLATE", 0, 0), NV(0, "NOTES", 0, 0),
+                               NV(0, "ROUTING", 0, 0), NV(0, "BEING", 1, 1), NV(0, "ROUTES", 1, 1), NV(0, "GEN 1", 2, 2),
+                               NV(0, "GEN 2", 2, 2), NV(0, "GEN 3", 2, 2)};
+#define HOME_E_BEING 5u                                 /* (UMBRA OBSCURA: ECO's third, PLATE, the visuals' settings (ui_umbra_plate.c
+                                                         * umb_vis: ui.hset[0] 2); its fourth, NOTES, how the notes reach
+                                                         * the plates (3); its fifth, ROUTING, what KNOB 1..4 turn in TOTALITY
+                                                         * (4; TOTALITY itself, the plate alone: a HOME tap on HOME,
                                                          * ui_umbra_tot.c)) BEING's entries, GEN's first */
-#define HOME_E_GEN 6u
+#define HOME_E_GEN 7u
 static const ng_t CG_HOME[] = {{"ECO", 0}, {"BEING", 0}, {"GEN", 0}};
 static const nv_t CE_SYN[] = {NV("EDIT 1", 0, 0, 0), NV("EDIT 2", 0, 0, 0), NV("FILTER", 0, 1, 1), NV("MORPH", 0, 1, 1),
                               NV("RETRIG", 0, 1, 1), NV("ROTOR", 0, 1, 1), NV("WORDS", 0, 1, 1), NV("STEREO", 0, 1, 1),
@@ -157,7 +158,7 @@ static uint32_t nav_cur(void)
     uint32_t sec = nav_sec(), key = nav_key(sec), e = nav_mem(key), k, pass, s;
     const ch_t *c = &CHAINS[key];
     if (sec == SEC_HOME)
-        return gen_on() ? HOME_E_GEN + gen_page() : ui.hlv ? HOME_E_BEING + (ui.hset[1] & 1u) : ui.hset[0] & 3u;
+        return gen_on() ? HOME_E_GEN + gen_page() : ui.hlv ? HOME_E_BEING + (ui.hset[1] & 1u) : ui.hset[0] % HOME_E_BEING;
     s = ((((ui.page * 31u + key) * 131u + e) * 257u + TSEL->eng_req) * 8191u + (uint32_t)(uint16_t)TSEL->p[P_E1]) * 7u +
         sys_load + 1u;
     if (s == ui.nav_sig)
@@ -184,7 +185,7 @@ static uint32_t nav_lv(void) { return nav_ch(nav_sec())->e[nav_cur()].lv; }   /*
 static uint32_t pd_level(void) { return nav_lv(); }
 static uint32_t save_level(void) { return nav_lv(); }
 static uint32_t home_level(void) { return gen_on() ? 2u : ui.hlv ? 1u : 0u; }
-static uint32_t home_set(void) { return ui.hset[home_level() & 1u] == 1u; }   /* (UMBRA OBSCURA: ECO's pages 0..3, MACROS 1) */
+static uint32_t home_set(void) { return ui.hset[home_level() & 1u] == 1u; }   /* (UMBRA OBSCURA: ECO's pages 0..4, MACROS 1) */
 static int home_macros(void) { return ui.home && !ui.menu && !gen_on() && home_set(); }   /* MACROS / ROUTES: M1..M4 */
 /* the entries shown now (on this track, at this LOAD), in order: their indices in v (NAV_MAX at most: the longest chain,
  * FX's 17 since snd8's TAPE, fits: ui_test checks every chain against it; snd8b's 17th page overran a 16 and crashed

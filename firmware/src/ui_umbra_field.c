@@ -120,6 +120,11 @@ static void ump_ci_init(void)
         s->sm[i] = (uint8_t)((((t * t * (768 - 2 * t)) >> 16) * 128) >> 8);   /* (0.5 smoothstep 0.35 .. 1) */
     }
 }
+/* a stamp of heat where track c's notes have moved it (NOTE MOVEMENT: the field 3 .. 57 cells either way) */
+static void ump_ci_at(uint32_t c, int32_t x, int32_t y, int32_t r, int32_t amt)
+{
+    ump_stamp(umb.ci.h, 768 + umn_at(c, 0u, x - 768, 13824), 768 + umn_at(c, 1u, y - 768, 13824), r, amt);
+}
 static void ump_ci_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32_t lane)
 {
     ump_ci_t *s = &umb.ci;
@@ -131,17 +136,17 @@ static void ump_ci_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
     }
     if (drum) {
         if (!lane)                                      /* the kick: a swell from below */
-            ump_stamp(s->h, (int32_t)(14u * 256u + umb_rnd() % 8192u), 58 * 256, 1280 + 3 * v, (200 * v) >> 8);
+            ump_ci_at(c, (int32_t)(14u * 256u + umb_rnd() % 8192u), 58 * 256, 1280 + 3 * v, (200 * v) >> 8);
         else
             for (i = lane < 3u ? 5 : 1; i > 0; i--)     /* the snare, the clap: sparks; the rest: one */
-                ump_stamp(s->h, (int32_t)(4u * 256u + umb_rnd() % 13312u),
+                ump_ci_at(c, (int32_t)(4u * 256u + umb_rnd() % 13312u),
                           (int32_t)(lane < 3u ? 26u * 256u + umb_rnd() % 7168u : 8u * 256u + umb_rnd() % 11776u),
                           lane < 3u ? 384 : lane == 4u ? 410 : 282, lane < 3u ? (230 * v) >> 8 : 110 + ((120 * v) >> 8));
         return;
     }
     k = ump_pk(n);
-    x = 3 * 256 + k * 54;
-    y = (52 - 6 * (int32_t)c) * 256;
+    x = 768 + umn_at(c, 0u, k * 54, 13824);
+    y = 768 + umn_at(c, 1u, (49 - 6 * (int32_t)c) * 256, 13824);
     r = 410 + (((256 - k) * 768) >> 8) + ((v * 384) >> 8);   /* (1.6 .. 6 cells: low notes wider) */
     ump_stamp(s->h, x, y, r, 140 + ((115 * v) >> 8));
     s->hx[c] = (uint8_t)(x >> 8);
@@ -279,6 +284,11 @@ static void ump_gr_light(uint32_t g, int32_t e, const uint8_t *c)   /* granule g
     for (j = 0; j < 3; j++)
         s->col[g][j] = (uint8_t)(s->col[g][j] + (((c[j] - s->col[g][j]) * k) >> 8));
 }
+/* the granule at row, col (0 .. 11) where track c's notes have moved it (NOTE MOVEMENT) */
+static uint32_t ump_gr_at(uint32_t c, uint32_t row, uint32_t col)
+{
+    return (uint32_t)umn_at(c, 1u, (int32_t)row, UMG_G - 1) * UMG_G + (uint32_t)umn_at(c, 0u, (int32_t)col, UMG_G - 1);
+}
 static void ump_gr_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32_t lane)
 {
     ump_gr_t *s = &umb.gr;
@@ -288,7 +298,8 @@ static void ump_gr_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
         return;
     if (drum) {
         if (!lane) {                                    /* the kick: a cluster */
-            g = (3u + umb_rnd() % 7u) * UMG_G + 2u + umb_rnd() % 8u;
+            g = 3u + umb_rnd() % 7u;
+            g = ump_gr_at(c, g, 2u + umb_rnd() % 8u);
             ump_gr_light(g, 102 + ((205 * v) >> 8), col);
             ump_gr_light(g - 1u, (90 * v) >> 8, col);
             ump_gr_light(g + 1u, (90 * v) >> 8, col);
@@ -307,7 +318,7 @@ static void ump_gr_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
         }
         return;
     }
-    g = (c * UMG_G / nt + (o & 1u)) % UMG_G * UMG_G + (ump_fifth(c, n) * 5u + o * 3u) % UMG_G;
+    g = ump_gr_at(c, (c * UMG_G / nt + (o & 1u)) % UMG_G, (ump_fifth(c, n) * 5u + o * 3u) % UMG_G);
     ump_gr_light(g, 115 + ((154 * v) >> 8), col);
 }
 /* once a frame: the light fades (FADE: 0.3 .. 4.2 s), granules reborn (BOIL: 0.3 .. 6 a second), this frame's levels */
@@ -425,7 +436,7 @@ static void ump_co_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
         }
         return;
     }
-    a0 = (int32_t)ump_fifth(c, n) * 128 / 12 + 96;      /* (the root at the top) */
+    a0 = (int32_t)ump_fifth(c, n) * 128 / 12 + 96 + (umn.o[c][0] >> 1);   /* (the root at the top; NOTE MOVEMENT round) */
     sg = 16 + (((256 - ump_pk(n)) * 40) >> 8);          /* (its width: 1 .. 3.5 streamers, Q4) */
     e = 90 + ((141 * v) >> 8);
     for (d = -(3 * sg >> 4) - 1; d <= (3 * sg >> 4) + 1; d++) {
@@ -557,6 +568,11 @@ static void ump_ta_drop(int32_t cx, int32_t cy, int32_t r, int32_t amp)
                 h[y * UMT_N + x] = (int16_t)umb_clamp(h[y * UMT_N + x] - amp * (r2 - d2) / (r2 + 1), -32000, 32000);
         }
 }
+/* a drop where track c's notes have moved it (NOTE MOVEMENT: the water 3 .. 45 cells either way) */
+static void ump_ta_at(uint32_t c, int32_t x, int32_t y, int32_t r, int32_t amp)
+{
+    ump_ta_drop(768 + umn_at(c, 0u, x - 768, 10752), 768 + umn_at(c, 1u, y - 768, 10752), r, amp);
+}
 static void ump_ta_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32_t lane)
 {
     ump_ta_t *s = &umb.ta;
@@ -565,9 +581,9 @@ static void ump_ta_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
         return;
     if (drum) {
         if (!lane)                                      /* the kick: a heavy drop by the moon */
-            ump_ta_drop((int32_t)(20u * 256u + umb_rnd() % 2048u), (int32_t)(21u * 256u + umb_rnd() % 2048u), 666, (2600 * v) >> 8);
+            ump_ta_at(c, (int32_t)(20u * 256u + umb_rnd() % 2048u), (int32_t)(21u * 256u + umb_rnd() % 2048u), 666, (2600 * v) >> 8);
         else if (lane < 3u)                             /* the snare, the clap: one */
-            ump_ta_drop((int32_t)(4u * 256u + umb_rnd() % 10240u), (int32_t)(4u * 256u + umb_rnd() % 10240u), 461, (1700 * v) >> 8);
+            ump_ta_at(c, (int32_t)(4u * 256u + umb_rnd() % 10240u), (int32_t)(4u * 256u + umb_rnd() % 10240u), 461, (1700 * v) >> 8);
         else {                                          /* the rest: a star's glint */
             uint32_t i = s->nt++ % 8u;
             s->tx[i] = (uint8_t)(umb_rnd() % 240u);
@@ -578,7 +594,7 @@ static void ump_ta_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
         return;
     }
     k = ump_pk(n);
-    ump_ta_drop(3 * 256 + k * 42, (42 - 5 * (int32_t)c) * 256, 307 + (((256 - k) * 410) >> 8), 700 + ((1500 * v) >> 8));
+    ump_ta_at(c, 768 + k * 42, (42 - 5 * (int32_t)c) * 256, 307 + (((256 - k) * 410) >> 8), 700 + ((1500 * v) >> 8));
 }
 /* a step: the wave (h' = (the four round) / 2 - h before), dragged (DRAG), stilled below a dead band */
 static void ump_ta_step(void)
@@ -727,6 +743,8 @@ static void ump_tick(uint32_t pl)
             continue;
         drum = trk[c].engine == ENGI_DRUM;
         lane = drum ? drum_lane(nn) % NLANE : 0u;
+        if (v)
+            umn_note(c);                                /* (NOTE MOVEMENT) */
         if (!pl)
             ump_ci_note(c, nn, v, drum, lane);
         else if (pl == 3u)

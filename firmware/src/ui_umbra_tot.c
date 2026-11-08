@@ -5,7 +5,8 @@
  * PROJECT > ARRANGE (the song starts, and TOTALITY with it). Out: HOME again (back to the page it came from), or a button
  * that goes to a page (a section's, SAVE, SEQ, HOME held for the menu, a dialog, GEN: umt_check). In it:
  *   SELECT the plates, round, a detent a plate;
- *   KNOB 1..4 what HOME > ECO > ROUTING sends them to (UMT_*: the plate's own two, LIGHT, SPEED, REACT);
+ *   KNOB 1..4 what HOME > ECO > ROUTING sends them to (UMT_*: the plate's own two, LIGHT, SPEED, REACT, MOVEMENT,
+ *   TRAVEL);
  *   FX tapped: KNOB 1..4 the visual effects instead (MIRROR MOSAIC GLITCH SOLAR), FX lit; tapped again: the plate's;
  *   the keys, PLAY, REC, OCT, ALGORITHM, PRESETS and a layer held as on HOME (the layer's map over it while it shows);
  *   PLAY plays the song again when TOTALITY came from TIMELINE or ARRANGE;
@@ -29,8 +30,8 @@ static const char *const UMT_FXN[4] = {"MIRROR", "MOSAIC", "GLITCH", "SOLAR"};
 static const char *const UMT_MIR[4] = {"OFF", "L-R", "T-B", "QUAD"};
 static const char *umt_tname(uint32_t pl, uint32_t t)   /* routed target t's name on plate pl */
 {
-    static const char *const N[3] = {"LIGHT", "SPEED", "REACT"};
-    return t < 2u ? UMV_N[pl % UMP_NPL][t] : N[(t - 2u) % 3u];
+    static const char *const N[5] = {"LIGHT", "SPEED", "REACT", "MOVEMENT", "TRAVEL"};
+    return t < 2u ? UMV_N[pl % UMP_NPL][t] : N[(t - 2u) % 5u];
 }
 static uint32_t umt_where(void)
 {
@@ -136,9 +137,12 @@ static void umt_knob(uint32_t k, int32_t d)
         if (t <= UMT_LIGHT) {
             umv_put(pl, t, (uint32_t)umb_clamp((int32_t)umv(pl, t) + d, 0, 99));
             v = umv(pl, t);
-        } else {
-            umt_put(t + 5u, (int32_t)umt_get(t + 5u) + d);   /* (SPEED [8], REACT [9]) */
+        } else {                                        /* (SPEED [8], REACT [9], MOVEMENT [10]: a detent a step,
+                                                         * TRAVEL [11]) */
+            umt_put(t + 5u, (int32_t)umt_get(t + 5u) + (t == UMT_MOVE ? (d > 0) - (d < 0) : d));
             v = umt_get(t + 5u);
+            if (t == UMT_MOVE)
+                vs = UMN_MV[v & 3u];
         }
     }
     fmt_int(b, (int32_t)v);

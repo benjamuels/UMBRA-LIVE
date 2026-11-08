@@ -53,11 +53,12 @@ static void umm_splat(int32_t X, int32_t Y, int32_t a, const uint8_t *c)
     umm_px(x + 1, y + 1, (bx * fy) >> 8, c[0], c[1], c[2]);
 }
 /* SAROS: note n of track c on the dial (px, Q8): its place on the circle of fifths from the track's root, its octave
- * the ring (40 .. 107.5 px) */
+ * the ring (40 .. 107.5 px); NOTE MOVEMENT turns the track's whole web round the dial (a place a step) and moves it out
+ * or in (a ring a step) */
 static void umm_pos(uint32_t c, uint32_t n, int32_t *X, int32_t *Y)
 {
-    uint32_t k = (n + 120u - (uint32_t)trk[c].p[P_ROOT] % 12u) % 12u * 7u % 12u;
-    int32_t r = 10240 + umb_clamp((int32_t)n / 12 - 3, 0, 5) * 3456;
+    uint32_t k = ((n + 120u - (uint32_t)trk[c].p[P_ROOT] % 12u) % 12u * 7u + (uint32_t)(24 + ((umn.o[c][0] * 12) >> 8))) % 12u;
+    int32_t r = 10240 + umn_at(c, 1u, umb_clamp((int32_t)n / 12 - 3, 0, 5), 5) * 3456;
     *X = UMM_CX * 256 + ((r * umb.m.ux[k]) >> 15);
     *Y = UMM_CY * 256 + ((r * umb.m.uy[k]) >> 15);
 }
@@ -222,7 +223,7 @@ static void umm_fil_note(uint32_t c, uint32_t n, uint32_t vel)
         return;
     }
     k = drum ? (int32_t)(drum_lane(n) % NLANE) * 36 + 2 : umb_clamp(((int32_t)n - 36) * 4369 >> 10, 0, 256);   /* (0..1, Q8) */
-    x = k * 80;                                         /* (the place: points, Q8) */
+    x = umn_at(c, 0u, k * 80, 80 * 256);                /* (the place: points, Q8; NOTE MOVEMENT's along the string) */
     if (m->last[c] && n + 1u != m->last[c])
         m->dir[c] = (int8_t)(n + 1u > m->last[c] ? -1 : 1);   /* (rising: up) */
     if (!m->dir[c])
@@ -364,6 +365,8 @@ static void umm_tick(uint32_t pl)
         uint32_t q = umb.qr % UMB_NQ, c = umb_q.c[q], v = umb_vel(umb_q.vel[q]);   /* (REACT) */
         if (c >= NTRK || (umb_q.vel[q] && (eco_off(c) || !v)))
             continue;
+        if (v)
+            umn_note(c);                                /* (NOTE MOVEMENT) */
         if (pl == 2u)
             umm_fil_note(c, umb_q.note[q], v);
         else if (v && trk[c].engine != ENGI_DRUM)

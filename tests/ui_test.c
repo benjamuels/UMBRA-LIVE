@@ -11180,11 +11180,59 @@ static int test_skin(void)
         ok &= !umt.on && ui.home && ui.hset[0] == 1u && !ui.hlv;   /* (MACROS again) */
         press(B_HOME); frame(); press(B_EDIT); frame();
         ok &= !umt.on && !ui.home;
-        nav_go(SEC_HOME, 3, 0); frame();                           /* (ROUTING) */
+        nav_go(SEC_HOME, 4, 0); frame();                           /* (ROUTING) */
         turn(EN_K1, 2);
         ok &= umt_get(0u) == UMT_LIGHT && !umt.on;
         favorites.factory[4][8] = favorites.factory[4][16] = 0;
         bad += check("(UMBRA OBSCURA) TOTALITY: HOME on HOME; SELECT plates round, KNOBs routed, FX effects; LEDs dark; HOME back; EDIT ends it; ROUTING", ok);
+    }
+    {   /* (UMBRA OBSCURA) NOTE MOVEMENT, HOME > ECO > NOTES: KNOB 1 STATIC MOVE DRIFT RANDOM, a detent each (MOVE at first);
+         * STATIC: no offset, a plate's places as ever; MOVE: a note a step along the track's own path (each track its own);
+         * DRIFT: the step as long as the time since the track's last note; RANDOM: anywhere; folded into the plate; routed
+         * in TOTALITY: MOVEMENT by name */
+        int32_t x1, y1, i, inside = 1;
+        uint32_t p0, d1, d2;
+        ui_power_on(); frame();
+        memset(favorites.factory[4] + 8, 0, 12);
+        nav_go(SEC_HOME, 3, 0); frame();                           /* (NOTES) */
+        ok = umb_vis() && umt_get(10u) == 1u && umt_get(11u) == 50u;
+        turn(EN_K1, -1);
+        ok &= umt_get(10u) == 0u;                                  /* (STATIC) */
+        umn_note(0); frame();
+        ok &= !umn.o[0][0] && !umn.o[0][1] && umn_at(0, 0u, 100, 1000) == 100;
+        turn(EN_K1, 1);                                            /* (MOVE) */
+        umn_note(0); x1 = umn.o[0][0]; y1 = umn.o[0][1];
+        umn_note(0);
+        ok &= umn.o[0][0] != x1 || umn.o[0][1] != y1;
+        umn_note(1);
+        ok &= umn.o[1][0] != umn.o[0][0] || umn.o[1][1] != umn.o[0][1];
+        bad += check("(UMBRA OBSCURA) NOTES: MOVEMENT MOVE at first; STATIC no offset; MOVE a step a note, each track its own path", ok);
+        turn(EN_K1, 1);                                            /* (DRIFT) */
+        ok = umt_get(10u) == 2u;
+        umn_note(2);
+        p0 = umn.p[2]; umb_now += 50u; umn_note(2); d1 = umn.p[2] - p0;
+        p0 = umn.p[2]; umb_now += 2000u; umn_note(2); d2 = umn.p[2] - p0;
+        ok &= d1 && d2 == d1 * 40u;
+        turn(EN_K2, 20);                                           /* (TRAVEL further: a longer step) */
+        p0 = umn.p[2]; umb_now += 50u; umn_note(2);
+        ok &= umt_get(11u) > 50u && umn.p[2] - p0 > d1;
+        turn(EN_K1, 3);                                            /* (RANDOM, the last) */
+        ok &= umt_get(10u) == 3u;
+        for (i = 0; i < 200; i++) {
+            umn_note(3);
+            x1 = umn_at(3, 0u, i * 5, 999);
+            y1 = umn_at(3, 1u, 999 - i * 5, 999);
+            inside &= x1 >= 0 && x1 <= 999 && y1 >= 0 && y1 <= 999 && umn.o[3][0] >= -256 && umn.o[3][0] <= 256;
+        }
+        ok &= inside;
+        bad += check("(UMBRA OBSCURA) NOTES: DRIFT a step as long as the time since; TRAVEL its size; RANDOM anywhere, folded inside", ok);
+        umt_put(3u, UMT_MOVE);                                     /* (KNOB 4 routed to MOVEMENT) */
+        nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(4);
+        turn(EN_K4, -2);
+        ok = umt.on && umt_get(10u) == 2u && str_eq(umt.say, "MOVEMENT DRIFT");
+        press(B_HOME); frame();
+        memset(favorites.factory[4] + 8, 0, 12);
+        bad += check("(UMBRA OBSCURA) TOTALITY: a knob routed to MOVEMENT, a detent a step, said by name", ok);
     }
     for (sk = 0; sk < SKIN_N; sk++) {                             /* every lens page in each skin */
         int okp = 1;

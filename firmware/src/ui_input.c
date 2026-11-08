@@ -2859,7 +2859,8 @@ static void ui_input_frame(void)
         if (home_macros()) {                            /* (0.8.5) HOME's MACROS / ROUTES: M1..M4 */
             macro_v[k] = (uint8_t)clamp(macro_v[k] + accel(EN_K1 + k, s, 127), 0, 127);
         } else if (UMB_ON && umb_vis()) {               /* (UMBRA OBSCURA) HOME > ECO > PLATE */
-            umv_turn(k, accel(EN_K1 + k, s, k && ui.hset[0] == 2u ? 99 : 0));
+            umv_turn(k, accel(EN_K1 + k, s, k && ui.hset[0] < 4u ? 99 : 0));   /* (the plate, MOVEMENT, ROUTING: a detent
+                                                                                 * a step) */
         } else if (ui.home) {
             int16_t *vp;
             const param_desc_t *d = home_param(k, &vp);

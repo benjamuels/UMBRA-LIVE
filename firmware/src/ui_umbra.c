@@ -63,11 +63,13 @@ static void umv_put(uint32_t pl, uint32_t j, uint32_t v)
 static int32_t umv_light(uint32_t pl) { return ((int32_t)umv(pl, 2u) * 256 + 49) / 99; }   /* LIGHT, Q8 (99: 256) */
 /* TOTALITY's own settings (ui_umbra_tot.c), in SAMPLE's retired favourites row (engine 4: never selectable, nothing reads its
  * stars; its presets were < 64, so its bytes 8.. were always 0; TRIO's row, bt.c, the same way), each as the value ^ its
- * default: [8 + i] i 0..3 the knob KNOB i + 1 is routed to (UMT_*), 4..7 the visual effects (FX), 8 SPEED, 9 REACT */
-enum { UMT_A, UMT_B, UMT_LIGHT, UMT_SPEED, UMT_REACT, UMT_N };   /* a routed knob: the plate's first or second, LIGHT .. */
-#define UMT_NS 10u
-static const uint8_t UMT_D[UMT_NS] = {UMT_A, UMT_B, UMT_SPEED, UMT_LIGHT, 0, 0, 0, 0, 50, 50};
-static const uint8_t UMT_MAX[UMT_NS] = {UMT_N - 1, UMT_N - 1, UMT_N - 1, UMT_N - 1, 3, 99, 99, 99, 99, 99};
+ * default: [8 + i] i 0..3 the knob KNOB i + 1 is routed to (UMT_*), 4..7 the visual effects (FX), 8 SPEED, 9 REACT,
+ * 10 MOVEMENT, 11 TRAVEL (HOME > ECO > NOTES; a routed target t's byte t + 5) */
+enum { UMT_A, UMT_B, UMT_LIGHT, UMT_SPEED, UMT_REACT, UMT_MOVE, UMT_TRAVEL, UMT_NT };   /* a routed knob: the plate's first
+                                                         * or second, LIGHT .. */
+#define UMT_NS 12u
+static const uint8_t UMT_D[UMT_NS] = {UMT_A, UMT_B, UMT_SPEED, UMT_LIGHT, 0, 0, 0, 0, 50, 50, 1, 50};
+static const uint8_t UMT_MAX[UMT_NS] = {UMT_NT - 1, UMT_NT - 1, UMT_NT - 1, UMT_NT - 1, 3, 99, 99, 99, 99, 99, 3, 99};
 static uint32_t umt_get(uint32_t i)
 {
     uint32_t v = favorites.factory[4][8u + i] ^ UMT_D[i];
@@ -79,6 +81,21 @@ static void umt_put(uint32_t i, int32_t v)
     umv_dirty = 1;
     umv_ms = fm1_ms;
 }
+/* NOTE MOVEMENT (HOME > ECO > NOTES, MOVEMENT [10]): where a track's notes land on a plate moves along a path of the track's
+ * own (a Lissajous figure, its ratios and its start the track's), an offset each plate adds to the note's own place (umn_at;
+ * across the plate either way, folded back at its edges: a track's notes keep their shape among themselves).
+ *   STATIC  none: each note where its pitch puts it, as ever
+ *   MOVE    a step along the path a note (TRAVEL [11]: 50 a 64th of the way round, 99 a 16th, 0 none)
+ *   DRIFT   a step as long as the time since the track's last note (TRAVEL's a half second; 4 s at most): notes close in
+ *           time land close, after a rest far off
+ *   RANDOM  anywhere */
+static const char *const UMN_MV[4] = {"STATIC", "MOVE", "DRIFT", "RANDOM"};
+static const uint8_t UMN_L[NTRK][2] = {{1, 2}, {2, 1}, {2, 3}, {3, 2}, {1, 3}, {3, 1}};   /* (each track's figure) */
+static struct {
+    int16_t o[NTRK][2];                                 /* each track's offset now, across and down (Q8 of a plate's span:
+                                                         * -256 .. 256) */
+    uint32_t p[NTRK], t[NTRK];                          /* .. its place on its path (2^32 a turn), its last note's time */
+} umn __attribute__((section(".pool")));
 /* SPEED: the plates' own clock (umb_now, ms), moved once a frame at its pace: 50 as the wall's, 0 still (a plate frozen
  * as it is), 99 four times as fast. Every time a plate keeps (a note's age, a fade, a step) is on it */
 static uint32_t umb_now, umb_cr, umb_cq, umb_cf;
@@ -92,6 +109,8 @@ static void umb_clock(void)
     umb_cq += (dt > 250u ? 250u : dt) * q;
     umb_now += umb_cq >> 8;
     umb_cq &= 255u;
+    if (!umt_get(10u))                                  /* (STATIC: no offset, the plates' notes where they were) */
+        memset(umn.o, 0, sizeof umn.o);
 }
 /* REACT: how hard a note (its velocity, 1..127) reaches the plate: 50 as played, 0 not at all (0: a note let go stays one) */
 static uint32_t umb_vel(uint32_t v)
@@ -213,6 +232,28 @@ static uint32_t umb_isqrt(uint32_t v)
     return r;
 }
 static int32_t umb_clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
+/* a note on track c (once a note, before a plate places it): its offset moved (NOTE MOVEMENT) */
+static void umn_note(uint32_t c)
+{
+    uint32_t m = umt_get(10u), t = umt_get(11u), st = t * t * 26843u, dt = umb_now - umn.t[c], ax;
+    umn.t[c] = umb_now;
+    if (!m)
+        return;
+    umn.p[c] += m == 1u ? st : m == 2u ? st / 500u * (dt > 4000u ? 4000u : dt) : 0u;
+    for (ax = 0; ax < 2u; ax++)                         /* (the path; RANDOM: a span either way, folded: even) */
+        umn.o[c][ax] = (int16_t)(m == 3u ? (int32_t)(umb_rnd() % 513u) - 256
+                                         : SINE[(umn.p[c] * UMN_L[c][ax] + (ax ? 0u : c * 715827883u)) >> 22] >> 7);
+}
+/* v (0 .. span along axis ax: 0 across, 1 down) where track c's offset moves it, folded back into 0 .. span */
+static int32_t umn_at(uint32_t c, uint32_t ax, int32_t v, int32_t span)
+{
+    int32_t o = umn.o[c][ax], p = 2 * span;
+    if (!o)
+        return v;
+    v = (v + ((o * span) >> 8)) % p;
+    v += v < 0 ? p : 0;
+    return v > span ? p - v : v;
+}
 /* the noise table at X, Y (texels, Q8; it wraps): its value x 256 */
 static int32_t umb_tbil(int32_t X, int32_t Y)
 {
