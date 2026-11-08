@@ -14,7 +14,8 @@
  * the whole screen every frame (HOME's changed-cells blit sent it all, ~35 ms of SPI a frame) and took ~10 KB of the slot.
  * These are built to the FM-1's limits: a byte field or none, a table read and a palette read a pixel, no lighting pass, fades
  * in steps, still between notes, so the blit (gfx.c cv_blit_cells) sends little. Their state shares one block of the pool
- * (umb's union): a plate chosen starts afresh. HOME > ECO's fourth page, TOTALITY, is the plate alone over the whole screen. */
+ * (umb's union): a plate chosen starts afresh. TOTALITY (ui_umbra_tot.c), a HOME tap on HOME, is the plate alone over the
+ * whole screen, KNOB 1..4 routed by HOME > ECO > ROUTING (ui_umbra_plate.c), FX its visual effects. */
 #define UMB_ON 1
 #define UMB_N 60                                        /* a field's side: 60 x 60 cells of 4 x 4 px */
 #define UMB_S (UMB_N * UMB_N)
@@ -60,6 +61,44 @@ static void umv_put(uint32_t pl, uint32_t j, uint32_t v)
     umv_ms = fm1_ms;
 }
 static int32_t umv_light(uint32_t pl) { return ((int32_t)umv(pl, 2u) * 256 + 49) / 99; }   /* LIGHT, Q8 (99: 256) */
+/* TOTALITY's own settings (ui_umbra_tot.c), in SAMPLE's retired favourites row (engine 4: never selectable, nothing reads its
+ * stars; its presets were < 64, so its bytes 8.. were always 0; TRIO's row, bt.c, the same way), each as the value ^ its
+ * default: [8 + i] i 0..3 the knob KNOB i + 1 is routed to (UMT_*), 4..7 the visual effects (FX), 8 SPEED, 9 REACT */
+enum { UMT_A, UMT_B, UMT_LIGHT, UMT_SPEED, UMT_REACT, UMT_N };   /* a routed knob: the plate's first or second, LIGHT .. */
+#define UMT_NS 10u
+static const uint8_t UMT_D[UMT_NS] = {UMT_A, UMT_B, UMT_SPEED, UMT_LIGHT, 0, 0, 0, 0, 50, 50};
+static const uint8_t UMT_MAX[UMT_NS] = {UMT_N - 1, UMT_N - 1, UMT_N - 1, UMT_N - 1, 3, 99, 99, 99, 99, 99};
+static uint32_t umt_get(uint32_t i)
+{
+    uint32_t v = favorites.factory[4][8u + i] ^ UMT_D[i];
+    return v > UMT_MAX[i] ? UMT_D[i] : v;
+}
+static void umt_put(uint32_t i, int32_t v)
+{
+    favorites.factory[4][8u + i] = (uint8_t)((v < 0 ? 0 : v > UMT_MAX[i] ? UMT_MAX[i] : v) ^ UMT_D[i]);
+    umv_dirty = 1;
+    umv_ms = fm1_ms;
+}
+/* SPEED: the plates' own clock (umb_now, ms), moved once a frame at its pace: 50 as the wall's, 0 still (a plate frozen
+ * as it is), 99 four times as fast. Every time a plate keeps (a note's age, a fade, a step) is on it */
+static uint32_t umb_now, umb_cr, umb_cq, umb_cf;
+static void umb_clock(void)
+{
+    uint32_t v = umt_get(8u), dt = fm1_ms - umb_cr, q = v <= 50u ? v * 256u / 50u : 256u + (v - 50u) * 768u / 49u;
+    if (umb_cf == ui.frame + 1u)
+        return;
+    umb_cf = ui.frame + 1u;
+    umb_cr = fm1_ms;
+    umb_cq += (dt > 250u ? 250u : dt) * q;
+    umb_now += umb_cq >> 8;
+    umb_cq &= 255u;
+}
+/* REACT: how hard a note (its velocity, 1..127) reaches the plate: 50 as played, 0 not at all (0: a note let go stays one) */
+static uint32_t umb_vel(uint32_t v)
+{
+    uint32_t r = umt_get(9u);
+    return !v ? 0u : (v = v * (r <= 50u ? r * 256u / 50u : 256u + (r - 50u) * 768u / 49u) >> 8) > 127u ? 127u : v;
+}
 #include "ui_umbra_noise.h"                            /* umb_tn, umb_pal, umb_E, umb_at, umb_ln: in flash
                                                          * (tools/gen_umbra_noise.py) */
 /* SAROS and FILAMENT (ui_umbra_melody.c) */
@@ -195,6 +234,7 @@ static const uint8_t UMB_LANE_POS[NLANE] = {3, 5, 6, 2, 1, 4, 7, 0};   /* KICK i
 static void umb_backdrop(int32_t x0, int32_t y0)
 {
     uint32_t pl = umb_pl();
+    umb_clock();
     if (pl == 1u || pl == 2u) {                         /* SAROS, FILAMENT */
         ump_on = 0xFFu;
         umm_backdrop(pl, x0, y0);
@@ -203,24 +243,5 @@ static void umb_backdrop(int32_t x0, int32_t y0)
         ump_backdrop(pl, x0, y0);
     }
 }
-/* TOTALITY (HOME > ECO's fourth page, ui_lens.c CE_HOME): the visual alone, over the whole screen: no header, tabs, knobs,
- * words or footer (ui_draw.c ui_draw_body draws nothing else); two strips, sent where they changed (gfx.c cv_blit_cells);
- * under LOAD LITE / ECO every 50 / 70 ms, as HUD's HOME. The keys, knobs and buttons work as on ECO */
-static int umb_bare(void) { return ui.home && !gen_on() && !ui.hlv && ui.hset[0] == 3u; }
-static void umb_full(void)
-{
-    static uint32_t ms;
-    uint32_t y;
-    if (sys_load && !ui.force && fm1_ms - ms < (sys_load == LOAD_ECO ? 70u : 50u))
-        return;
-    ms = fm1_ms;
-    dc_frame(ui.force);
-    umb.bare = 1;
-    for (y = 0; y < 240u; y += 120u) {
-        cv_begin(240, 120, T_BG);
-        umb_backdrop(0, (int32_t)y);
-        cv_blit_cells(0, y);
-    }
-    umb.bare = 0;
-}
+#include "ui_umbra_tot.c"                             /* TOTALITY: the plate alone, the visual effects */
 #include "ui_umbra_plate.c"                           /* HOME > ECO > PLATE: the visuals' page */

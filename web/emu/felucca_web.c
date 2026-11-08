@@ -447,13 +447,17 @@ EXPORT void web_mirror_take(uint32_t n)                 /* the first n bytes rea
     web_mq_n -= n;
 }
 EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) 99: the PLATE (0..5); 0, 1: its two settings, 2 LIGHT;
-                                                         * 98: HOME > ECO > TOTALITY (the projector, emu/?projector) */
+                                                         * 98: TOTALITY, no word at its foot (the projector, emu/?projector) */
 {
     uint32_t pl = umb_pl();
     if (i == 99u)
         umb_plate = (uint8_t)(0x80u | v % UMP_NPL);
     else if (i == 98u)
-        nav_go(SEC_HOME, 3u, 0);                        /* (ui_lens.c CE_HOME: ECO, MACROS, PLATE, TOTALITY) */
+    {
+        nav_go(SEC_HOME, 0, 0);                         /* (ui_umbra_tot.c) */
+        umt_enter(0);
+        umt.say_ms = 0;
+    }
     else if (i < 3u)
         umv_put(pl, i, v);
 }

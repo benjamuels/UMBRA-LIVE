@@ -211,7 +211,7 @@ static void ump_gr_seed(uint32_t g)                     /* a granule (re)born: i
     s->sx[g] = (uint8_t)((g % UMG_G) * UMG_C + 3u + umb_rnd() % 15u);
     s->sy[g] = (uint8_t)((g / UMG_G) * UMG_C + 3u + umb_rnd() % 15u);
     s->amb[g] = (uint8_t)(23u + umb_rnd() % 28u);
-    s->born[g] = fm1_ms;
+    s->born[g] = umb_now;
 }
 /* the blocks bx0 .. bx1, by0 .. by1: each one's granule (the nearest heart) and profile: dark in the lanes (1 .. 4 px from
  * the next granule: the distance to their bisector, exact), brightest at the heart */
@@ -259,7 +259,7 @@ static void ump_gr_init(void)
     uint32_t g;
     for (g = 0; g < UMG_N; g++) {
         ump_gr_seed(g);
-        umb.gr.born[g] = fm1_ms - 2000u;
+        umb.gr.born[g] = umb_now - 2000u;
         umb.gr.col[g][0] = 143;
         umb.gr.col[g][1] = 217;
         umb.gr.col[g][2] = 201;
@@ -303,7 +303,7 @@ static void ump_gr_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
             s->by[i] = (uint8_t)((s->sy[a] + s->sy[b]) >> 1);
             s->bv[i] = (uint8_t)v;
             s->bc[i] = (uint8_t)lane;
-            s->bt[i] = fm1_ms;
+            s->bt[i] = umb_now;
         }
         return;
     }
@@ -329,7 +329,7 @@ static void ump_gr_frame(uint32_t dt)
         ump_gr_map((gx - 30) >> 2, (gy - 30) >> 2, (gx + 50) >> 2, (gy + 50) >> 2);
     }
     for (g = 0; g < UMG_N; g++) {
-        uint32_t age = fm1_ms - s->born[g];
+        uint32_t age = umb_now - s->born[g];
         s->E[g] = (uint16_t)(s->E[g] - ((s->E[g] * f) >> 16));
         s->gb[g] = (uint8_t)(s->amb[g] * (age >= 1600u ? 8u : age / 200u) / 8u);   /* (born: it fades in, 8 steps) */
         s->gl[g] = (uint16_t)(s->E[g] & ~15u);
@@ -375,7 +375,7 @@ static void ump_gr_draw(int32_t x0, int32_t y0)
         }
     }
     for (i = 0; i < (int32_t)UMG_NB; i++) {             /* the bright points: 0.4 s, 8 steps */
-        int32_t f = ump_fade(fm1_ms - s->bt[i], 400u, 8u);
+        int32_t f = ump_fade(umb_now - s->bt[i], 400u, 8u);
         if (f && s->bv[i])
             ump_glint(s->bx[i] * 256, s->by[i] * 256, (f * (128 + (s->bv[i] >> 1)) * 384) >> 16,
                       s->bc[i] == 4u ? UMP_WT : UMB_EVC[UMB_LANE_POS[s->bc[i] % NLANE]]);
@@ -416,12 +416,12 @@ static void ump_co_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
             uint32_t i = s->np++ % 4u;
             s->pa_[i] = (uint16_t)(umb_rnd() & 1023u);
             s->ph[i] = (uint8_t)(6 + 7 * v / 256);
-            s->pt[i] = fm1_ms;
+            s->pt[i] = umb_now;
         } else {                                        /* the rest: a bead */
             uint32_t i = s->nbd++ % 10u;
             s->ba[i] = (uint16_t)(umb_rnd() & 1023u);
             s->bv[i] = (uint8_t)v;
-            s->bt[i] = fm1_ms;
+            s->bt[i] = umb_now;
         }
         return;
     }
@@ -502,7 +502,7 @@ static void ump_co_draw(int32_t x0, int32_t y0)
         }
     }
     for (i = 0; i < 4; i++) {                           /* the prominences: an arch on the limb, 1.4 s, 8 steps */
-        uint32_t age = fm1_ms - s->pt[i];
+        uint32_t age = umb_now - s->pt[i];
         int32_t fq = s->ph[i] ? ump_fade(age, 1400u, 8u) : 0, rise = age >= 250u ? 256 : (int32_t)(age * 256u / 250u),
                 dl = s->ph[i] * 10 / 3;
         if (!fq)
@@ -516,7 +516,7 @@ static void ump_co_draw(int32_t x0, int32_t y0)
         }
     }
     for (i = 0; i < 10; i++) {                          /* the beads: a glint on the limb, 0.3 s */
-        int32_t fq = s->bv[i] ? ump_fade(fm1_ms - s->bt[i], 300u, 8u) : 0, ro = UMR_RM * 256 + 154;
+        int32_t fq = s->bv[i] ? ump_fade(umb_now - s->bt[i], 300u, 8u) : 0, ro = UMR_RM * 256 + 154;
         uint32_t an = (uint32_t)s->ba[i] << 22;
         if (fq)
             ump_glint(120 * 256 + ((ro * sine_i(an + 0x40000000u)) >> 15), 120 * 256 + ((ro * sine_i(an)) >> 15),
@@ -573,7 +573,7 @@ static void ump_ta_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
             s->tx[i] = (uint8_t)(umb_rnd() % 240u);
             s->ty[i] = (uint8_t)(umb_rnd() % 240u);
             s->tv[i] = (uint8_t)v;
-            s->tt[i] = fm1_ms;
+            s->tt[i] = umb_now;
         }
         return;
     }
@@ -682,7 +682,7 @@ static void ump_ta_draw(int32_t x0, int32_t y0)
         }
     }
     for (i = 0; i < 8; i++) {                           /* the stars glinting: 0.35 s, 6 steps */
-        int32_t f = s->tv[i] ? ump_fade(fm1_ms - s->tt[i], 350u, 6u) : 0;
+        int32_t f = s->tv[i] ? ump_fade(umb_now - s->tt[i], 350u, 6u) : 0;
         if (f)
             ump_glint(s->tx[i] * 256, s->ty[i] * 256, (f * (128 + (s->tv[i] >> 1)) * 230) >> 16, UMP_WT);
     }
@@ -700,9 +700,9 @@ static void ump_tick(uint32_t pl)
     if (ump_on != pl) {
         memset(&umb, 0, __builtin_offsetof(umb_t, f0));
         ump_on = (uint8_t)pl;
-        umb.rs = 218u + fm1_ms;
+        umb.rs = 218u + umb_now;
         umb.qr = umb_q.w;
-        umb.ms = umb.last = fm1_ms;
+        umb.ms = umb.last = umb_now;
         if (!pl)
             ump_ci_init();
         else if (pl == 3u)
@@ -715,15 +715,15 @@ static void ump_tick(uint32_t pl)
     if (umb.f0 == ui.frame)
         return;
     umb.f0 = ui.frame;
-    dt = fm1_ms - umb.last;
+    dt = umb_now - umb.last;
     dt = dt > 250u ? 250u : dt;
-    umb.last = fm1_ms;
+    umb.last = umb_now;
     if (umb_q.w - umb.qr > UMB_NQ)
         umb.qr = umb_q.w - UMB_NQ;
     for (; umb.qr != umb_q.w; umb.qr++) {
-        uint32_t q = umb.qr % UMB_NQ, c = umb_q.c[q], nn = umb_q.note[q], drum, lane;
-        int32_t v = umb_q.vel[q] ? umb_q.vel[q] * 2 + 1 : 0;
-        if (c >= NTRK || (v && eco_off(c)))
+        uint32_t q = umb.qr % UMB_NQ, c = umb_q.c[q], nn = umb_q.note[q], drum, lane, u = umb_vel(umb_q.vel[q]);
+        int32_t v = u ? (int32_t)u * 2 + 1 : 0;         /* (REACT: 0, a note that does not reach it) */
+        if (c >= NTRK || (umb_q.vel[q] && (!v || eco_off(c))))
             continue;
         drum = trk[c].engine == ENGI_DRUM;
         lane = drum ? drum_lane(nn) % NLANE : 0u;
@@ -741,15 +741,15 @@ static void ump_tick(uint32_t pl)
     else if (pl == 4u)
         ump_co_frame(dt);
     else {
-        while ((uint32_t)(fm1_ms - umb.ms) >= step && n++ < 4u) {
+        while ((uint32_t)(umb_now - umb.ms) >= step && n++ < 4u) {
             umb.ms += step;
             if (pl)
                 ump_ta_step();
             else
                 ump_ci_step();
         }
-        if ((uint32_t)(fm1_ms - umb.ms) >= step)
-            umb.ms = fm1_ms;
+        if ((uint32_t)(umb_now - umb.ms) >= step)
+            umb.ms = umb_now;
     }
 }
 static __attribute__((noinline)) void ump_backdrop(uint32_t pl, int32_t x0, int32_t y0)

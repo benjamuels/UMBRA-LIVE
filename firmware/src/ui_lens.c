@@ -40,12 +40,13 @@ typedef struct { const char *t, *nm; uint8_t g, lv; } nv_t;   /* PAGES title (HO
 typedef struct { const char *nm, *tab; } ng_t;                /* a group: its name, its tab's when the name is too wide */
 typedef struct { const nv_t *e; const ng_t *g; uint8_t n, ng; } ch_t;
 #define NV(t, nm, g, lv) {t, nm, g, lv}
-static const nv_t CE_HOME[] = {NV(0, "ECO", 0, 0), NV(0, "MACROS", 0, 0), NV(0, "PLATE", 0, 0), NV(0, "TOTALITY", 0, 0),
+static const nv_t CE_HOME[] = {NV(0, "ECO", 0, 0), NV(0, "MACROS", 0, 0), NV(0, "PLATE", 0, 0), NV(0, "ROUTING", 0, 0),
                                NV(0, "BEING", 1, 1), NV(0, "ROUTES", 1, 1), NV(0, "GEN 1", 2, 2), NV(0, "GEN 2", 2, 2),
                                NV(0, "GEN 3", 2, 2)};
 #define HOME_E_BEING 4u                                 /* (UMBRA OBSCURA: ECO's third, PLATE, the visuals' settings (ui_umbra_plate.c
-                                                         * umb_vis: ui.hset[0] 2); its fourth, TOTALITY, the visual alone
-                                                         * (ui_umbra.c umb_bare: 3)) BEING's entries, GEN's first */
+                                                         * umb_vis: ui.hset[0] 2); its fourth, ROUTING, what KNOB 1..4 turn in
+                                                         * TOTALITY (3; TOTALITY itself, the plate alone: a HOME tap on HOME,
+                                                         * ui_umbra_tot.c)) BEING's entries, GEN's first */
 #define HOME_E_GEN 6u
 static const ng_t CG_HOME[] = {{"ECO", 0}, {"BEING", 0}, {"GEN", 0}};
 static const nv_t CE_SYN[] = {NV("EDIT 1", 0, 0, 0), NV("EDIT 2", 0, 0, 0), NV("FILTER", 0, 1, 1), NV("MORPH", 0, 1, 1),

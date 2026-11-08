@@ -3684,10 +3684,13 @@ static int test_chain(void)
     bad += check("SONG OCT chord does not start playback or leave the page", !transport_req && !ui.home);
     press(B_PLAY);                                      /* (0.8.5: OCT+ adds a row on ARRANGE; PLAY plays the song) */
     bad += check("SONG PLAY starts, pending start blocks SAVE", chain.armed && transport_req == 1);
+    bad += check("(UMBRA OBSCURA) PLAY on ARRANGE: the song in TOTALITY", umt.on && umt.song && umb_bare());
     project_save(3);
     bad += check("SONG pending start cannot write a project", msg_is("STOP TO SAVE") && !project_used(3));
     press(B_PLAY); events_block(32);
     bad += check("SONG PLAY cancels a pending start", !chain.running && !chain.armed && !song.playing);
+    press(B_HOME);
+    bad += check("(UMBRA OBSCURA) HOME out of TOTALITY: ARRANGE again", !umt.on && !ui.home && cur_page()->graph == GR_SONG);
     uint32_t old_count = chain_config.count;
     turn(EN_K4, 30);
     bad += check("SONG unused K4 cannot accidentally add or clear rows", chain_config.count == old_count);
@@ -11143,6 +11146,46 @@ static int test_skin(void)
         ok &= !ui.msg_t && !ui.hint_pg;
         bad += check("a page's hint goes when the page changes (not carried onto the next page); no layer hint after EDIT", ok);
     }
+    {   /* (UMBRA OBSCURA) TOTALITY: a HOME tap on HOME (lit); SELECT the plates, round; KNOB 1..4 as ROUTING routes them
+         * (at first the plate's two, SPEED, LIGHT); FX tapped: the effects, FX lit; every other LED dark; HOME: back to
+         * the page under it; a page chosen (EDIT) ends it; ROUTING's KNOB 1 another target */
+        uint32_t c, dim = 0, pl;
+        ui_power_on(); frame();
+        umb_plate = 0x80u;                                         /* (CINDER) */
+        favorites.factory[4][16] = 0;                              /* (SPEED 50) */
+        memset(led_pos, 0xFF, sizeof led_pos);                     /* (the host's map: placed, as test_idle_glow does) */
+        led_pos[panel.btn[B_HOME]] = 0u << 3 | 1u;
+        led_pos[panel.btn[B_FX]] = 0u << 3 | 2u;
+        led_pos[panel.btn[B_ENV]] = 0u << 3 | 3u;
+        nav_go(SEC_HOME, 1, 0); frame(); ui_leds();                /* (MACROS) */
+        ok = ui.home && !umt.on && led_of(fm1_led, panel.btn[B_HOME]);
+        press(B_HOME); frames(32); ui_leds();
+        for (c = 0; c < FM1_NCOL; c++) dim |= fm1_led_dim[c] | fm1_led_breath[c];
+        ok &= umt.on && umb_bare() && !led_of(fm1_led, panel.btn[B_HOME]) && !led_of(fm1_led, panel.btn[B_FX]) && !dim;
+        pl = umb_pl();
+        turn(EN_SELECT, 1);
+        ok &= umb_pl() == (pl + 1u) % UMP_NPL && umt.on;
+        turn(EN_SELECT, -1); turn(EN_SELECT, -1);
+        ok &= umb_pl() == (pl + UMP_NPL - 1u) % UMP_NPL;           /* (round) */
+        turn(EN_SELECT, 1);
+        turn(EN_K3, 5);                                            /* (KNOB 3: SPEED) */
+        ok &= umt_get(8u) == 55u && str_eq(umt.say, "SPEED 55");
+        press(B_FX); ui_leds();
+        ok &= umt.fx && led_of(fm1_led, panel.btn[B_FX]) && ui.home && umt.on;
+        turn(EN_K1, 3);                                            /* (MIRROR: a detent a mode) */
+        ok &= umt_get(4u) == 3u && str_eq(umt.say, "MIRROR QUAD");
+        turn(EN_K1, -3); press(B_FX);
+        ok &= !umt.fx && umt_get(4u) == 0u;
+        press(B_HOME); frame();
+        ok &= !umt.on && ui.home && ui.hset[0] == 1u && !ui.hlv;   /* (MACROS again) */
+        press(B_HOME); frame(); press(B_EDIT); frame();
+        ok &= !umt.on && !ui.home;
+        nav_go(SEC_HOME, 3, 0); frame();                           /* (ROUTING) */
+        turn(EN_K1, 2);
+        ok &= umt_get(0u) == UMT_LIGHT && !umt.on;
+        favorites.factory[4][8] = favorites.factory[4][16] = 0;
+        bad += check("(UMBRA OBSCURA) TOTALITY: HOME on HOME; SELECT plates round, KNOBs routed, FX effects; LEDs dark; HOME back; EDIT ends it; ROUTING", ok);
+    }
     for (sk = 0; sk < SKIN_N; sk++) {                             /* every lens page in each skin */
         int okp = 1;
         for (i = 0; i < NPAGES; i++) {
@@ -11163,8 +11206,8 @@ static int test_skin(void)
         ok = okp;
         for (i = 0; i < 3u; i++) {                                /* HOME's groups: ECO, BEING, GEN (a HOME tap each, 0.9.2) */
             ui_power_on(); ui_skin = (uint8_t)sk; frame();
-            if (i == 1u) press(B_HOME);
-            if (i == 2u) { press(B_HOME); press(B_HOME); }
+            if (i)                                                /* (UMBRA OBSCURA: a HOME tap on HOME is TOTALITY; */
+                nav_go(SEC_HOME, i == 1u ? HOME_E_BEING : HOME_E_GEN, 0);   /* the groups by their pages) */
             frames(100);
             ok &= lz_on() && lz_fam() == LZ_HOME && lz_level() == i && hud_home() == ((sk == SKIN_HUD || sk == SKIN_AIR) && !i) &&
                   skin_ink(LZ_FOOT_Y, 240) > 0;

@@ -64,7 +64,7 @@ static void umm_pos(uint32_t c, uint32_t n, int32_t *X, int32_t *Y)
 static int32_t umm_glow(uint32_t i)                    /* a thread's energy now (Q8): it fades in ~6 s (FADE 45; 0 .. 99:
                                                          * 0.1 .. 13 s) */
 {
-    uint32_t age = fm1_ms - umb.m.tt[i];
+    uint32_t age = umb_now - umb.m.tt[i];
     return (umb.m.te[i] * umb_exp((int32_t)((age < 1048576u ? age : 1048576u) * (uint32_t)umm_fk >> 11))) >> 8;
 }
 /* a note played (v: velocity, Q8): its point, and the thread from the track's note before (one already there burns) */
@@ -76,7 +76,7 @@ static void umm_saros_on(uint32_t c, uint32_t n, int32_t v)
     m->nn[m->nnd] = (uint8_t)n;
     m->nc[m->nnd] = (uint8_t)c;
     m->nv[m->nnd] = (uint8_t)v;
-    m->nt[m->nnd] = fm1_ms;
+    m->nt[m->nnd] = umb_now;
     m->nnd = (uint8_t)((m->nnd + 1u) % UMM_ND);
     m->last[c] = (uint8_t)(n + 1u);
     if (!p-- || p == n)
@@ -100,7 +100,7 @@ static void umm_saros_on(uint32_t c, uint32_t n, int32_t v)
         m->te[i] = 0;
     }
     m->te[i] = (uint16_t)umb_clamp(umm_glow(i) + v, 0, 640);
-    m->tt[i] = fm1_ms;
+    m->tt[i] = umb_now;
     m->tf[i] = (uint8_t)p;
 }
 /* once a frame: the turn, the circle's places, the threads as drawn (a faded one goes) */
@@ -108,8 +108,8 @@ static void umm_saros_frame(void)
 {
     umm_t *m = &umb.m;
     uint32_t i, j, k, th;
-    m->th += (fm1_ms - m->tms) * (42950u * umv(1u, 0u) / 30u);   /* (SPIN 30: a turn in 100 s; 0: still; 99: in 30 s) */
-    m->tms = fm1_ms;
+    m->th += (umb_now - m->tms) * (42950u * umv(1u, 0u) / 30u);   /* (SPIN 30: a turn in 100 s; 0: still; 99: in 30 s) */
+    m->tms = umb_now;
     th = m->th - m->th % 5892960u;                     /* (a step at a time: a pixel at the rim, 116 px) */
     for (i = 0; i < 12u; i++) {
         uint32_t ph = i * 357913941u - 0x40000000u + th;   /* (the root at the top, turned) */
@@ -161,7 +161,7 @@ static void umm_saros_draw(void)
                   i ? UMM_REST : UMM_TEAL);
     for (i = 0; i < m->nth; i++) {                      /* the threads, a sample a pixel (only the strip's) */
         int32_t X = m->lx[i], Y = m->ly[i], sx = m->lsx[i], sy = m->lsy[i], n = m->ln[i], k0 = 0, k1 = n;
-        uint32_t age = fm1_ms - m->tt[i];
+        uint32_t age = umb_now - m->tt[i];
         if (sy) {
             int32_t ka = (ylo - Y) / sy, kb = (yhi - Y) / sy;
             k0 = ka < kb ? ka : kb;
@@ -188,7 +188,7 @@ static void umm_saros_draw(void)
         }
     }
     for (i = 0; i < UMM_ND; i++) {                      /* the notes' points: a short glow (~1 s) */
-        uint32_t age = fm1_ms - m->nt[i];
+        uint32_t age = umb_now - m->nt[i];
         const uint8_t *tc = UMB_EVC[(m->nc[i] * 3u) % 8u];
         int32_t b, X, Y, dx, dy;
         if (!m->nv[i] || age > 3000u)
@@ -248,14 +248,14 @@ static void umm_fil_note(uint32_t c, uint32_t n, uint32_t vel)
     m->hx[c][h] = (uint8_t)umb_clamp((x + 128) >> 8, 1, UMM_NP - 2);
     m->hf[c][h] = 3435974u + (uint32_t)k * 67109u;     /* (0.8 .. 4.8 bows a second: phase a ms) */
     m->ha[c][h] = (int16_t)(v * m->dir[c]);
-    m->h0[c][h] = fm1_ms;
+    m->h0[c][h] = umb_now;
 }
 /* the substeps owed (125 a second, 8 a frame at most): the strings' waves; a held note bows; let go, damped */
 static void umm_fil_step(void)
 {
     umm_t *m = &umb.m;
     uint32_t c, i, h, n = 0;
-    while ((uint32_t)(fm1_ms - m->sub) >= 8u && n++ < 8u) {
+    while ((uint32_t)(umb_now - m->sub) >= 8u && n++ < 8u) {
         m->sub += 8u;
         for (c = 0; c < NTRK; c++) {
             int16_t *u = m->u[c], *v = m->v[c];
@@ -288,8 +288,8 @@ static void umm_fil_step(void)
             }
         }
     }
-    if ((uint32_t)(fm1_ms - m->sub) >= 8u)
-        m->sub = fm1_ms;                                /* (behind: never a burst) */
+    if ((uint32_t)(umb_now - m->sub) >= 8u)
+        m->sub = umb_now;                               /* (behind: never a burst) */
 }
 /* the strings in the strip: each a line a column wide, its colour from the rest's deep blue to its track's as it
  * moves (16 steps), held notes tinting it; a glow either side while it moves */
@@ -353,7 +353,7 @@ static void umm_tick(uint32_t pl)
         umm_on = (uint8_t)pl;
         umb.init = 0;
         umb.qr = umb_q.w;
-        m->sub = m->tms = fm1_ms;
+        m->sub = m->tms = umb_now;
     }
     if (umb.f0 == ui.frame)
         return;
@@ -361,13 +361,13 @@ static void umm_tick(uint32_t pl)
     if (umb_q.w - umb.qr > UMB_NQ)                      /* (a burst: the newest only) */
         umb.qr = umb_q.w - UMB_NQ;
     for (; umb.qr != umb_q.w; umb.qr++) {
-        uint32_t q = umb.qr % UMB_NQ, c = umb_q.c[q];
-        if (c >= NTRK || (eco_off(c) && umb_q.vel[q]))
+        uint32_t q = umb.qr % UMB_NQ, c = umb_q.c[q], v = umb_vel(umb_q.vel[q]);   /* (REACT) */
+        if (c >= NTRK || (umb_q.vel[q] && (eco_off(c) || !v)))
             continue;
         if (pl == 2u)
-            umm_fil_note(c, umb_q.note[q], umb_q.vel[q]);
-        else if (umb_q.vel[q] && trk[c].engine != ENGI_DRUM)
-            umm_saros_on(c, umb_q.note[q], umb_q.vel[q] * 2 + 1);
+            umm_fil_note(c, umb_q.note[q], v);
+        else if (v && trk[c].engine != ENGI_DRUM)
+            umm_saros_on(c, umb_q.note[q], (int32_t)v * 2 + 1);
     }
     if (pl == 2u)
         umm_fil_step();

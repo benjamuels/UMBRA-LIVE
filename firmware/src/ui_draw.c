@@ -2487,7 +2487,7 @@ static void ui_draw_body(uint32_t counting)
         page_entered();
     }
     cursor_fix();
-    if (UMB_ON && umb_bare()) {                         /* (UMBRA OBSCURA) TOTALITY: the visual alone (ui_umbra.c) */
+    if (UMB_ON && umb_bare()) {                         /* (UMBRA OBSCURA) TOTALITY: the visual alone (ui_umbra_tot.c) */
         umb_full();
         if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {
             str_cpy(ui.msg, ui.msg2, sizeof ui.msg);

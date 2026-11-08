@@ -351,6 +351,19 @@ static void ui_leds(void)
         led_pos_init();
         ready = 1;
     }
+    if (UMB_ON && umt_shown()) {                        /* (UMBRA OBSCURA) TOTALITY: dark, but the keys of the notes that
+                                                         * sound, FX while its knobs are the effects, REC armed */
+        c = key_leds(0);
+        for (k = 0; k < 27u; k++)
+            led_put(nl, 14u + k, (int)((c >> k) & 1u));
+        led_put(nl, panel.btn[B_FX], umt.fx);
+        led_put(nl, panel.btn[B_REC], song.rec != 0u);
+        for (c = 0; c < FM1_NCOL; c++) {
+            fm1_led_dim[c] = fm1_led_breath[c] = fm1_led_hi[c] = fm1_led_mid[c] = 0;
+            fm1_led[c] = nl[c];
+        }
+        return;
+    }
     if (!ui.layer || FAM_BTN[fam] != layer_btn())
         led_put(nl, panel.btn[FAM_BTN[fam]], 1);
     if ((k = arp_led()) != 2u && (!ui.layer || layer_btn() != B_ARP))
@@ -2239,6 +2252,8 @@ static void ui_input_frame(void)
     uint32_t lay, combo = 0, lytap, lkeys, glo, kq = 0;
     int32_t s, sel = 0, ks[4] = {0, 0, 0, 0};
     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
+    if (UMB_ON)
+        umt_check();                                    /* (UMBRA OBSCURA) TOTALITY: over once a page is chosen */
     mom_poll();                                         /* (0.9.9-seq2e) MOMENTARY's glide back, its header tag */
     {   /* (JIANT 0.6.5) RESO's PITCH and FOLW live in PRE's and DAMP's slots: into RESO a ROOM's values become theirs
          * (DAMP past FOLW's T6: OFF; PRE past 14: 14), out of it the reverb's own defaults back */
@@ -2623,12 +2638,15 @@ static void ui_input_frame(void)
         enc_drop();
         return;
     }
-    if (lytap)                                          /* a layer's button acts on release (held: the layer) */
+    if (lytap && UMB_ON && umt.on && lytap == LAYER_FX)   /* (UMBRA OBSCURA) TOTALITY: FX, the knobs' effects */
+        umt_fx_tap();
+    else if (lytap)                                     /* a layer's button acts on release (held: the layer) */
         layer_tap(lytap);
     if (seq == BT_TAP || seq == BT_HOLD)                /* (SONG: SAVE held, G5) */
         open_family(FAM_SEQ);
-    if (home == BT_TAP)                                 /* HOME acts on release (a hold opens the menu): rule 2, HOME's */
-        nav_button(SEC_HOME);                           /* page last shown; on HOME the next group (ECO BEING GEN) */
+    if (home == BT_TAP && !(UMB_ON && umt_home()))     /* HOME acts on release (a hold opens the menu): rule 2, HOME's */
+        nav_button(SEC_HOME);                           /* page last shown; (UMBRA OBSCURA) on HOME: TOTALITY, and
+                                                         * out of it (ui_umbra_tot.c) */
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     for (id = 0; id < 14u; id++) {
         if (!((pressed >> id) & 1u))
@@ -2640,9 +2658,13 @@ static void ui_input_frame(void)
                 break;
             if (song.playing || chain_busy() || seq_counting())   /* (a count-in: PLAY stops it) */
                 transport_req = 2;
-            else if ((!ui.home && cur_page()->graph == GR_SONG) || live.mode)   /* (the song layer's SONG mode) */
+            else if ((!ui.home && cur_page()->graph == GR_SONG) || live.mode ||   /* (the song layer's SONG mode) */
+                     (UMB_ON && umt.on && umt.song)) {
+                uint32_t sp = !ui.home && cur_page()->graph == GR_SONG;
                 chain_play_ui();
-            else
+                if (UMB_ON && sp && chain_busy())       /* (UMBRA OBSCURA) TIMELINE, ARRANGE: the song in TOTALITY */
+                    umt_enter(1);
+            } else
                 transport_req = 1;
             break;
         case B_REC:                                     /* (JIANT) with SEQ held: CLEAR ALL? (every track's steps) */
@@ -2786,9 +2808,11 @@ static void ui_input_frame(void)
             ui.bpm_t = 40;                              /* the header's BPM lights up; no message over the header */
         }
     } else if ((s = panel_enc(EN_SELECT)) != 0 && !lay && !ui.menu) {   /* (0.9.2, rule 1) SELECT alone: the section's
-                                                        * chain, a page a detent (HOME's: ECO MACROS PLATE TOTALITY BEING ROUTES GEN 1..3) */
+                                                        * chain, a page a detent (HOME's: ECO MACROS PLATE ROUTING BEING ROUTES GEN 1..3) */
         uint64_t cph = cp_held();
-        if (cph)                                        /* (seq2h) step keys held: COPY them (the range between) */
+        if (UMB_ON && umt.on)                           /* (UMBRA OBSCURA) TOTALITY: the plates */
+            umt_select(s);
+        else if (cph)                                   /* (seq2h) step keys held: COPY them (the range between) */
             cp_copy(cph);
         else
             nav_select(s);
@@ -2807,6 +2831,10 @@ static void ui_input_frame(void)
         }
         if (mac_latch && !ui.menu && !ui.confirm) {     /* (JIANT 0.4) the MACRO layer latched: M1..M4 */
             macro_v[k] = (uint8_t)clamp(macro_v[k] + accel(EN_K1 + k, s, 127), 0, 127);
+            continue;
+        }
+        if (UMB_ON && umt.on) {                         /* (UMBRA OBSCURA) TOTALITY: as ROUTING says; FX: the effects */
+            umt_knob(k, accel(EN_K1 + k, s, umt.fx && !k ? 0 : 99));
             continue;
         }
         if (ui.entry_open && !ui.home && cur_page()->graph == GR_ROLL && !grid_on() && lock_held() &&
@@ -2831,7 +2859,7 @@ static void ui_input_frame(void)
         if (home_macros()) {                            /* (0.8.5) HOME's MACROS / ROUTES: M1..M4 */
             macro_v[k] = (uint8_t)clamp(macro_v[k] + accel(EN_K1 + k, s, 127), 0, 127);
         } else if (UMB_ON && umb_vis()) {               /* (UMBRA OBSCURA) HOME > ECO > PLATE */
-            umv_turn(k, accel(EN_K1 + k, s, k ? 99 : 0));
+            umv_turn(k, accel(EN_K1 + k, s, k && ui.hset[0] == 2u ? 99 : 0));
         } else if (ui.home) {
             int16_t *vp;
             const param_desc_t *d = home_param(k, &vp);

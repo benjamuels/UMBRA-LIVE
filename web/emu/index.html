@@ -589,7 +589,7 @@ async function midiOn() {
 }
 
 // ------------------------------------------------------------------ (UMBRA OBSCURA) the projector (?projector)
-// HOME > ECO > TOTALITY drawn as large as the window: the emulator runs silent and plays the notes the FM-1 sends (MENU >
+// TOTALITY drawn as large as the window: the emulator runs silent and plays the notes the FM-1 sends (MENU >
 // CONTROL > MIDI OUT: ALL, each track on its channel; MIDI IN's CH1-6 here gives each its track), so the plates see what
 // the FM-1 plays. The FM-1's screen at 240 x 240 is drawn up (SOFT: smoothed; GLOW: a blurred copy added over it).
 const PLATES = ["CINDER", "SAROS", "FILAMENT", "GRANULE", "CORONA", "TARN"];
@@ -713,7 +713,7 @@ function projBind() {
 async function projOn() {
   $("pstart").hidden = true;
   pbar.hidden = false;
-  send({ type: "umb", i: 98, v: 0 });               // HOME > ECO > TOTALITY
+  send({ type: "umb", i: 98, v: 0 });               // TOTALITY
   pv.s.forEach(([a, b], i) => {                      // (each plate's settings, then the plate)
     send({ type: "umb", i: 99, v: i });
     send({ type: "umb", i: 0, v: a });
@@ -806,6 +806,7 @@ document.addEventListener("visibilitychange", () => send({ type: "visible", on: 
   <div style="color:#8fd9c9;letter-spacing:.18em;margin-bottom:8px">UMBRA OBSCURA · PLATE (HOME &gt; ECO &gt; PLATE on the FM-1)</div>
   <div id="umb-p" style="display:flex;gap:6px;margin-bottom:12px"></div>
   <div style="color:#56748a">Its settings: KNOB 2–4 on HOME › ECO › PLATE (SELECT to the third page).</div>
+  <div style="color:#56748a;margin-top:6px">TOTALITY: HOME on HOME (or PLAY on SAVE › TIMELINE / ARRANGE). SELECT the plates; KNOB 1–4 as HOME › ECO › ROUTING routes them; FX: KNOB 1–4 MIRROR MOSAIC GLITCH SOLAR; HOME back.</div>
   <div style="color:#56748a;margin-top:6px">Projector: <a href="?projector" style="color:#8fd9c9">the plate as large as a window</a>, played by the FM-1's notes over USB (MIDI OUT: ALL).</div>
 </section>
 <script>
