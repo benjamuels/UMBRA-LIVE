@@ -160,10 +160,10 @@ static __attribute__((noinline)) uint32_t umb_h8(uint32_t x, uint32_t y, uint32_
     h = (h ^ (h >> 13)) * 1274126177u;
     return (h ^ (h >> 16)) >> 24;
 }
-/* an octave at texel x, y: the lattice of per (it wraps) smoothstepped between its points */
+/* an octave at texel x, y: the lattice of per (4 or 8; it wraps) smoothstepped between its points */
 static int32_t umb_oct(uint32_t x, uint32_t y, uint32_t per, uint32_t s)
 {
-    uint32_t gx = x * per, gy = y * per, xi = gx >> 5, yi = gy >> 5, x1 = (xi + 1u) % per, y1 = (yi + 1u) % per;
+    uint32_t gx = x * per, gy = y * per, xi = gx >> 5, yi = gy >> 5, x1 = (xi + 1u) & (per - 1u), y1 = (yi + 1u) & (per - 1u);
     int32_t xf = (int32_t)(gx & 31u) << 3, yf = (int32_t)(gy & 31u) << 3, u = (xf * xf * (768 - 2 * xf)) >> 16,
             v = (yf * yf * (768 - 2 * yf)) >> 16, a = (int32_t)umb_h8(xi, yi, s), b = (int32_t)umb_h8(x1, yi, s),
             c = (int32_t)umb_h8(xi, y1, s), d = (int32_t)umb_h8(x1, y1, s);

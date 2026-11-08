@@ -885,11 +885,10 @@ static void umb_welcome(uint32_t ms)
 {
     ump_co_t *s = &umb.co;
     int32_t t = (int32_t)(ms < 3550u ? ms : 3550u), a, x, y, h, g, c, gl, sg, off, mx, my, r;   /* (t: still from 3.55 s) */
-    if (ump_on != 0xFEu) {                              /* (CORONA started as ump_tick does, its frame left out) */
+    if (ump_on != 0xFEu) {                              /* (the palette, CORONA at rest: its state zeroed at boot) */
         umb_tabs();
-        umb.f0 = ui.frame;
-        ump_tick(4u);
-        umb.f0 = 0;                                     /* (as at power-on) */
+        ump_lut_make();
+        ump_co_init();
         ump_on = 0xFEu;
     }
     if (ms >= UMW_T)
@@ -917,12 +916,12 @@ static void umb_welcome(uint32_t ms)
     umr_rm = 30;
     umr_k = 8192 / 30;
     umb.bare = 1;
+    umm_x0 = 0;
     for (y = 0; y < 240; y += 120) {
         cv_begin(240, 120, 0);
-        umm_x0 = 0;
         umm_y0 = y + UMW_DY;
         umm_lq = (g * c) >> 8;
-        cv_h = (uint32_t)(240 - umm_y0 < 120 ? 240 - umm_y0 : 120);   /* (CORONA's maps end at its screen's foot) */
+        cv_h = y ? 96u : 120u;                          /* (CORONA's maps end at its screen's foot, 240 - UMW_DY) */
         if (c)
             ump_co_draw(0, y + UMW_DY);
         cv_h = 120;
