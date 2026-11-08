@@ -19,7 +19,7 @@
 static int name_on(void);                               /* (ui_name.c) */
 static int32_t accel(uint32_t role, int32_t s, int32_t range);   /* (ui_input.c) */
 static struct {
-    uint8_t on, fx, song, home;                         /* TOTALITY; KNOB 1..4 the effects; it came from TIMELINE or
+    uint8_t on, fx, song, home, info;                   /* TOTALITY; the words at the foot (SEQ); KNOB 1..4 the effects; it came from TIMELINE or
                                                          * ARRANGE (PLAY: the song); the page under it was HOME's */
     uint32_t sig;                                       /* where it was entered (umt_where): elsewhere, it is over */
     uint32_t say_ms;                                    /* the word at the foot: since when (0: none) */
@@ -54,6 +54,8 @@ static int umb_bare(void) { return umt.on; }
 static int umt_shown(void) { return umt.on && !ui.menu && !ui.confirm && !ui.layer && !mac_latch && !name_on(); }
 static void umt_say(const char *a, const char *b)
 {
+    if (!umt.info)                                      /* (the words are off until SEQ is tapped) */
+        return;
     str_cpy(umt.say, a, sizeof umt.say);
     if (b) {
         str_cpy(umt.say + str_len(umt.say), " ", sizeof umt.say - str_len(umt.say));
@@ -83,6 +85,7 @@ static void umt_enter(uint32_t song)
         go_home();
     umt.on = 1;
     umt.fx = 0;
+    umt.info = 0;
     umt.qr = umb_q.w;                                   /* (GLITCH: from the next note, not the ones before) */
     umt.ge = 0;
     umt.sig = umt_where();
@@ -123,6 +126,12 @@ static void umt_select(int32_t s)                       /* SELECT (HOME's plate 
     umv_ms = fm1_ms;
     umt.fms = umt.on ? fm1_ms | 1u : 0u;                /* (DISSOLVE: from here) */
     umt_say(UMV_PL[pl], 0);
+}
+static void umt_seq_tap(void)                           /* SEQ: the words at the foot on, or off again (lit while on) */
+{
+    umt.info ^= 1u;
+    umt.say_ms = 0;
+    umt_say("INFO", 0);
 }
 static void umt_fx_tap(void)                            /* FX: KNOB 1..4 the effects, or the plate's again */
 {

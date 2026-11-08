@@ -357,6 +357,7 @@ static void ui_leds(void)
         for (k = 0; k < 27u; k++)
             led_put(nl, 14u + k, (int)((c >> k) & 1u));
         led_put(nl, panel.btn[B_FX], umt.fx);
+        led_put(nl, panel.btn[B_SEQ], umt.info);
         led_put(nl, panel.btn[B_REC], song.rec != 0u);
         for (c = 0; c < FM1_NCOL; c++) {
             fm1_led_dim[c] = fm1_led_breath[c] = fm1_led_hi[c] = fm1_led_mid[c] = 0;
@@ -2642,7 +2643,9 @@ static void ui_input_frame(void)
         umt_fx_tap();
     else if (lytap)                                     /* a layer's button acts on release (held: the layer) */
         layer_tap(lytap);
-    if (seq == BT_TAP || seq == BT_HOLD)                /* (SONG: SAVE held, G5) */
+    if (UMB_ON && umt.on && seq == BT_TAP)              /* (UMBRA OBSCURA) TOTALITY: SEQ the words at the foot, no page */
+        umt_seq_tap();
+    else if (seq == BT_TAP || seq == BT_HOLD)           /* (SONG: SAVE held, G5) */
         open_family(FAM_SEQ);
     if (home == BT_TAP && !(UMB_ON && umt_home()))     /* HOME acts on release (a hold opens the menu): rule 2, HOME's */
         nav_button(SEC_HOME);                           /* page last shown; (UMBRA OBSCURA) on HOME: TOTALITY, and
@@ -2801,7 +2804,7 @@ static void ui_input_frame(void)
     }
     if (!lay && (s = panel_enc(EN_ALGO)) != 0) {   /* ALGORITHM: the selected track, on every page. (0.6.55) Only
                                                     * the tracks that play: TRACKS 4 stops at T4 (T5 / T6 asleep) */
-        if (UMB_ON && umb_vis())                        /* (UMBRA OBSCURA) HOME's plate pages: the plate, round */
+        if (UMB_ON && umb_vis() && !umt.on)             /* (UMBRA OBSCURA) HOME's plate pages: the plate, round (TOTALITY: the track) */
             umt_select(s);
         else
             track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));

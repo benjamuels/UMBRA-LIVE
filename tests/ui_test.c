@@ -11157,6 +11157,7 @@ static int test_skin(void)
         led_pos[panel.btn[B_HOME]] = 0u << 3 | 1u;
         led_pos[panel.btn[B_FX]] = 0u << 3 | 2u;
         led_pos[panel.btn[B_ENV]] = 0u << 3 | 3u;
+        led_pos[panel.btn[B_SEQ]] = 0u << 3 | 4u;
         nav_go(SEC_HOME, 1, 0); frame(); ui_leds();                /* (MACROS) */
         ok = ui.home && !umt.on && led_of(fm1_led, panel.btn[B_HOME]);
         press(B_HOME); frames(32); ui_leds();
@@ -11168,7 +11169,13 @@ static int test_skin(void)
         turn(EN_SELECT, -1); turn(EN_SELECT, -1);
         ok &= umb_pl() == (pl + UMP_NPL - 1u) % UMP_NPL;           /* (round) */
         turn(EN_SELECT, 1);
-        turn(EN_K3, 5);                                            /* (KNOB 3: CINDER's third, SWAY) */
+        turn(EN_ALGO, 1);                                          /* (ALGORITHM: the track here, never the plate) */
+        ok &= umb_pl() == pl && umt.on;
+        turn(EN_K3, 5);                                            /* (KNOB 3: CINDER's third, SWAY; the words off at first) */
+        ok &= umv(0u, 2u) == 55u && !umt.say_ms && !umt.info;
+        press(B_SEQ); ui_leds();                                   /* (SEQ: the words on, lit, no page) */
+        ok &= umt.on && umt.info && ui.home && led_of(fm1_led, panel.btn[B_SEQ]);
+        turn(EN_K3, -5); turn(EN_K3, 5);
         ok &= umv(0u, 2u) == 55u && str_eq(umt.say, "SWAY 55");
         press(B_FX); ui_leds();
         ok &= umt.fx && led_of(fm1_led, panel.btn[B_FX]) && ui.home && umt.on;
@@ -11176,6 +11183,8 @@ static int test_skin(void)
         ok &= umt_get(4u) == 3u && str_eq(umt.say, "MIRROR QUAD");
         turn(EN_K1, -3); press(B_FX);
         ok &= !umt.fx && umt_get(4u) == 0u;
+        press(B_SEQ); ui_leds();
+        ok &= umt.on && !umt.info && !led_of(fm1_led, panel.btn[B_SEQ]);   /* (SEQ again: the words off) */
         press(B_HOME); frame();
         ok &= !umt.on && ui.home && ui.hset[0] == 1u && !ui.hlv;   /* (MACROS again) */
         press(B_HOME); frame(); press(B_EDIT); frame();
@@ -11230,6 +11239,7 @@ static int test_skin(void)
         bad += check("(UMBRA OBSCURA) NOTES: DRIFT a step as long as the time since; TRAVEL its size; RANDOM anywhere, folded inside", ok);
         umr_put(umb_pl(), 3u, UMT_MOVE);                           /* (KNOB 4 routed to MOVEMENT) */
         nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(4);
+        press(B_SEQ);                                              /* (the words on) */
         turn(EN_K4, -2);
         ok = umt.on && umt_get(10u) == 2u && str_eq(umt.say, "MOVEMENT DRIFT");
         press(B_HOME); frame();
