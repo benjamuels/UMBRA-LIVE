@@ -9,7 +9,8 @@
  * CINDER: cold embers. A heat field (60 x 60) rises, sways and cools (20 steps a second); seen through a crust of cracks
  *   (the noise table, ridged, two scales): cooling heat lingers in the veins, hot heat glows through. A note drops a coal
  *   where its pitch falls (C2 left .. C7 right), its track's band its height (low notes wider); held, it keeps feeding it.
- *   The kick a swell from below, the snare and clap a scatter of sparks, the rest one spark. RISE, COOL.
+ *   The kick a swell from below, the snare and clap a scatter of sparks, the rest one spark. RISE, COOL. Track 3's heat
+ *   glows yellow, track 4's orange (a tint byte a cell, carried with the heat: ump_tint).
  * GRANULE: the sun's surface. 12 x 12 granules (a granule and a profile byte each 4 x 4 px block: lanes dark, hearts
  *   bright), each glowing faintly; a note lights its own (its place on the circle of fifths and its octave across, its track's
  *   band down) in its track's colour; the kick a cluster, the snare three, the hats bright points in the lanes. BOIL: how
@@ -17,43 +18,55 @@
  * CORONA: the eclipse. The moon's disc (44 px) black, the corona's 128 streamers out from it, each a falloff from the limb;
  *   a note feeds the streamer at its place on the circle of fifths (the root at the top, as SAROS), the bass broad, a high
  *   note fine; the kick the chromosphere (the limb's ring), the snare a rose prominence, the hats Baily's beads. REACH: how
- *   far a bright streamer runs. FADE.
+ *   far a bright streamer runs. FADE. Track 3's light yellow, track 4's orange: its streamers, its kick, prominence, beads.
  * TARN: the eclipse in dark water. A ripple tank (48 x 48, 24 steps a second) bends the reflection (a pixel offset, no
  *   resampling) and its stars; the crests catch a teal sheen; it stills exactly (a dead band). A note a drop (pitch across,
  *   track down), the kick a heavy one by the moon, the snare one, the hats a star's glint. DRAG, BEND. */
 static uint8_t ump_on = 0xFFu;                          /* the field plate drawn last (0xFF: none: it starts afresh) */
-static int32_t ump_lq;                                  /* LIGHT, Q8, this frame */
 static const int8_t UMP_D2[4] = {-8, 0, 4, -4};        /* the dither, 2 x 2 (fixed to the screen): [(y & 1) x 2 + (x & 1)] */
-static uint16_t ump_lut[4][256] __attribute__((section(".pool")));   /* the palette as the panel takes it, a dither each */
+static uint16_t ump_lut[4][256] __attribute__((section(".pool")));   /* the palette as the panel takes it, a dither each
+                                                         * ([1]: none, the palette itself) */
+/* the cold palette's stops (its index, r g b), worked out between them once (ump_lut_make): black (JIANT's, 0 0 0), barely
+ * lifted to 40, then a deep blue, azure, pale teal and white, the top reached sooner. (On 5 5 8 and slate-blue low down until
+ * 2026-11-08: the plates looked grey beside JIANT's screens; a stored table, umb_pal, until the warm tints wanted its 768
+ * bytes of the slot) */
+static const uint8_t UMP_ST[6][4] = {{0, 0, 0, 0}, {40, 2, 5, 18}, {84, 14, 38, 112}, {136, 44, 130, 200}, {190, 132, 218, 228},
+                                     {255, 248, 255, 255}};
 static const uint8_t UMP_WT[3] = {236, 250, 246}, UMP_SH[3] = {70, 150, 160};   /* white-teal; the water's sheen */
-/* a row's darkening (under the knob row and the footer; TOTALITY none), LIGHT in it */
-static int32_t ump_vg(int32_t py)
-{
-    return ((umb.bare ? 256 : py < 56 ? 108 : py < 76 ? 108 + (py - 56) * 7 : py >= 226 ? 128 : 256) * ump_lq) >> 8;
-}
-/* a pixel: the palette at v (0..255) and the light r g b added, darkened by vg (Q8), dithered by d (-8..7), as the panel
- * takes it */
-static inline __attribute__((always_inline)) uint16_t ump_rgb(int32_t v, int32_t r, int32_t g, int32_t b, int32_t vg, int32_t d)
-{
-    int32_t i = (v * vg) >> 8, R, G, B;
-    const uint8_t *P = umb_pal + (i < 0 ? 0 : i > 255 ? 255 : i) * 3;
-    R = P[0] + ((r * vg) >> 8) + (d >> 1);
-    G = P[1] + ((g * vg) >> 8) + (d >> 2);
-    B = P[2] + ((b * vg) >> 8) + (d >> 1);
-    R = R < 0 ? 0 : R > 255 ? 255 : R;
-    G = G < 0 ? 0 : G > 255 ? 255 : G;
-    B = B < 0 ? 0 : B > 255 ? 255 : B;
-    return swap16((uint32_t)(((R & 0xF8) << 8) | ((G & 0xFC) << 3) | (B >> 3)));
-}
-static void ump_lut_make(void)
-{
-    uint32_t k, i;
-    for (k = 0; k < 4u; k++)
-        for (i = 0; i < 256u; i++)
-            ump_lut[k][i] = ump_rgb((int32_t)i, 0, 0, 0, 256, UMP_D2[k]);
-}
+static const uint8_t UMP_WARM[2][3] = {{255, 206, 64}, {255, 122, 28}};   /* the warm tints: yellow, orange (ump_tint) */
 #define UMP_IX(v, vg) ump_ix(((v) * (vg)) >> 8)
 static inline __attribute__((always_inline)) int32_t ump_ix(int32_t i) { return i < 0 ? 0 : i > 255 ? 255 : i; }
+/* a pixel: the palette at v (0..255; its plain entry) and the light r g b added, darkened by vg (Q8), dithered by d (only
+ * lit pixels, GRANULE's, TARN's sheen and the warm tints, come here) */
+#define ump_rgb(v, r, g, b, vg, d) umm_add(ump_lut[1][UMP_IX(v, vg)], r, g, b, vg, d)
+static void ump_lut_make(void)
+{
+    uint32_t k, i, j = 0, c;
+    int32_t p[3];
+    for (i = 0; i < 256u; i++) {
+        const uint8_t *a, *b;
+        while (i > UMP_ST[j + 1][0])
+            j++;
+        a = UMP_ST[j];
+        b = UMP_ST[j + 1];
+        for (c = 1; c < 4u; c++)
+            p[c - 1] = a[c] + (b[c] - a[c]) * (int32_t)(i - a[0]) / (b[0] - a[0]);
+        for (k = 0; k < 4u; k++)
+            ump_lut[k][i] = ump_pack(p[0], p[1], p[2], UMP_D2[k]);
+    }
+}
+/* the warm tints (CINDER, CORONA): a track's own (3 yellow, 4 orange; 0: none, the cold palette), as a tint byte: its share
+ * of the light (0 .. 127) and which (128: orange) */
+static uint32_t ump_tint(uint32_t c) { return c == 2u ? 127u : c == 3u ? 255u : 0u; }
+#define UMP_WLO 20                                      /* (light under it black either way: no tint worked out) */
+/* a pixel of light b (0..255) under tint t: its share the tint's colour (b squared: dark, as the palette is, low down; the
+ * colour itself at 176, brighter past it), the rest the cold palette's; darkened by vg, dithered by d */
+static __attribute__((noinline)) uint16_t ump_wpx(int32_t b, uint32_t t, int32_t vg, int32_t d)
+{
+    const uint8_t *C = UMP_WARM[t >> 7];
+    int32_t w = (b * (int32_t)(t & 127u)) >> 7, k = (w * w * 541) >> 8;
+    return ump_rgb(b - w, (C[0] * k) >> 16, (C[1] * k) >> 16, (C[2] * k) >> 16, vg, d);
+}
 /* a 60 x 60 field (cells 4 px, centres 4 i + 2) across the strip: each column's cell and blend */
 static void ump_cols(int32_t x0, uint8_t *xi, uint8_t *xf)
 {
@@ -64,13 +77,13 @@ static void ump_cols(int32_t x0, uint8_t *xi, uint8_t *xf)
         xf[x] = (uint8_t)(t & 255);
     }
 }
-/* pixel row py of field f blended up and down into vv (x 256, 61: the last again); 0: all of it 0 */
-static int32_t ump_vrow(const uint8_t *f, int32_t py, int32_t *vv)
+/* pixel row py of field f (its bits m) blended up and down into vv (x 256, 61: the last again); 0: all of it 0 */
+static int32_t ump_vrow(const uint8_t *f, int32_t py, int32_t *vv, int32_t m)
 {
     int32_t t = umb_clamp((2 * py - 3) << 5, 0, (UMB_N - 1) * 256 - 1), fy = t & 255, k, any = 0;
     const uint8_t *r0 = f + (t >> 8) * UMB_N, *r1 = r0 + UMB_N;
     for (k = 0; k < UMB_N; k++)
-        any |= vv[k] = (r0[k] << 8) + (r1[k] - r0[k]) * fy;
+        any |= vv[k] = ((r0[k] & m) << 8) + ((r1[k] & m) - (r0[k] & m)) * fy;
     vv[UMB_N] = vv[UMB_N - 1];
     return any;
 }
@@ -87,21 +100,32 @@ static void ump_glint(int32_t X, int32_t Y, int32_t a, const uint8_t *c)
     umm_splat(X, Y + 256, a * 77 >> 8, c);
     umm_splat(X, Y - 256, a * 77 >> 8, c);
 }
+/* v faded by f (Q16 of it), rounded up: it reaches 0. (Rounded down until 2026-11-08, a note's light stuck once f x v fell
+ * under a unit, ~100 of 410 at 60 frames a second: GRANULE's lit granules and CORONA's fed streamers never went dark) */
+static uint16_t ump_dec(uint32_t v, int32_t f) { return (uint16_t)(v - ((v * (uint32_t)f + 65535u) >> 16)); }
 /* a fade in steps: of n, at age (ms) of life (ms), Q8 (0 when gone) */
 static int32_t ump_fade(uint32_t age, uint32_t life, uint32_t n) { return age >= life ? 0 : (int32_t)((n - age * n / life) * 256u / n); }
 
 /* ------------------------------------------------------------------------------------------------- CINDER --- */
-/* add amt (0..255) to f round cx, cy (cells, Q8) within r (cells, Q8), falling off to the edge */
-static void ump_stamp(uint8_t *f, int32_t cx, int32_t cy, int32_t r, int32_t amt)
+/* two tints mixed, by the heat each brings (wa, wb): the share so, which the one bringing more */
+static __attribute__((noinline)) uint8_t ump_tmix(uint32_t ta, int32_t wa, uint32_t tb, int32_t wb)
 {
+    return (uint8_t)(((wb > wa ? tb : ta) & 128u) | (uint32_t)(((int32_t)(ta & 127u) * wa + (int32_t)(tb & 127u) * wb) / (wa + wb + 1)));
+}
+/* add amt (0..255) to the heat round cx, cy (cells, Q8) within r (cells, Q8), falling off to the edge; track c's tint
+ * (ump_tint) mixed in */
+static void ump_stamp(uint32_t c, int32_t cx, int32_t cy, int32_t r, int32_t amt)
+{
+    ump_ci_t *s = &umb.ci;
     int32_t x, y, r2 = (r * r) >> 8;
     for (y = umb_clamp((cy - r) >> 8, 0, UMB_N - 1); y <= umb_clamp((cy + r + 255) >> 8, 0, UMB_N - 1); y++)
         for (x = umb_clamp((cx - r) >> 8, 0, UMB_N - 1); x <= umb_clamp((cx + r + 255) >> 8, 0, UMB_N - 1); x++) {
-            int32_t dx = x * 256 - cx, dy = y * 256 - cy, d2 = (dx * dx + dy * dy) >> 8, v;
+            int32_t dx = x * 256 - cx, dy = y * 256 - cy, d2 = (dx * dx + dy * dy) >> 8, i = y * UMB_N + x, h = s->h[i], a;
             if (d2 > r2)
                 continue;
-            v = f[y * UMB_N + x] + amt * (r2 - d2) / (r2 + 1);
-            f[y * UMB_N + x] = (uint8_t)(v > 255 ? 255 : v);
+            a = amt * (r2 - d2) / (r2 + 1);
+            s->t[i] = ump_tmix(s->t[i], h, ump_tint(c), a);
+            s->h[i] = (uint8_t)(h + a > 255 ? 255 : h + a);
         }
 }
 static void ump_ci_init(void)
@@ -123,7 +147,7 @@ static void ump_ci_init(void)
 /* a stamp of heat where track c's notes have moved it (NOTE MOVEMENT: the field 3 .. 57 cells either way) */
 static void ump_ci_at(uint32_t c, int32_t x, int32_t y, int32_t r, int32_t amt)
 {
-    ump_stamp(umb.ci.h, 768 + umn_at(c, 0u, x - 768, 13824), 768 + umn_at(c, 1u, y - 768, 13824), r, amt);
+    ump_stamp(c, 768 + umn_at(c, 0u, x - 768, 13824), 768 + umn_at(c, 1u, y - 768, 13824), r, amt);
 }
 static void ump_ci_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32_t lane)
 {
@@ -148,7 +172,7 @@ static void ump_ci_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
     x = 768 + umn_at(c, 0u, k * 54, 13824);
     y = 768 + umn_at(c, 1u, (49 - 6 * (int32_t)c) * 256, 13824);
     r = 410 + (((256 - k) * 768) >> 8) + ((v * 384) >> 8);   /* (1.6 .. 6 cells: low notes wider) */
-    ump_stamp(s->h, x, y, r, 140 + ((115 * v) >> 8));
+    ump_stamp(c, x, y, r, 140 + ((115 * v) >> 8));
     s->hx[c] = (uint8_t)(x >> 8);
     s->hy[c] = (uint8_t)(y >> 8);
     s->hr[c] = (uint8_t)(r >> 4);
@@ -156,7 +180,8 @@ static void ump_ci_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
     s->hn[c] = (uint8_t)(n + 1u);
 }
 /* a step: the held notes feed; each cell takes the heat from a little below (RISE), swayed sideways row by row, blended with
- * its neighbours, and cools (COOL: 0.4 .. 6 s); written in place from the rows as they were */
+ * its neighbours, and cools (COOL: 0.4 .. 6 s); written in place from the rows as they were. The tint goes with the heat:
+ * the cell's own and the one below's (the nearer of each pair) mixed by the heat each gives, which the one giving more */
 static void ump_ci_step(void)
 {
     ump_ci_t *s = &umb.ci;
@@ -164,20 +189,24 @@ static void ump_ci_step(void)
             kd = 4096 - 4096 / n, x, y, i, sw = (38 + rise) * (int32_t)umv(0u, 2u) / 50;   /* (SWAY: 0 none, 99 twice) */
     for (i = 0; i < NTRK; i++)
         if (s->hn[i])
-            ump_stamp(s->h, s->hx[i] * 256 + 128, s->hy[i] * 256 + 128, s->hr[i] * 11, 10 + ((14 * s->hv[i]) >> 8));
+            ump_stamp((uint32_t)i, s->hx[i] * 256 + 128, s->hy[i] * 256 + 128, s->hr[i] * 11, 10 + ((14 * s->hv[i]) >> 8));
     s->T++;
     memcpy(s->rp, s->h, UMB_N);
     for (y = 0; y < UMB_N; y++) {
-        uint8_t *hr = s->h + y * UMB_N;
-        const uint8_t *nx = y < UMB_N - 1 ? hr + UMB_N : s->rc;
+        uint8_t *hr = s->h + y * UMB_N, *tr = s->t + y * UMB_N;
+        const uint8_t *nx = y < UMB_N - 1 ? hr + UMB_N : s->rc, *tn = y < UMB_N - 1 ? tr + UMB_N : s->tr;
         int32_t w = (sine_i((uint32_t)y * 157286400u + s->T * 27487791u) * sw) >> 15;   /* (the sway, cells Q8) */
         memcpy(s->rc, hr, UMB_N);
+        memcpy(s->tr, tr, UMB_N);
         for (x = 0; x < UMB_N; x++) {
             int32_t sx = umb_clamp(x * 256 - w, 0, (UMB_N - 1) * 256 - 1), x0 = sx >> 8, fx = sx & 255;
             int32_t t = s->rc[x0] + (((s->rc[x0 + 1] - s->rc[x0]) * fx) >> 8), b = nx[x0] + (((nx[x0 + 1] - nx[x0]) * fx) >> 8);
             int32_t v = t + (((b - t) * rise) >> 8);
             int32_t nb = s->rc[x ? x - 1 : 1] + s->rc[x < UMB_N - 1 ? x + 1 : UMB_N - 2] + s->rp[x] + nx[x];
-            hr[x] = (uint8_t)(((((v * 225 + nb * 8) >> 8)) * kd) >> 12);
+            uint32_t ta = s->tr[x0 + (fx >> 7)], tb = tn[x0 + (fx >> 7)];
+            hr[x] = (uint8_t)(v = ((((v * 225 + nb * 8) >> 8)) * kd) >> 12);
+            tr[x] = (uint8_t)(v < 8 ? 0u : ta != tb ? ump_tmix(ta, t * (256 - rise), tb, b * rise) : ta);   /* (cooled: none,
+                                                         * never drawn warm: UMP_WLO) */
         }
         memcpy(s->rp, s->rc, UMB_N);
     }
@@ -185,18 +214,19 @@ static void ump_ci_step(void)
 static void ump_ci_draw(int32_t x0, int32_t y0)
 {
     ump_ci_t *s = &umb.ci;
-    uint8_t xi[240], xf[240];
+    uint8_t xi[240], xf[240], bb[240];
     int32_t vv[UMB_N + 1];
     uint32_t cx, cy;
     ump_cols(x0, xi, xf);
     for (cy = 0; cy < cv_h; cy++) {
-        int32_t py = y0 + (int32_t)cy, vg = ump_vg(py), any = ump_vrow(s->h, py, vv);
-        const uint16_t *L = ump_lut[(py & 1) << 1];
+        int32_t py = y0 + (int32_t)cy, vg = umm_vg(py), any = ump_vrow(s->h, py, vv, 255), dq = (py & 1) << 1;
+        const uint16_t *L = ump_lut[dq];
         uint16_t *row = cv_px + cy * cv_w;
         uint32_t u1 = (uint32_t)(x0 * 54 + 794), v1 = (uint32_t)(py * 54 + 1971);   /* (the crust: 0.21 and 0.45 texels a px) */
         uint32_t u2 = (uint32_t)(x0 * 115 - py * 31 + 4429), v2 = (uint32_t)(py * 115 + x0 * 31 + 486);
         for (cx = 0; cx < cv_w; cx++, u1 += 54u, u2 += 115u, v2 += 31u) {
             int32_t px = x0 + (int32_t)cx, v = any ? UMP_LERP(vv, xi[cx], xf[cx]) : 0, cr, b;
+            bb[cx] = 0;
             if (v <= 0) {
                 row[cx] = L[(px & 1) * 256];
                 continue;
@@ -204,7 +234,17 @@ static void ump_ci_draw(int32_t x0, int32_t y0)
             cr = s->c1[umb_tbil((int32_t)u1, (int32_t)v1) >> 8] + s->c2[umb_tbil((int32_t)u2, (int32_t)v2) >> 8];
             cr = cr > 255 ? 255 : cr;
             b = ((s->pw[v] * (61 + ((195 * cr) >> 8))) >> 8) + s->sm[v];
+            bb[cx] = (uint8_t)(b > 255 ? 255 : b);
             row[cx] = L[(px & 1) * 256 + UMP_IX(b, vg)];
+        }
+        if (any && ump_vrow(s->t, py, vv, 127)) {      /* the warm tints: the row again where it has one, its share
+                                                         * blended as the heat is, which the nearest cell's */
+            const uint8_t *T = s->t + ((umb_clamp((2 * py - 3) << 5, 0, (UMB_N - 1) * 256 - 1) + 128) >> 8) * UMB_N;
+            for (cx = 0; cx < cv_w; cx++) {
+                uint32_t t;
+                if (bb[cx] >= UMP_WLO && (t = (uint32_t)UMP_LERP(vv, xi[cx], xf[cx])) != 0u)
+                    row[cx] = ump_wpx(bb[cx], t | (T[xi[cx] + (xf[cx] >> 7)] & 128u), vg, UMP_D2[dq | ((x0 + (int32_t)cx) & 1)]);
+            }
         }
     }
 }
@@ -341,7 +381,7 @@ static void ump_gr_frame(uint32_t dt)
     }
     for (g = 0; g < UMG_N; g++) {
         uint32_t age = umb_now - s->born[g];
-        s->E[g] = (uint16_t)(s->E[g] - ((s->E[g] * f) >> 16));
+        s->E[g] = ump_dec(s->E[g], f);
         s->gb[g] = (uint8_t)(s->amb[g] * (age >= 1600u ? 8u : age / 200u) * gw / 400u);   /* (born: it fades in, 8 steps) */
         s->gl[g] = (uint16_t)(s->E[g] & ~15u);
     }
@@ -354,11 +394,11 @@ static void ump_gr_draw(int32_t x0, int32_t y0)
     uint32_t cx, cy;
     ump_cols(x0, xi, xf);
     for (cy = 0; cy < cv_h; cy++) {
-        int32_t py = y0 + (int32_t)cy, vg = ump_vg(py), dq = (py & 1) << 1;
+        int32_t py = y0 + (int32_t)cy, vg = umm_vg(py), dq = (py & 1) << 1;
         const uint8_t *lab = s->lab + (py >> 2) * UMB_N;
         const uint16_t *L = ump_lut[dq];
         uint16_t *row = cv_px + cy * cv_w;
-        ump_vrow(s->prof, py, vv);
+        ump_vrow(s->prof, py, vv, 255);
         uint32_t qg = UMG_N;                            /* (the pair's even pixel: lit, granule qg) */
         for (cx = 0; cx < cv_w; cx++) {
             int32_t px = x0 + (int32_t)cx, p = UMP_LERP(vv, xi[cx], xf[cx]), e, R, G, B;
@@ -419,21 +459,27 @@ static void ump_co_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
 {
     ump_co_t *s = &umb.co;
     int32_t a0, sg, e, d;
+    uint32_t tn = ump_tint(c);                          /* (tracks 3 and 4: warm) */
     if (!v)
         return;
     if (drum) {
-        if (!lane)                                      /* the kick: the chromosphere flares */
-            s->P = (uint16_t)(s->P > 128 + (v >> 1) ? s->P : 128 + (v >> 1));
-        else if (lane < 3u) {                           /* the snare, the clap: a prominence */
+        if (!lane) {                                    /* the kick: the chromosphere flares */
+            if (s->P <= 128 + (v >> 1)) {
+                s->P = (uint16_t)(128 + (v >> 1));
+                s->Pt = (uint8_t)tn;
+            }
+        } else if (lane < 3u) {                         /* the snare, the clap: a prominence */
             uint32_t i = s->np++ % 4u;
             s->pa_[i] = (uint16_t)(umb_rnd() & 1023u);
             s->ph[i] = (uint8_t)(6 + 7 * v / 256);
             s->pt[i] = umb_now;
+            s->pc[i] = (uint8_t)tn;
         } else {                                        /* the rest: a bead */
             uint32_t i = s->nbd++ % 10u;
             s->ba[i] = (uint16_t)(umb_rnd() & 1023u);
             s->bv[i] = (uint8_t)v;
             s->bt[i] = umb_now;
+            s->bc[i] = (uint8_t)tn;
         }
         return;
     }
@@ -443,7 +489,13 @@ static void ump_co_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
     for (d = -(3 * sg >> 4) - 1; d <= (3 * sg >> 4) + 1; d++) {
         uint32_t j = (uint32_t)(a0 + d) & (UMR_NA - 1u);
         int32_t a = (e * umb_exp(4096 * d * d / (sg * sg))) >> 8;
-        s->E[j] = (uint16_t)(s->E[j] + ((a * (410 - s->E[j])) / 410));   /* (it saturates: a dense song, not a white sky) */
+        a = (a * (410 - s->E[j])) / 410;                /* (it saturates: a dense song, not a white sky) */
+        s->E[j] = (uint16_t)(s->E[j] + a);
+        if (tn) {
+            if (a >= s->W[j])
+                s->Wc[j] = (uint8_t)tn;
+            s->W[j] = (uint16_t)(s->W[j] + a);
+        }
     }
 }
 static void ump_co_frame(uint32_t dt)
@@ -456,16 +508,21 @@ static void ump_co_frame(uint32_t dt)
     s->P = (uint16_t)(s->P - ((s->P * (int32_t)dt * 218) >> 16));   /* (the pulse: 0.3 s) */
     for (a = 0; a < (int32_t)UMR_NA; a++) {
         int32_t S;
-        s->E[a] = (uint16_t)(s->E[a] - ((s->E[a] * f) >> 16));
+        s->E[a] = ump_dec(s->E[a], f);
+        s->W[a] = ump_dec(s->W[a], f);
         S = ((s->base[a] * 154) >> 8) + (s->E[a] & ~15);
         s->S[a] = (uint16_t)S;
         s->K[a] = (int16_t)(947 - ((reach * (S > 256 ? 256 : S)) >> 8));   /* (3.7 .. 1.2: REACH, a bright one further) */
+        s->T[a] = (uint8_t)((s->Wc[a] & 128u) | (umb_clamp(s->W[a] * 254 / (S + 1), 0, 127) & 0x78));   /* (the warm
+                                                         * share, twice its light's: a hit all its colour; 16 steps) */
     }
     s->S[UMR_NA] = s->S[0];
     s->K[UMR_NA] = s->K[0];
+    s->T[UMR_NA] = s->T[0];
 }
-/* a row of 2 x 2 px blocks (block row qy's, py even .. odd): each one's streamer light, from x0 (into bv) */
-static void ump_co_blocks(int32_t x0, int32_t py, int16_t *bv)
+/* a row of 2 x 2 px blocks (block row qy's, py even .. odd): each one's streamer light, from x0 (into bv), and tint (the
+ * nearer streamer's, into bt) */
+static void ump_co_blocks(int32_t x0, int32_t py, int16_t *bv, uint8_t *bt)
 {
     ump_co_t *s = &umb.co;
     int32_t dy = (py & ~1) - 120, qy = dy >= 0 ? dy >> 1 : (-dy - 1) >> 1, lnm = umb_ln[UMR_RM - 16], b, n;
@@ -483,6 +540,7 @@ static void ump_co_blocks(int32_t x0, int32_t py, int16_t *bv)
         t = umb_tn[21 * UMB_T + (k >> 4)];
         t += ((umb_tn[21 * UMB_T + (((k >> 4) + 1) & (UMB_T - 1))] - t) * ((k & 15) << 4)) >> 8;
         bv[n] = (int16_t)((((sv * umb_exp((kx * l) >> 12)) >> 8) * (115 + ((141 * t) >> 8))) >> 8);
+        bt[n] = s->T[i + (f >> 7)];
     }
 }
 static void ump_co_draw(int32_t x0, int32_t y0)
@@ -490,43 +548,54 @@ static void ump_co_draw(int32_t x0, int32_t y0)
     ump_co_t *s = &umb.co;
     int32_t Pq = s->P & ~31, i, u, ch = 128 + ((154 * Pq) >> 8), ic = (64 * Pq) >> 8;
     int16_t bv[122];
-    uint32_t cx, cy;
+    uint8_t bt[122];
+    uint32_t cx, cy, t, k, pk;
     for (cy = 0; cy < cv_h; cy++) {
-        int32_t py = y0 + (int32_t)cy, vg = ump_vg(py), dy = py - 120, fdy2 = (2 * dy + 1) * (2 * dy + 1) - 4 * UMR_RM * UMR_RM;
+        int32_t py = y0 + (int32_t)cy, vg = umm_vg(py), dy = py - 120, fdy2 = (2 * dy + 1) * (2 * dy + 1) - 4 * UMR_RM * UMR_RM;
         const uint16_t *L = ump_lut[(py & 1) << 1];
         uint16_t *row = cv_px + cy * cv_w;
         if (!cy || !(py & 1))
-            ump_co_blocks(x0, py, bv);
-        for (cx = 0; cx < cv_w; cx++) {
+            ump_co_blocks(x0, py, bv, bt);
+        for (cx = 0, pk = 0; cx < cv_w; cx++) {
             int32_t px = x0 + (int32_t)cx, dx = 2 * (px - 120) + 1, v;
             u = ((dx * dx + fdy2) * umr_k) >> 8;        /* (px past the limb, Q8) */
-            if (u < -128) {                             /* the disc: earthshine */
-                row[cx] = L[(px & 1) * 256 + UMP_IX(8, vg)];
+            if (u < -128) {                             /* the disc: black */
+                row[cx] = L[0];
+                pk = 0;
                 continue;
             }
             v = bv[(px >> 1) - (x0 >> 1)];
-            if (u < 14 * 256) {                         /* the chromosphere, and the inner corona the kick lights */
+            t = bt[(px >> 1) - (x0 >> 1)];
+            if (u < 14 * 256) {                         /* the chromosphere, and the inner corona the kick lights (its
+                                                         * track's tint while it lasts) */
                 int32_t uu = u < 0 ? 0 : u;
                 v += (umb_exp((uu * 71) >> 10) * ch) >> 8;
                 v += (ic * (256 - ((uu * 18) >> 8))) >> 8;
                 if (u < 128)
                     v = (v * (u + 128)) >> 8;
+                if (s->Pt && Pq)
+                    t = (s->Pt & 128u) | (uint32_t)(Pq >> 1);
             }
-            row[cx] = L[(px & 1) * 256 + UMP_IX(v > 255 ? 255 : v, vg)];
+            v = v > 255 ? 255 : v;
+            k = t & 127u && v >= UMP_WLO ? (uint32_t)v | t << 8 : 0u;   /* (warm: a pixel pair at a time, as they match) */
+            row[cx] = !k ? L[(px & 1) * 256 + UMP_IX(v, vg)] : (px & 1) && k == pk ? row[cx - 1]
+                                                             : ump_wpx(v, t, vg, UMP_D2[((py & 1) << 1) | (px & 1)]);
+            pk = k;
         }
     }
     for (i = 0; i < 4; i++) {                           /* the prominences: an arch on the limb, 1.4 s, 8 steps */
         uint32_t age = umb_now - s->pt[i];
         int32_t fq = s->ph[i] ? ump_fade(age, 1400u, 8u) : 0, rise = age >= 250u ? 256 : (int32_t)(age * 256u / 250u),
                 dl = s->ph[i] * 10 / 3;
+        const uint8_t *pc = s->pc[i] ? UMP_WARM[s->pc[i] >> 7] : UMB_EVC[6];   /* (rose; tracks 3 and 4 theirs) */
         if (!fq)
             continue;
         for (u = 0; u <= 50; u++) {
             uint32_t an = (uint32_t)(s->pa_[i] + dl * (2 * u - 50) / 50) << 22;
             int32_t ro = UMR_RM * 256 + 128 + ((s->ph[i] * rise * (sine_i((uint32_t)u * 42949673u) >> 7)) >> 8),
                     co = sine_i(an + 0x40000000u), si = sine_i(an), X = 120 * 256 + ((ro * co) >> 15), Y = 120 * 256 + ((ro * si) >> 15);
-            umm_splat(X, Y, (fq * 128) >> 8, UMB_EVC[6]);
-            umm_splat(X - (co >> 7), Y - (si >> 7), (fq * 77) >> 8, UMB_EVC[6]);
+            umm_splat(X, Y, (fq * 128) >> 8, pc);
+            umm_splat(X - (co >> 7), Y - (si >> 7), (fq * 77) >> 8, pc);
         }
     }
     for (i = 0; i < 10; i++) {                          /* the beads: a glint on the limb, 0.3 s */
@@ -534,7 +603,7 @@ static void ump_co_draw(int32_t x0, int32_t y0)
         uint32_t an = (uint32_t)s->ba[i] << 22;
         if (fq)
             ump_glint(120 * 256 + ((ro * sine_i(an + 0x40000000u)) >> 15), 120 * 256 + ((ro * sine_i(an)) >> 15),
-                      (fq * (128 + (s->bv[i] >> 1)) * 410) >> 16, UMP_WT);
+                      (fq * (128 + (s->bv[i] >> 1)) * 410) >> 16, s->bc[i] ? UMP_WARM[s->bc[i] >> 7] : UMP_WT);
     }
 }
 
@@ -645,7 +714,7 @@ static void ump_ta_draw(int32_t x0, int32_t y0)
         xf[cx] = (uint8_t)(t & 255);
     }
     for (cy = 0; cy < cv_h; cy++) {
-        int32_t py = y0 + (int32_t)cy, vg = ump_vg(py), t = umb_clamp(((py - 2) * 256) / 5, 0, (UMT_N - 1) * 256 - 1), fy = t & 255,
+        int32_t py = y0 + (int32_t)cy, vg = umm_vg(py), t = umb_clamp(((py - 2) * 256) / 5, 0, (UMT_N - 1) * 256 - 1), fy = t & 255,
                 b = py - UMT_RY, b2 = b * b, k;
         const int16_t *g0 = ump_ta_grow(t >> 8), *g1 = ump_ta_grow((t >> 8) + 1);
         const uint16_t *L = ump_lut[(py & 1) << 1];
@@ -714,7 +783,7 @@ static void ump_ta_draw(int32_t x0, int32_t y0)
 static void ump_tick(uint32_t pl)
 {
     uint32_t dt, n = 0, step = pl == 5u ? 42u : 50u;
-    ump_lq = umv_light(pl);
+    umm_lq = umv_light(pl);                             /* (LIGHT: umm_vg) */
     if (!ump_lut[3][255])                               /* (the palette as the panel takes it: once) */
         ump_lut_make();
     if (ump_on != pl) {
@@ -779,7 +848,6 @@ static __attribute__((noinline)) void ump_backdrop(uint32_t pl, int32_t x0, int3
     ump_tick(pl);
     umm_x0 = x0;                                        /* (the glints: the melody plates' splat) */
     umm_y0 = y0;
-    umm_lq = ump_lq;
     if (!pl)
         ump_ci_draw(x0, y0);
     else if (pl == 3u)

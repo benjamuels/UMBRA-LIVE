@@ -144,7 +144,7 @@ static uint32_t umb_vel(uint32_t v)
     uint32_t r = umt_get(9u);
     return !v ? 0u : (v = v * (r <= 50u ? r * 256u / 50u : 256u + (r - 50u) * 768u / 49u) >> 8) > 127u ? 127u : v;
 }
-#include "ui_umbra_noise.h"                            /* umb_tn, umb_pal, umb_E, umb_at, umb_ln: in flash
+#include "ui_umbra_noise.h"                            /* umb_tn, umb_E, umb_at, umb_ln: in flash
                                                          * (tools/gen_umbra_noise.py) */
 /* SAROS and FILAMENT (ui_umbra_melody.c) */
 #define UMM_TH 48                                       /* SAROS: threads at most */
@@ -179,6 +179,8 @@ typedef struct {
     uint8_t hx[NTRK], hy[NTRK], hr[NTRK], hv[NTRK], hn[NTRK];   /* each track's held note: where (cells), how wide (Q4),
                                                          * how hard; the note + 1 */
     uint32_t T;                                         /* the steps */
+    uint8_t t[UMB_S], tr[UMB_N];                        /* the heat's tint, a byte a cell (ump_tint: tracks 3 and 4's warm
+                                                         * share, carried with it); the step's row as it was */
 } ump_ci_t;
 #define UMG_G 12u                                       /* GRANULE: 12 x 12 granules .. */
 #define UMG_N (UMG_G * UMG_G)
@@ -205,6 +207,10 @@ typedef struct {
     uint16_t S[UMR_NA + 1];                             /* this frame's: each streamer's light (in 16 steps) .. */
     int16_t K[UMR_NA + 1];                              /* .. and how fast it falls off (Q8) */
     uint16_t P;                                         /* the kick's pulse (Q8) */
+    uint16_t W[UMR_NA];                                 /* the notes' light from tracks 3 and 4 (of E) .. */
+    uint8_t Wc[UMR_NA];                                 /* .. which (ump_tint: the last to bring as much as there was) */
+    uint8_t T[UMR_NA + 1], Pt, pc[4], bc[10];           /* this frame's tint a streamer (ump_tint), the kick's, the
+                                                         * prominences', the beads' */
     uint16_t pa_[4], ba[10];                            /* the prominences (the snare) and the beads (the hats): where (1024
                                                          * a turn) .. */
     uint8_t ph[4], bv[10], np, nbd;                     /* .. how high, how hard */

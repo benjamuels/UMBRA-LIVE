@@ -6,7 +6,7 @@
 /* Plates of the melody (HOME > ECO > PLATE), from the same ring of notes as the others (voice.c umb_q; a note let go:
  * velocity 0), their state in the plates' shared block (umb.m). Still between notes, so HOME's changed-cells
  * blit (gfx.c cv_blit_cells) sends little to the panel: fades go in 16 steps and SAROS turns a pixel at a time at its
- * rim. Each strip is filled near-black, then the light added to its pixels (RGB565), dimmed under the knob row and the
+ * rim. Each strip is filled black (JIANT's), then the light added to its pixels (RGB565), dimmed under the knob row and the
  * footer as the field plates are (TOTALITY: the whole screen, undimmed).
  * SAROS: the melody as string art on the circle of fifths, the whole plate turning once in 100 s round a dark umbra. A
  * note lands on its pitch class (its track's root at the marked tick), its octave the ring; each melodic track's notes
@@ -25,22 +25,38 @@ static int32_t umm_x0, umm_y0;                          /* the strip being drawn
 static int32_t umm_lq, umm_fk, umm_damp, umm_ru;        /* HOME > ECO > PLATE, worked out once a frame (umm_tick): LIGHT
                                                          * (Q8), SAROS's FADE (its rate), FILAMENT's RING (released), SAROS's
                                                          * umbra's radius (SIZE: 26 px at 50, px Q8) */
+/* a row's darkening (under the knob row and the footer; TOTALITY none), LIGHT in it (all the plates') */
+static int32_t umm_vg(int32_t py)
+{
+    return ((umb.bare ? 256 : py < 56 ? 108 : py < 76 ? 108 + (py - 56) * 7 : py >= 226 ? 128 : 256) * umm_lq) >> 8;
+}
+/* r g b (0..255, or past it: held there) dithered by d (-8..7), as the panel takes it */
+static uint16_t ump_pack(int32_t R, int32_t G, int32_t B, int32_t d)
+{
+    R += d >> 1;
+    G += d >> 2;
+    B += d >> 1;
+    R = R < 0 ? 0 : R > 255 ? 255 : R;
+    G = G < 0 ? 0 : G > 255 ? 255 : G;
+    B = B < 0 ? 0 : B > 255 ? 255 : B;
+    return swap16((uint32_t)(((R & 0xF8) << 8) | ((G & 0xFC) << 3) | (B >> 3)));
+}
+/* the panel's pixel q (its colour read back, half a step up) and the light r g b (0..255) x w / 256 added, dithered by d */
+static __attribute__((noinline)) uint16_t umm_add(uint32_t q, int32_t r, int32_t g, int32_t b, int32_t w, int32_t d)
+{
+    q = swap16(q);
+    return ump_pack((int32_t)((q >> 8) & 0xF8u) + 4 + ((r * w) >> 8), (int32_t)((q >> 3) & 0xFCu) + 2 + ((g * w) >> 8),
+                    (int32_t)((q << 3) & 0xF8u) + 4 + ((b * w) >> 8), d);
+}
 /* add the light r g b (0..255) x w / 256 to the screen's pixel x, y if the strip has it */
 static void umm_px(int32_t x, int32_t y, int32_t w, int32_t r, int32_t g, int32_t b)
 {
     uint16_t *p;
-    uint32_t q;
-    int32_t R, G, B;
     if (w <= 0 || (uint32_t)(x - umm_x0) >= cv_w || (uint32_t)(y - umm_y0) >= cv_h)
         return;
-    w = (((w * umm_lq) >> 8) * (umb.bare ? 256 : y < 56 ? 108 : y < 76 ? 108 + (y - 56) * 7 : y >= 226 ? 128 : 256)) >> 8;
-                                                        /* (LIGHT; the dimming, TOTALITY: none) */
+    w = (w * umm_vg(y)) >> 8;                           /* (LIGHT; the dimming, TOTALITY: none) */
     p = cv_px + (uint32_t)(y - umm_y0) * cv_w + (uint32_t)(x - umm_x0);
-    q = swap16(*p);
-    R = umb_clamp((int32_t)((q >> 8) & 0xF8u) + ((r * w) >> 8) + 4, 0, 255);
-    G = umb_clamp((int32_t)((q >> 3) & 0xFCu) + ((g * w) >> 8) + 2, 0, 255);
-    B = umb_clamp((int32_t)((q << 3) & 0xF8u) + ((b * w) >> 8) + 4, 0, 255);
-    *p = swap16((uint32_t)(((R & 0xF8) << 8) | ((G & 0xFC) << 3) | (B >> 3)));
+    *p = umm_add(*p, r, g, b, w, 0);
 }
 /* a point at X, Y (px, Q8), a (Q8) of colour c, shared among the four pixels round it */
 static void umm_splat(int32_t X, int32_t Y, int32_t a, const uint8_t *c)
@@ -139,7 +155,7 @@ static void umm_saros_frame(void)
         m->lsx[j] = dx / n;
         m->lsy[j] = dy / n;
         for (k = 0; k < 3u; k++)
-            m->lc[j][k] = (uint8_t)((tc[k] * e) >> 9);  /* (half its colour at full energy) */
+            m->lc[j][k] = (uint8_t)umb_clamp((tc[k] * e) >> 8, 0, 255);   /* (its colour once played, brighter burned) */
         j++;
     }
     m->nth = (uint8_t)j;
@@ -389,8 +405,8 @@ static __attribute__((noinline)) void umm_backdrop(uint32_t pl, int32_t x0, int3
     umm_tick(pl);
     umm_x0 = x0;
     umm_y0 = y0;
-    for (i = 0; i < n; i++)                             /* (the ground: near-black, 5 5 8) */
-        cv_px[i] = swap16(0x0021u);
+    for (i = 0; i < n; i++)                             /* (the ground: black, as JIANT's; 5 5 8 until 2026-11-08) */
+        cv_px[i] = 0;
     if (pl == 2u)
         umm_fil_draw();
     else
