@@ -96,9 +96,15 @@ async function connect() {
   let acc;
   try { acc = await navigator.requestMIDIAccess({ sysex: true }); }
   catch (e) { say("This browser gave no MIDI access (it needs Chrome or Edge, and your OK).", true); return; }
-  const isF = (p) => /felucca|jiant/i.test(p.name || "") && p.state !== "disconnected";
+  /* the FM-1's USB name: "FM-1" since JIANT V10 (firmware/src/usb.c STR_PROD), "JIANT" or "Felucca" before */
+  const isF = (p) => /fm-?1|felucca|jiant/i.test(p.name || "") && p.state !== "disconnected";
   const inp = [...acc.inputs.values()].find(isF), out = [...acc.outputs.values()].find(isF);
-  if (!inp || !out) { say("No FM-1 found. Is it connected by USB and switched on?", true); return; }
+  if (!inp || !out) {
+    const seen = [...new Set([...acc.inputs.values(), ...acc.outputs.values()].map((p) => p.name).filter(Boolean))];
+    say("No FM-1 found. Is it connected by USB and switched on? " +
+        (seen.length ? `MIDI ports this browser sees: ${seen.join(", ")}.` : "This browser sees no MIDI ports at all."), true);
+    return;
+  }
   inp.onmidimessage = onMidi;
   dev = { inp, out, wait: null };
   $("dev").textContent = out.name; $("connect").disabled = true;

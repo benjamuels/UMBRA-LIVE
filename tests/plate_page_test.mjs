@@ -36,8 +36,19 @@ ctx.__reply = (r) => vm.runInContext('onMidi({ data: __r })', Object.assign(ctx,
 vm.runInContext('dev = { inp: {}, out: { send: (a) => __send(a) }, wait: null };', ctx);
 
 let fails = 0;
+const port = (name) => ({ name, state: 'connected', onmidimessage: null, send: (a) => ctx.__send(a) });
+const access = (names) => async () => ({ inputs: new Map(names.map((n, i) => [`i${i}`, port(n)])),
+                                         outputs: new Map(names.map((n, i) => [`o${i}`, port(n)])) });
 const check = (ok, what) => { console.log(`plate page: ${what.padEnd(64)} ${ok ? 'ok' : 'FAIL'}`); fails += !ok; };
 ctx.__bytes = bytes;
+ctx.navigator.requestMIDIAccess = access(['IAC Driver Bus 1', 'Launchkey MK3']);
+vm.runInContext('dev = null', ctx);
+await vm.runInContext('connect()', ctx);
+check(el('status').className === 'bad' && /IAC Driver Bus 1, Launchkey MK3/.test(el('status').textContent),
+      `connect, no FM-1: says which ports it sees`);
+ctx.navigator.requestMIDIAccess = access(['IAC Driver Bus 1', 'FM-1']);   // (the FM-1's USB name since JIANT V10)
+await vm.runInContext('connect()', ctx);
+check(el('dev').textContent === 'FM-1' && /Plate API 1/.test(el('devinfo').textContent), `connect: finds the port named "FM-1"`);
 await vm.runInContext('refresh()', ctx);
 check(el('slotname').textContent === 'Empty', `LIST, empty: "${el('slotname').textContent}"`);
 await vm.runInContext('send(__bytes, "FIL EMBER")', ctx);
