@@ -32,6 +32,9 @@ static volatile uint8_t sw_pxon;
 static struct { int32_t mq; uint8_t src; } sm;
 static int32_t sw_sv(const track_t *t, uint32_t s, uint32_t k) { (void)t; (void)s; (void)k; return 0; }
 static void sw_sv_put(track_t *t, uint32_t s, uint32_t k, int32_t v) { (void)t; (void)s; (void)k; (void)v; }
+/* (the Bluetooth segment's AIR scan hands every advertisement here, firmware/bt/bt_seg.c BLE_HW_ADV_TAP, from the radio's
+ * interrupt: no SWARM to hear it) */
+void bt_air_tap(const uint8_t *p, uint32_t n, uint32_t w, uint32_t ch) { (void)p; (void)n; (void)w; (void)ch; }
 #endif
 #include "fm4_convert.c"        /* DIGITAL's tables, and its sounds -> FM6 */
 #if FELUCCA_FM4
