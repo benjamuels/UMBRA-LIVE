@@ -59,6 +59,17 @@
       <p class="small" style="margin:0">Para conservar el sonido de antes, mové esas notas a la octava central (36–47, o el mapa GM 35–81) en tu DAW o secuenciador. Antes de instalar, guardá un backup completo de tus proyectos con el editor (Backup) o con «Volver al V15 oficial» abajo.</p>
     </div>
   </div>
+  <!-- (V10.6p) 6 songs, 8 before: a backup first (backupFirst), or an explicit go without one -->
+  <div id="six" style="border:2px solid #ec6e50;padding:12px 14px;margin:0 0 16px">
+    <p style="margin:0 0 8px;font-weight:600" data-t="sixTitle"></p>
+    <p class="small" style="margin:0 0 8px" data-t="sixText"></p>
+    <div lang="es" style="border-top:1px solid var(--dim);padding-top:8px;margin:0 0 10px">
+      <p style="margin:0 0 8px;font-weight:600">Esta versión guarda 6 canciones (antes 8). Hacé un backup de tus proyectos antes de actualizar.</p>
+      <p class="small" style="margin:0">Las canciones 7 y 8 ya no se abren (esa memoria queda para un banco de samples de batería). Antes de instalar, pasalas a una canción libre entre 1 y 6, o guardalas con el botón de abajo: el backup las conserva todas. Al restaurarlo después se recuperan las canciones 1–6; el editor avisa que 7 y 8 no se restauraron.</p>
+    </div>
+    <p style="margin:0 0 8px"><button id="backup-go" data-t="sixBackup"></button></p>
+    <p class="small" style="margin:0" id="backup-state" data-t="sixNone"></p>
+  </div>
   <p><button id="go" disabled data-t="install"></button></p>
   <details id="stock" style="margin-top:24px">
     <summary data-t="stockTitle"></summary>
@@ -132,6 +143,11 @@ const TEXT = {
     n085Risk: "既存の曲の鳴り方が変わることがあります: DRUM トラックに GM マップ (35–81) の外の MIDI ノート（例えば 24 や 84 以上）を送る設定では、これまでそのオクターブとして鳴っていた音が、これらのバリエーションで鳴ります。OCT を動かした鍵盤は音が変わる代わりにラチェット / SHORT / GHOST / FLAM になります。ステップに保存されたノートはこれまでどおり鳴ります。",
     n085Keep: "以前の音を保つには、それらのノートを DAW やシーケンサーで中央のオクターブ (36–47、または GM マップ 35–81) に移してください。インストールの前に、エディターのバックアップ（または下の「公式 V15 に戻す」）でプロジェクトの完全バックアップを保存してください。",
     n085Confirm: "0.8.5 では DRUM-X のオクターブが加わり、中央以外のオクターブのドラムノートはラチェット / SHORT / GHOST / FLAM で鳴ります（既存の曲が変わることがあります）。プロジェクトのバックアップは保存しましたか？ OK でインストールします。",
+    sixTitle: "このバージョンは6曲まで保存します（以前は8曲）。更新の前にプロジェクトをバックアップしてください。",
+    sixText: "曲 7 と 8 は開けなくなります（その領域はドラムサンプルバンク用に空けます）。インストールの前に 1〜6 の空いた曲へ移すか、下のボタンでバックアップしてください（バックアップには全曲が残ります）。あとで復元すると曲 1〜6 が戻り、7 と 8 は復元されなかったとエディタが知らせます。",
+    sixBackup: "今すぐバックアップ", sixNone: "まだバックアップしていません。", sixDone: "バックアップを保存しました: ", sixSaved: "バックアップはこのパソコンに保存済みです。インストールできます。",
+    sixStock: "公式V15 です: JIANT のプロジェクトはないのでバックアップは不要です。",
+    sixConfirm: "バックアップせずにインストールしますか？ 曲 7 と 8 は開けなくなります。OK でバックアップなしで続けます。",
   },
   en: {
     intro: "Connect the FM-1 by USB. (Works in Chrome or Edge.)",
@@ -178,6 +194,11 @@ const TEXT = {
     n085Risk: "Existing songs may sound different: MIDI notes outside the GM map (35–81) sent to a DRUM track, which played as their octave until now (for example 24, or 84 and up), now trigger those variations; keys with OCT moved no longer change the sound, they ratchet / play SHORT / GHOST / FLAM. Notes stored in the steps play as before.",
     n085Keep: "To keep the old sound, move those notes to the centre octave (36–47, or the GM map 35–81) in your DAW or sequencer. Before installing, save a complete backup of your projects with the editor (Backup) or with Return to official V15 below.",
     n085Confirm: "0.8.5 adds the DRUM-X octaves: drum notes outside the centre octave now play as ratchets / SHORT / GHOST / FLAM (existing songs may change). Have you saved a backup of your projects? OK installs it.",
+    sixTitle: "This version keeps 6 songs (8 before). Back up your projects before updating.",
+    sixText: "Songs 7 and 8 no longer open (that flash is kept for a drum sample bank). Before installing, move them into a free song among 1–6, or save a backup with the button below: it keeps every song. Restoring it later brings songs 1–6 back; the editor says songs 7 and 8 were not restored.",
+    sixBackup: "Back up now", sixNone: "No backup saved yet.", sixDone: "Backup saved: ", sixSaved: "Backup saved to this computer. You can install now.",
+    sixStock: "Official V15: there are no JIANT projects to back up.",
+    sixConfirm: "Install without a backup? Songs 7 and 8 will no longer open. OK continues without a backup.",
   },
 };
 let lang = (navigator.language || "en").toLowerCase().startsWith("ja") ? "ja" : "en";
@@ -198,7 +219,9 @@ let image = null;
 const meta = /*META*/;
 
 let writing = false, stock = null, stockFileEpoch = 0;
-const lockInstaller = (on) => { writing = on; $("ver").disabled = on; $("go").disabled = on || !image; $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; };
+const lockInstaller = (on) => { writing = on; $("ver").disabled = on; $("go").disabled = on || !image; $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; $("backup-go").disabled = on; };
+/* (V10.6p) backupFirst: Install asks for a backup saved here (or official V15: nothing to save) or a go without one */
+let backedUp = false;
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
 
 /* (0.6.46) the version to install: the current one or one of the last few (make_site.py PREV_DIR) */
@@ -278,6 +301,7 @@ $("go").addEventListener("click", async () => {
   if (writing) return;
   const nk = noticeOf();
   if (nk && !confirm(t(nk + "Confirm"))) { $("notice").scrollIntoView({ behavior: "smooth" }); return; }
+  if (!backedUp && !confirm(t("sixConfirm"))) { $("six").scrollIntoView({ behavior: "smooth" }); return; }
   lockInstaller(true);
   let midi;
   try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
@@ -339,6 +363,32 @@ function archiveInfo(a) {
     ext[4] === 0x4d && ext[5] === 1 && ext[8] === 0x42 && ext[9] === 1 && (ext[10] & 1);
   return {version,supported};
 }
+/* (V10.6p) the complete backup, before installing: the FM-1 as it runs now (an older JIANT lists its 8 songs: all kept) */
+$("backup-go").addEventListener("click", async () => {
+  if (writing) return;
+  lockInstaller(true);
+  let link = null;
+  try {
+    let midi;
+    try { midi = await navigator.requestMIDIAccess({sysex:true}); } catch (e) { await midiRefused(e); return; }
+    const up = new Updater(midi, log);
+    const device = await up.find(id => id.model === "FM-1");
+    if (!device) { sayK("notfound"); return; }
+    if (device.id.text === "FM-1_015") { device.link.close(); backedUp = true; $("backup-state").dataset.t = "sixStock"; applyLang(); return; }
+    const input = device.link.input, output = device.link.output; device.link.close();
+    link = new BackupConnection(input, output);
+    const info = archiveInfo(await link.request([1,[]]));
+    if (!info.supported) { sayK("stockUnsupported"); return; }
+    const archive = await captureBackup((r,o) => link.request(r,o), info.version,
+      (done,total) => sayK("backup", `${Math.round(done / Math.max(1,total) * 100)}%`));
+    saveArchive(archive); backedUp = true;
+    $("backup-state").dataset.t = "sixSaved"; applyLang();
+    sayK("sixDone", `${info.version} (${archive.objects.length})`);
+  } catch (e) {
+    if (e.code && TEXT[lang][e.code]) sayK(e.code,e.detail || ""); else sayK("error",e.message);
+    log(String(e.stack || e));
+  } finally { if (link) link.close(); lockInstaller(false); }
+});
 $("stock-go").addEventListener("click", async () => {
   if (!stock || writing) return;
   const selected = stock; lockInstaller(true);

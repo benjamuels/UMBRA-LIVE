@@ -481,27 +481,51 @@ static const char *const N_FM6_PATCH[] = {"F1", "F2", "F3", "F4", "F5", "F6", "F
                                           "B24", "B25", "B26", "B27", "B28", "B29", "B30", "B31", "B32", 0};
 _Static_assert(NELEM(N_FM6_PATCH) == FM6_OWN + FM6_NBANK + 2u, "a SLOT name per value");
 
-/* {ALG, FB, MLVL, MRAT, MEG, VMOD, DTUN, SLOT}: the factory patch F1..F8 as it is, DTUN on the pad */
+/* {ALG, FB, MLVL, MRAT, MEG, VMOD, DTUN, SLOT}: SLOT the factory patch F1..F8 (fm6_track_loaded), the macros bend it.
+ * (V10.6i) each with its movement (MODS). On FM6 the track's ADSR moves the carriers relative to the patch (0 0 127 0:
+ * as it is; REL past ~30 rings for seconds), ENV and ENV DEST do nothing (the operators are the envelope: ENV 2 is the
+ * one to route), CUT is MLVL (the brightness, as LFO DEST FLT), SHP the feedback and the modulators' depth. VIB is the
+ * LFO's PITCH depth: AMT 2..3 is a vibrato. 0..10 and 13 keep their sound (GEN picks 0..5, 7, 13 by number for roles,
+ * gen_tables.c RECIPE; 0 TINE EP is the power-on EP); 11 is bare, 12 and 14 the experiments (browsed: FM6_ORDER) */
 static const preset_t FM6_PRESETS[] = {
-    {"TINE EP", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, TAG(KEYS), FX(0, 45, 25, 35), PAT(6)},
-    {"BELL", {0, 0, 0, 0, 0, 0, 0, 1}, {0, 0, 127, 0}, 0, TAG(BELL), FX(0, 10, 30, 70), PAT(7)},
-    {"FM BASS", {0, 0, 0, 0, 0, 0, 0, 2}, {0, 0, 127, 0}, 0, 1 | TAG(BASS), FX(0, 0, 10, 10), PAT(2)},
-    {"BRASS", {0, 0, 0, 0, 0, 0, 0, 3}, {0, 0, 127, 0}, 0, TAG(LEAD), FX(0, 25, 20, 40), PAT(4)},
-    {"PAD", {0, 0, 0, 0, 0, 0, 30, 4}, {0, 0, 127, 0}, 0, TAG(PAD), FX(0, 60, 30, 70), PAT(5), BREATHE(12, 1, 1)},
-    {"MARIMBA", {0, 0, 0, 0, 0, 0, 0, 5}, {0, 0, 127, 0}, 0, TAG(PLUCK), FX(0, 0, 25, 40), PAT(3)},
-    {"ORGAN", {0, 0, 0, 0, 0, 0, 0, 6}, {0, 0, 127, 0}, 0, TAG(KEYS), FX(10, 40, 0, 30), PAT(6)},
-    {"PLUCK", {0, 0, 0, 0, 0, 0, 0, 7}, {0, 0, 127, 0}, 0, TAG(PLUCK), FX(0, 20, 35, 30), PAT(13)},
+    {"TINE EP", {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 127, 0}, 0, TAG(KEYS), FX(0, 45, 25, 35), PAT(6),
+     MODS(P_LRATE, 70, P_LPHASE, -1, MMOD(1, PS_LFO, PD_PAN, 12))},             /* a suitcase's slow auto-pan */
+    {"BELL", {0, 0, 0, 0, 0, 0, 0, 1}, {0, 0, 127, 25}, 0, TAG(BELL), FX(0, 10, 30, 70), PAT(7),
+     MODS(MMOD(1, PS_RAND, PD_PAN, 10), MMOD(2, PS_VEL, PD_CUT, 12))},
+    {"FM BASS", {0, 0, 0, 0, 0, 0, 0, 2}, {0, 0, 127, 0}, 0, 1 | TAG(BASS), FX(0, 0, 10, 10), PAT(2),
+     MODS(MENV2(0, 35, 0, 15), MMOD(1, PS_ENV2, PD_CUT, 16), P_GLIDE, 10)},    /* bright on the attack */
+    {"BRASS", {0, 0, 0, 0, 0, 0, 0, 3}, {8, 0, 127, 15}, 0, TAG(LEAD), FX(0, 25, 20, 40), PAT(4),
+     MODS(P_LRATE, 86, P_LFADE, 70, MMOD(1, PS_MODW, PD_VIB, 2))},   /* the wheel brings a vibrato in */
+    {"PAD", {0, 0, 0, 0, 0, 0, 30, 4}, {0, 0, 127, 12}, 0, TAG(PAD), FX(0, 60, 30, 70), PAT(5), BREATHE(12, 1, 1),
+     MODS(MMOD(1, PS_LFO, PD_PAN, 16), MMOD(2, PS_MODW, PD_CUT, 24))},          /* the drift pans it too */
+    {"MARIMBA", {0, 0, 0, 0, 0, 0, 0, 5}, {0, 0, 127, 0}, 0, TAG(PLUCK), FX(0, 0, 25, 40), PAT(3),
+     MODS(MMOD(1, PS_VEL, PD_CUT, 14), MMOD(2, PS_KEY, PD_PAN, 20))},           /* the bars across the stage */
+    {"ORGAN", {0, 0, 0, 0, 0, 0, 0, 6}, {0, 0, 127, 8}, 0, TAG(KEYS), FX(10, 40, 0, 30), PAT(6),
+     MODS(P_LRATE, 92, P_LD_PIT, 1, MMOD(1, PS_MODW, PD_SHP, 30))},
+    {"PLUCK", {0, 0, 0, 0, 0, 0, 0, 7}, {0, 0, 127, 0}, 0, TAG(PLUCK), FX(0, 20, 35, 30), PAT(13),
+     MODS(MMOD(1, PS_VEL, PD_CUT, 14))},
     /* (V10.42) the eight factory patches as other instruments through the macros, not the same ones bent a little
      * (0.7.0 had an ice bell and a soft bell, DX keys, a pluck, wood, strings: near copies of the first eight): leads,
      * basses and a bell pad. Program numbers 8..14 as before */
-    {"FM LEAD", {16, 2, -30, 0, 0, 0, 8, 3}, {0, 0, 127, 20}, 0, 1 | TAG(LEAD), FX(10, 20, 30, 30), PAT(4)},
-    {"SQR LEAD", {0, 0, 10, 1, 20, 0, 6, 7}, {0, 30, 110, 25}, 0, 1 | TAG(LEAD), FX(0, 15, 35, 30), PAT(4)},
-    {"SLAP BASS", {0, 1, 25, 0, -30, 3, 0, 2}, {0, 0, 127, 0}, 0, 1 | TAG(BASS), FX(10, 0, 10, 5), PAT(2)},
-    {"SUB BASS", {0, 0, -64, 0, 0, 0, 0, 2}, {0, 0, 127, 10}, 0, 1 | TAG(BASS), FX(0, 0, 0, 0), PAT(2)},
-    {"BELL PAD", {0, 0, -10, 0, 0, 0, 40, 1}, {55, 0, 105, 75}, 0, TAG(PAD), FX(0, 55, 30, 80), PAT(5), BREATHE(10, 1, 0)},
-    {"HARD BASS", {0, 2, 25, 0, 0, 0, 0, 2}, {0, 0, 127, 0}, 0, 1 | TAG(BASS), FX(15, 0, 10, 5), PAT(2)},
-    {"SAW LEAD", {1, 3, -20, 0, 10, 0, 12, 3}, {0, 0, 127, 20}, 0, 1 | TAG(LEAD), FX(15, 25, 30, 25), PAT(4)},
+    {"FM LEAD", {16, 2, -30, 0, 0, 0, 8, 3}, {0, 0, 127, 20}, 0, 1 | TAG(LEAD), FX(10, 20, 30, 30), PAT(4),
+     MODS(P_LRATE, 86, P_LFADE, 60, MMOD(1, PS_MODW, PD_VIB, 2), P_GLIDE, 18)},
+    {"SQR LEAD", {0, 0, 10, 1, 20, 0, 6, 7}, {0, 30, 110, 25}, 0, 1 | TAG(LEAD), FX(0, 15, 35, 30), PAT(4),
+     MODS(P_LRATE, 90, MMOD(1, PS_AT, PD_VIB, 3), P_GLIDE, 20)},               /* aftertouch: the vibrato */
+    {"FM GROWL", {0, 3, 10, 0, -10, 2, 0, 2}, {0, 0, 127, 5}, 0, 1 | TAG(BASS), FX(15, 0, 10, 5), PAT(2),
+     MODS(MLFO(LW_SAW, -8, 0, 30), MMOD(1, PS_MODW, PD_SHP, 30))},             /* (was SLAP BASS) a wah in 1/8 */
+    {"INIT SINE", {0, 0, -64, 0, 0, 0, 0, 2}, {0, 0, 127, 10}, 0, TAG(KEYS), FX(0, 0, 0, 0)},   /* (was SUB BASS) bare */
+    {"BELL CLOUD", {0, 0, -10, 0, 0, 0, 40, 1}, {55, 0, 105, 30}, 0, TAG(PAD), FX(0, 55, 30, 80), PAT(5),
+     MODS(MLFO(LW_SH, -10, 0, 18), MMOD(1, PS_RAND, PD_PAN, 28), MMOD(2, PS_RAND, PD_REV, 16),
+          MMOD(3, PS_KEY, PD_CUT, -20))},        /* (was BELL PAD) sparkles in 1/16, each chord elsewhere, high notes dark */
+    {"HARD BASS", {0, 2, 25, 0, 0, 0, 0, 2}, {0, 0, 127, 0}, 0, 1 | TAG(BASS), FX(15, 0, 10, 5), PAT(2),
+     MODS(MENV2(0, 30, 0, 10), MMOD(1, PS_ENV2, PD_CUT, 12))},
+    {"GLASS RAIN", {0, 1, 10, 0, 0, 0, 20, 1}, {0, 0, 127, 20}, 0, TAG(BELL), FX(0, 20, 45, 60), PAT(7),
+     MODS(MENV2(0, 40, 0, 30), MMOD(1, PS_ENV2, PD_PITCH, 32), MMOD(2, PS_RAND, PD_PAN, 40),
+          MMOD(3, PS_RAND, PD_DLY, 30), MMOD(4, PS_VEL, PD_CUT, 15))},   /* (was SAW LEAD) drops falling in, each elsewhere */
 };
+/* (V10.6i) browsing: to play, the experiments, bare */
+static const uint8_t FM6_ORDER[] = {0, 1, 5, 7, 6, 4, 3, 8, 9, 2, 13, 10, 12, 14, 11};
+_Static_assert(sizeof FM6_ORDER == NELEM(FM6_PRESETS), "FM6's browsing order: every preset once");
 
 static const engine_t ENG_FM6 = {
     .name = "FM6",

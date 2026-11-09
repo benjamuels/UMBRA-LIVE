@@ -22,7 +22,7 @@
  * (JIANT 0.8.5) LYRIC: EDIT > WORDS, OCT+ (a VOICE track): the track's lyric (sing.c lyr_txt), the same keys, at most
  * 63 characters, the field a window of 12 that follows the cursor; KNOB 3 the dice (a phrase of the language's words
  * in place of the text, another each turn); OCT+ sets it (playing too: it is no flash write), OCT- cancels. */
-enum { NK_NONE, NK_USER_SAVE, NK_USER_RENAME, NK_PROJ_SAVE, NK_PROJ_RENAME, NK_LYRIC };
+enum { NK_NONE, NK_USER_SAVE, NK_USER_RENAME, NK_PROJ_SAVE, NK_PROJ_RENAME, NK_LYRIC, NK_SONG_SAVE };
 #define NM_LEN 12u
 #define NM_MAX (LYR_LEN - 1u)                          /* the buffer: a lyric's length */
 #define NM_TAP_MS 800u                                 /* multi-tap: the next letter within this */
@@ -57,7 +57,7 @@ static void name_close(void)
     nm.kind = NK_NONE;
 }
 /* the keys: 2 = NAME's (silent), 1 = the DRUM grid, 0 = notes (seq.c keyboard_block reads song.grid) */
-static uint32_t keys_mode(void) { return name_on() || gco_on() || ckeys_on() ? 2u : live_mano() ? 3u : (uint32_t)grid_on(); }   /* (seq2f: COMPS, silent; seq2g: COMP too) */
+static uint32_t keys_mode(void) { return name_on() || gco_on() || ckeys_on() || skeys_on() ? 2u : live_mano() ? 3u : (uint32_t)grid_on(); }   /* (seq2f: COMPS, silent; seq2g: COMP too) */
 
 static const char *nm_group(uint32_t p)                /* white key place p's characters */
 {
@@ -93,7 +93,10 @@ static void name_open(uint32_t kind, uint32_t slot)
         ui.force = 1;
         return;
     }
-    if (kind == NK_USER_SAVE || kind == NK_USER_RENAME) {
+    if (kind == NK_SONG_SAVE) {
+        str_cpy(nm.ph, song_save_loop ? "LOOP" : "SONG", sizeof nm.ph);
+        song_name(b);
+    } else if (kind == NK_USER_SAVE || kind == NK_USER_RENAME) {
         uint32_t e = kind == NK_USER_RENAME ? up_engine(slot) : TSEL->eng_req;
         up_auto_name(nm.ph, e, slot);
         if (kind == NK_USER_RENAME)
@@ -246,6 +249,9 @@ static void name_ok(void)
         return;
     }
     switch (nm.kind) {
+    case NK_SONG_SAVE:
+        if (song_save_as(nm.slot, b)) return;     /* keep the name and destination on a failed save */
+        break;
     case NK_USER_SAVE:
         up_ui_named(2, nm.slot, b);
         break;
@@ -320,6 +326,11 @@ static uint32_t name_leds(void)
 #define NM_CX(i) (12 + 18 * (int32_t)(i))              /* cell i: 18 x 22 at y 18 of the card */
 static void nm_title(char *b)
 {
+    if (nm.kind == NK_SONG_SAVE) {
+        str_cpy(b, song_save_loop ? "SAVE LOOP TO PROJECT " : "SAVE SONG TO PROJECT ", 24);
+        fmt_int(b + str_len(b), (int32_t)nm.slot + 1);
+        return;
+    }
     str_cpy(b, nm.kind == NK_USER_SAVE || nm.kind == NK_PROJ_SAVE ? "SAVE " : "NAME ", 8);
     if (nm.kind == NK_LYRIC) {                         /* "LYRIC T1" */
         str_cpy(b, "LYRIC T", 8);
@@ -355,10 +366,10 @@ static void nm_draw_field(void)
     if (nm.kind == NK_LYRIC)                           /* (0.8.5) a lyric: of 63 */
         str_cpy(b + str_len(b), "/63", 4);
     nm_card(2, "LEN", b, nm.len >= nm_len_max() ? T_ACCENT : T_TEXT);
-    nm_card(3, "OCT +", nm.kind == NK_LYRIC ? "SET" : nm.kind == NK_USER_SAVE || nm.kind == NK_PROJ_SAVE ? "SAVE" : "WRITE",
+    nm_card(3, "OCT +", nm.kind == NK_LYRIC ? "SET" : nm.kind == NK_USER_SAVE || nm.kind == NK_PROJ_SAVE || nm.kind == NK_SONG_SAVE ? "SAVE" : "WRITE",
             T_ACCENT);                                 /* (WRITE: the new name; SET: the lyric) */
 }
-static void nm_draw_panel(void)
+static __attribute__((noinline)) void nm_draw_panel(void)
 {
     static const char *const FN[5] = {"F#", "G#", "A#", "C#", "D#"};
     uint32_t i, empty = nm.len == 0u, w0 = nm.cur > NM_LEN - 1u ? nm.cur - (NM_LEN - 1u) : 0u;   /* (a lyric: the window) */
@@ -464,3 +475,4 @@ static void name_draw(void)
         ui.bpm_t--;
     ui.force = 0;
 }
+

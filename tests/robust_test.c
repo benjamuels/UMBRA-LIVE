@@ -3,11 +3,14 @@
 /* Robustness against damaged or crafted stored data and editor requests (the 1.0.4 audit's items 5-10): the real
  * C paths of the editor build (editor_test.c is the base: hostsim, stubs, RAM flash).
  *   projects            an engine number past the last refused (every format, and a RAM restore); a retained
- *                       older-format RAM slot bounded as one from flash
+ *                       FUN5 RAM slot (retired, V10.6s) refused, the tracks as they were
  *   user presets        a bank from flash or a backup: each record's pattern inside its fields
  *   editor              a malformed BACKUP_PUT does not stop the transport */
 #define EDITOR_TEST_NO_MAIN 1
 #include "editor_test.c"
+static void excite_turn(track_t *t, const int16_t *vp, int32_t old) { (void)t; (void)vp; (void)old; }   /* (editor_test.c
+                                                         * leaves it to us, V10.7.2: ui_input.c is not built here) */
+#include "legacy_proj.h"                        /* (V10.6s) FUN5, retired: refused */
 
 static int projects(void)
 {
@@ -38,16 +41,19 @@ static int projects(void)
     e0 = trk[1].eng_req;
     bad += check("restoring a project with an engine past the last is refused, nothing changes",
                  project_restore_runtime(&p) == 1 && trk[1].eng_req == e0);
-    /* a retained RAM slot holding FUN5 (its own size): bounded as one from flash (vel 200 cannot be packed) */
+    /* a retained RAM slot holding FUN5 (its own size; retired, V10.6s): refused, nothing of it reaches the tracks */
     reset();
+    {
+    step_t keep = trk[0].step[0];
     v5.t[2].engine = trk[2].engine;
     v5.t[0].step[0] = (step10_t){{60}, 1, ST_NOTE, 0, 200, 0, 0};
     v5.sum = proj_hash(&v5, sizeof v5 - 4u);
     memset(&proj_slot[2], 0, sizeof proj_slot[2]);
     memcpy(&proj_slot[2], &v5, sizeof v5);
     project_load(2);
-    bad += check("a retained FUN5 RAM slot loads bounded (velocity 200 -> inside 0..127)",
-                 trk[0].step[0].n == 1u && trk[0].step[0].note[0] == 60u && trk[0].step[0].vel <= 127u);
+    bad += check("a retained FUN5 RAM slot (retired) is refused, the tracks as they were",
+                 !memcmp(&trk[0].step[0], &keep, sizeof keep) && !project_used(2));
+    }
     return bad;
 }
 

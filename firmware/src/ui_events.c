@@ -24,7 +24,7 @@ static int ev_id_ok(const track_t *t, uint32_t id)
     if (id == MOT_DJF)                                  /* (0.9.1) the DJ FILTER's records: listed (GLO > MIXER records them) */
         return 1;
     if (id >= P_COUNT || !motion_param(id) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL && id != P_TCHAN && id != P_MORPH && id != P_CLEN && id != P_DXIMG &&
-                                                              id != P_HVEL && id != P_HTIM && id != P_HGAT && id != P_HRQ))
+                                                              id != P_HVEL && id != P_HTIM && id != P_HGAT && id != P_HRQ && id != P_TVEL))
         return 0;
     if (id >= P_LN0 && id <= P_LN7)
         return drum_track(t);
@@ -112,7 +112,7 @@ static int ev_busy(void)
 }
 
 /* KNOB slot turned s on AUTO LIST */
-static void ev_knob(uint32_t slot, int32_t s)
+static __attribute__((noinline)) void ev_knob(uint32_t slot, int32_t s)
 {
     track_t *t = TSEL;
     uint8_t idx[MOTION_MAX];

@@ -1581,7 +1581,7 @@ static void vx_whorl(const vxf_t *f, const int32_t *c, int32_t u0, int32_t u1, i
     }
 }
 /* CARACOL */
-static VX_CODE void vx_phase(const track_t *t, const int32_t *A, int32_t en_home)
+static VX_SEG void vx_phase(const track_t *t, const int32_t *A, int32_t en_home)
 {
     const int16_t *p = t->p;
     vxf_t f = vx_uf(A, 110, 48);
@@ -1937,8 +1937,59 @@ static VX_CODE void vx_add(const track_t *t, const int32_t *A, int32_t en_home)
 #if FELUCCA_USB_IN
 /* (V10.54) INPUT: the audio interface's two inputs as meters (lit: the ones SOURCE takes), GATE's level across them,
  * between them FOLLOW (the matrix's source) and the gate's gain; the source over them */
+/* (SWARM) the swarm as it plays: each device heard a body at its side (its channel: L, both, R) and its note's height,
+ * its size its level, lit on each advertisement (its rhythm), turning on a small orbit at its own period (the
+ * clocks' polyrhythm seen), a line from the loudest to each other (the relation that detunes them); SWARM n above */
+static void vx_swarm(const int32_t *A)
+{
+    uint32_t v, now = fm1_ticks(), n = 0, ref = SW_N, rlv = 0;
+    int32_t x0 = A[0] + 8, w = A[2] - 16, y0 = A[1] + 16, h = A[3] - 26, px[SW_N], py[SW_N], hl[SW_N];
+    char b[10];
+    if (w < 16 || h < 16)
+        return;
+    for (v = 0; v < 3u; v++)                             /* (the floor: L, both, R) */
+        cv_rect(x0 + (int32_t)(1u + 2u * v) * w / 6 - 3, y0 + h + 4, 7, 1, T_MID);
+    for (v = 0; v < SW_N; v++) {
+        const struct sw_dev *d = &sw[v];
+        uint32_t per = d->per | 1u, ph;
+        px[v] = -1;
+        if (!d->id || d->amp < 8)
+            continue;
+        n++;
+        ph = (uint32_t)(((uint64_t)((now - d->last) % per) << 32) / per);   /* (its own clock's phase) */
+        px[v] = x0 + w / 8 + d->pan * (w * 3 / 4) / 32767 + (osc_sine(ph) * 6 >> 15);   /* (its place: IMAGE's) */
+        py[v] = y0 + h - 4 - clamp((int32_t)d->nt - 24, 0, 108) * (h - 8) / 108 + (osc_sine(ph + 0x40000000u) * 4 >> 15);
+        hl[v] = clamp(((int32_t)d->lv - sw_lmin) * 255 / (int32_t)(((uint32_t)(sw_lmax - sw_lmin) & 127u) | 1u), 0, 255);
+        if (d->lv >= rlv)
+            rlv = d->lv, ref = v;
+    }
+    for (v = 0; v < SW_N && ref < SW_N; v++)              /* the relations: the loudest to each other */
+        if (px[v] >= 0 && v != ref)
+            cv_line(px[ref], py[ref], px[v], py[v], ux_mix(T_MID, vk_heat(hl[v]), 35));
+    for (v = 0; v < SW_N; v++) {
+        const struct sw_dev *d = &sw[v];
+        int32_t z;
+        int hit = d->acc > d->amp / 2;
+        if (px[v] < 0)
+            continue;
+        z = clamp(3 + d->amp * 6 / 14000, 3, 9);
+        cv_rect(px[v] - z / 2, py[v] - z / 2, z, z, hit ? T_TEXT : vk_heat(hl[v]));
+        if (hit)                                         /* (an advertisement now: its ring) */
+            cv_frame(px[v] - z / 2 - 3, py[v] - z / 2 - 3, z + 6, z + 6, vk_heat(hl[v]));
+    }
+    cv_rect(x0, y0 + h + 7, sm.mq * w >> 7, 2, T_THEME);   /* (V10.6z6) FAR .. NEAR: the morph, under the floor */
+    if (!vx_small) {
+        str_cpy(b, "SWARM ", sizeof b);
+        fmt_int(b + 6, (int32_t)n);
+        cv_text(A[0] + A[2] / 2 - 3 * (int32_t)str_len(b), A[1] + 2 - AF_X_CAP_Y, &AF_X, b, T_THEME);
+    }
+}
 static VX_SEG void vx_input(const track_t *t, const int32_t *A, int32_t en_home)
 {
+    if (t->p[P_E0] == AIN_SW) {                         /* (SWARM: the devices; the other SOURCEs: the meters below) */
+        vx_swarm(A);
+        return;
+    }
     uint32_t src = (uint32_t)clamp(t->p[P_E0], 0, AIN_N - 1), k;
     int32_t bw = A[2] / 7, bh = A[3] - 30, by = A[1] + 16, cx = A[0] + A[2] / 2, thr = clamp(t->p[P_E2], 0, 127);
     int32_t lv = thr * thr * 2, gg = ain_gg[(uint32_t)(t - trk) % NTRK];
@@ -1984,8 +2035,8 @@ static int vx_draw(const track_t *t, int32_t x, int32_t y, int32_t w, int32_t h,
 {
     const engine_t *e = trk_engp(t);
     int32_t A[4] = {x, y, w, h}, cx = x * 16 + w * 8, cy = y * 16 + h * 8, s;
-    if (!bt_hw_seg() && (e == &ENG_LOFI || e == &ENG_ANIMAL || e == &ENG_STRING))
-        return 0;                                        /* (V10.48: those creatures live in the segment) */
+    if (!bt_hw_seg() && (e == &ENG_LOFI || e == &ENG_ANIMAL || e == &ENG_STRING || e == &ENG_PHASE))
+        return 0;                                        /* (V10.48: those creatures live in the segment; V10.6g PHASE's too) */
     if (e == &ENG_FORMANT) {                             /* (the tract ~80 x 62 units about (-20, 37): the crown off) */
         s = vx_fit(w, h, 80, 62);
         vx_voice(t, cx + 5 * s / 4, cy - 37 * s / 16, s, en_home);

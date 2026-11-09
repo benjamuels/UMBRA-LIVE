@@ -25,6 +25,8 @@ static __attribute__((noinline)) void settings_fix15(uint8_t *f)
 {
     if (f[27] > 7u)                                 /* SCREEN OFF (1.1.5, ui.c SCR_CODE): unknown = 0 (NEVER since 1.1.5.1) */
         f[27] = 0;
+    if (f[16] > 7u)                                 /* OCT BEND (V10.6z4, ui.c oct_xp): unknown = 2 ST (0) */
+        f[16] = 0;
     if (f[18] >= 10u)                               /* PRESETS' LIST type (p1, main 0.9.12, ui.c list_type; core.h PT_N):
                                                      * unknown = none */
         f[18] = 0;
@@ -67,6 +69,7 @@ static int settings_import(persist_t *p, int n)
     if (p->favorites.factory[15][24] > 3u)         /* MIDI OUT (JIANT 0.6.72, ui.c midi_out_mode): unknown = KEYS */
         p->favorites.factory[15][24] = 0;
     settings_fix15(p->favorites.factory[15]);
+    vk_cal = 0;                                     /* (V10.6z6) the keys' calibration read again (vel.c) */
     p->magic = PERSIST_MAGIC;
     p->palette = palette_to_stored(palette_from_stored(p->palette));
     settings.magic = SETTINGS_MAGIC;

@@ -206,7 +206,7 @@ static void mom_forget(uint32_t t)                      /* track t's sound repla
 }
 /* the knob k's value on the page under, if a plain parameter (a track's or a song global; not a list, an action, a step,
  * the kit, an operator: those are not momentary) */
-static int16_t *mom_vp(uint32_t k, const param_desc_t **d)
+static __attribute__((noinline)) int16_t *mom_vp(uint32_t k, const param_desc_t **d)
 {
     const page_t *pg = cur_page();
     int16_t *vp = 0;
@@ -219,10 +219,10 @@ static int16_t *mom_vp(uint32_t k, const param_desc_t **d)
             return 0;
         *d = home_param(k, &vp);
     } else {
-        if (pg->scope == SC_STEP || pg->scope == SC_TRK || ((act_cols() >> k) & 1u) || g == GR_COMP || g == GR_GCOMP || g == GR_SHAPE ||
-            g == GR_FUGUE || g == GR_CHANCE || g == GR_DXSND || g == GR_FOCUS || (g == GR_STAGE && k < 2u) ||
+        if (FIT_PAGE(pg) || pg->scope == SC_STEP || pg->scope == SC_TRK || ((act_cols() >> k) & 1u) || g == GR_COMP || g == GR_GCOMP || g == GR_SHAPE ||
+            g == GR_FUGUE || g == GR_CHANCE || g == GR_DXSND || g == GR_SWARM || g == GR_FOCUS || (g == GR_STAGE && k < 2u) ||
             g == GR_EVENTS || g == GR_MOTION || g == GR_SONG || g == GR_BROWSE || g == GR_TOOLS || g == GR_SLOTS ||
-            g == GR_USER || g == GR_PATS || DX_KIT3(pg) || fop_page(g) ||
+            g == GR_SONGSAVE || g == GR_USER || g == GR_PATS || DX_KIT3(pg) || fop_page(g) ||
             (k == 0u && (BAR_PAGE(pg) || g == GR_SLPIT || g == GR_MSEQ || g == GR_MOD)))
             return 0;
         *d = page_desc(pg, k, &vp);
@@ -249,7 +249,7 @@ static int mom_keep(uint32_t t, uint32_t id)           /* (t, id) kept as it is 
     mom_n++;
     return 1;
 }
-static void mom_knob(uint32_t k, int32_t s)
+static __attribute__((noinline)) void mom_knob(uint32_t k, int32_t s)
 {
     const param_desc_t *d;
     int16_t *vp;
@@ -427,8 +427,10 @@ static void layer_tap(uint32_t l)
 {
     if (l == LAYER_REC)                                 /* REC: arms / disarms (no page) */
         (void)rec_tap();
-    else if (l == LAYER_SAVE)                           /* SAVE: its pages (presets, user sounds, projects) */
-        open_family(FAM_SAVE);
+    else if (l == LAYER_SAVE) {                         /* GEN's SAVE keeps the whole song. */
+        if (gen_on()) nav_put(SEC_SAVE, "SAVE SONG AS");
+        else open_family(FAM_SAVE);
+    }
     else
         (void)page_tap(LAYERS[l].btn);
 }
@@ -691,7 +693,7 @@ static void macro_dice(uint32_t mode)
             for (tries = 0; tries < 16u; tries++) {     /* a destination the sound has, not used on this track */
                 const param_desc_t *pd;
                 d = DST[rng() % sizeof DST];
-                if ((used >> d) & 1u)
+                if (((used >> d) & 1u) || !mod_dst_offer(t, d))
                     continue;
                 if (d >= MD_E1 && d < MD_E1 + 8u &&
                     ((pd = track_desc(t, P_E0 + (d - MD_E1))) == 0 || pd->max <= pd->min || pd->label[0] == '-' ||
@@ -725,7 +727,7 @@ static void session_dice(uint32_t seed)
 #define GLO_TAP 7u
 #define GLO_UNDO 8u                                     /* (0.6.21) G4: UNDO the last big change (project.c undo_do) */
                                                         /* (V10.6) A4 FREEZE, B4 REVERT ALL and SEQ's D5 REVERT gone with MUTATE */
-static void layer_key(uint32_t l, uint32_t k)
+static __attribute__((noinline)) void layer_key(uint32_t l, uint32_t k)
 {
     uint32_t p = key_place(k), i;
     if (l == LAYER_GLO) {
@@ -919,7 +921,7 @@ static uint32_t layer_leds(uint32_t *br)
             on = e == 0u;
             can = (mask >> e) & 1u;
         } else if (l == LAYER_EDIT && !b) {             /* INIT and RECALL breathe (RECALL: a stored section) */
-            can = !chain_busy() && (p == LY_INIT || (p == LY_RECALL && edit_recallable()));
+            can = (p == LY_INIT && !chain_busy()) || (p == LY_RECALL && edit_recallable());   /* (V10.6z8: RECALL in a song) */
         } else if (l == LAYER_EDIT && p < NLANE && drum_track(TSEL)) {   /* DRUM: a sound sounding lit, muted dark */
             on = !dx_lane_muted(p);
         } else if (l == LAYER_SEQ) {                    /* the tools breathe (not while a song plays); DRUM: the lane */
@@ -1072,7 +1074,7 @@ static uint32_t ly_keyname(uint32_t l, int blk, uint32_t p, char *nm)
         if (p > LY_RECALL)
             return LS_OFF;
         str_cpy(nm, p == LY_INIT ? (drum_track(TSEL) ? "INIT+KIT" : "INIT") : drum_track(TSEL) ? "RCL+KIT" : "RECALL", 12);
-        return p == LY_RECALL && !edit_recallable() ? LS_DIM : busy;
+        return p == LY_RECALL ? (edit_recallable() ? LS_OFF : LS_DIM) : busy;   /* (V10.6z8: RECALL in a song too) */
     }
     if (l == LAYER_SEQ) {
         if (blk) {
@@ -1421,5 +1423,6 @@ static __attribute__((noinline)) void draw_layer(void)
 }
 
 #include "ui_live.c"                                    /* (p2, main 0.9.11) GLO > LIVE: MANO, RIELES */
+
 
 

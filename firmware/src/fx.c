@@ -717,30 +717,37 @@ static void seq_note_off(track_t *t, uint32_t note);
 static const uint32_t GR_RATIO[25] = {32768, 34716, 36781, 38968, 41285, 43740, 46341, 49097, 52016, 55109, 58386, 61858, 65536, 69433, 73562, 77936, 82570, 87480, 92682, 98193, 104032, 110218, 116772, 123715, 131072};   /* 2^(st/12), Q16 */
 /* (0.6.81) the grains' clock, a sample: a grain starting again takes its spray and the PITCH now (turned in the middle
  * of a grain, its read point jumped: a click at every step of the knob) */
+/* (V10.6g) TYPE REVERSE: the grains near TIME long (46, 93 or 186 ms: a quarter of the line at most), each read
+ * backwards (ratio -1: the read point goes back a sample each sample, the delay grows two), so every repeat plays the
+ * last TIME of sound reversed, the two grains' triangles crossfading; SPRY as before, PITCH not. gr_inc the grains'
+ * phase step (Q16), gr_len their length (FS samples): GR_LEN's otherwise, every GRAIN sound as before */
+static uint32_t gr_inc = 65536u / GR_LEN, gr_len = GR_LEN;
+static uint8_t gr_rev;
 static void dly_grain_adv(void)
 {
     uint32_t j;
-    fx.gr_ph = (fx.gr_ph + 65536u / GR_LEN) & 0xFFFFu;
+    fx.gr_ph = (fx.gr_ph + gr_inc) & 0xFFFFu;
     for (j = 0; j < 2u; j++)
-        if (((fx.gr_ph + j * 32768u) & 0xFFFFu) < 65536u / GR_LEN) {
+        if (((fx.gr_ph + j * 32768u) & 0xFFFFu) < gr_inc) {
             fx.gr_sp[j] = song.g[G_DSPRY] ? rng() % ((uint32_t)song.g[G_DSPRY] * 64u + 1u) : 0u;
-            fx.gr_s[j] = (int32_t)GR_RATIO[clamp(song.g[G_DPIT], -12, 12) + 12] - 65536;
+            fx.gr_s[j] = gr_rev ? -131072 : (int32_t)GR_RATIO[clamp(song.g[G_DPIT], -12, 12) + 12] - 65536;
         }
 }
 static __attribute__((noinline)) int32_t dly_grain(uint32_t dl, uint32_t sh)   /* (0.8.4) sh: the line at FS >> sh */
 {
     int32_t x = 0;
-    uint32_t j, top = (DLY_LEN << sh) - (2u << sh) - GR_LEN * 2u;   /* (the farthest a grain starts, FS samples) */
+    uint32_t j, top = (DLY_LEN << sh) - (2u << sh) - gr_len * 2u;   /* (the farthest a grain starts, FS samples) */
     for (j = 0; j < 2u; j++) {
         int32_t s = fx.gr_s[j];
-        uint32_t e = (GR_LEN * (uint32_t)(s < 0 ? -s : s)) >> 8;   /* the read point's sweep over a grain, Q8 */
+        uint32_t e = (gr_len * (uint32_t)(s < 0 ? -s : s)) >> 8;   /* the read point's sweep over a grain, Q8 (a
+                                                         * multiple of 8: gr_len x 2^k; REVERSE's at most 8192 x 512) */
         uint32_t ph = (fx.gr_ph + j * 32768u) & 0xFFFFu, d, di, gl = dl;
         int32_t a, b, w;
         if (gl + fx.gr_sp[j] > top)                     /* (JIANT 0.5) a long TIME (the whole line): */
             gl = top - fx.gr_sp[j];                     /* room for the sweep, else the read point sat clamped (no pitch).
                                                          * (0.6.19: each grain its own: grain 0's new spray moved grain 1's
                                                          * read point in the middle of its window: a click every grain) */
-        d = ((gl + fx.gr_sp[j]) << 8) + ((e * ((s > 0 ? 65535u - ph : ph) >> 4)) >> 12);   /* Q8: up, the delay
+        d = ((gl + fx.gr_sp[j]) << 8) + (((e >> 3) * ((s > 0 ? 65535u - ph : ph) >> 4)) >> 9);   /* Q8: up, the delay
                                                          * shrinks over the grain; down, it grows */
         d >>= sh;                                       /* (FS samples -> the line's) */
         di = d >> 8;
@@ -897,6 +904,18 @@ static inline int32_t dly_rd(uint32_t d, int32_t m) { return dly_rd_of(dly_buf, 
 #define DLY_EDGE 8u
 #define DLY_SPAN(sh) ((DLY_LEN - DLY_EDGE) << (sh))      /* the longest read at FS >> sh, FS samples */
 #define DLY_MAX DLY_SPAN(2u)                             /* .. of all (a quarter rate) */
+/* (V10.6g) REVERSE's grains set off the hot code (mod.c macro_master, each block, from flash: the RAM code's room):
+ * near TIME long (the read point the last block took, FS samples), 46 / 93 / 186 ms (a quarter of the line at most:
+ * room for the sweep, its product in 32 bits) */
+static __attribute__((noinline)) void dly_rev_set(void)
+{
+    uint32_t dl = fx.dl_now, L;
+    gr_rev = song.g[G_DTYPE] == 2;
+    L = !gr_rev || dl < 2u * GR_LEN ? GR_LEN : dl < 4u * GR_LEN ? 2u * GR_LEN : 4u * GR_LEN;
+    gr_inc = 65536u / L;                                /* (L a power of two: 32 16 8) */
+    gr_len = L;
+}
+static void (*const volatile DLY_REV_SET)(void) = dly_rev_set;   /* (mod.c macro_master: RAM code) */
 static uint32_t delay_samples(void)
 {
     uint32_t g = (uint32_t)GFX(GF_DTIME);
@@ -1961,7 +1980,8 @@ static inline __attribute__((always_inline)) void fx_buses(const int32_t *cho_in
     int32_t dg = song.g[G_DDRV] > 0 ? 4096 + 123 * clamp(song.g[G_DDRV], 0, 100) : 0;   /* (snd2) DRIVE: x1 .. x4, Q12 */
     int32_t dgi = dg ? (int32_t)(134217728u / (uint32_t)dg) : 0;
     dband_t db;
-    int32_t gr = !sys_load && (song.g[G_DPIT] || song.g[G_DSPRY]);   /* (JIANT) the GRAIN delay (LOAD LITE / ECO: plain) */
+    int32_t gr = !sys_load && (song.g[G_DPIT] || song.g[G_DSPRY] || gr_rev);   /* (JIANT) the GRAIN delay (LOAD
+                                                         * LITE / ECO: plain); (V10.6g) REVERSE through it */
     /* (0.6.90) PING-PONG (not with the GRAIN): the line read at TIME (left) and twice TIME (right, the loop's tap), the
      * loop's gain squared, the right x FEEDBK: the repeats left, right, left .., each FEEDBK softer; TIME at most half
      * the line (0.8.4: of its longest, at a quarter rate, dly_rate); WIDE out of it */
@@ -2308,6 +2328,28 @@ static __attribute__((noinline)) void drum_mix(int32_t *ol, int32_t *or_, uint32
         }
 }
 
+/* A requested track follower: one peak scan, never another engine render.
+ * Stereo IMAGE is included; the smoothed end-of-block LEVEL/PAN and duck gain
+ * calibrate the control signal. UI meters and shared FX returns are excluded. */
+static __attribute__((noinline)) void track_follow_peak(const track_t *t, const int32_t *b, uint32_t n)
+{
+    uint32_t ti = (uint32_t)(t - trk), i;
+    int32_t pl = 0, pr = 0, level = mp_lvl[ti] >> 8, pan = mp_pan[ti] >> 8;
+    for (i = 0; i < n; i++) {
+        int32_t l = b[i] - ((dx_xon & 1u) ? dx_sl[i] : 0), r = b[i] - ((dx_xon & 1u) ? dx_sr[i] : 0);
+        l = l < 0 ? -l : l; r = r < 0 ? -r : r;
+        if (l > pl) pl = l;
+        if (r > pr) pr = r;
+    }
+    if (ENGINES[t->engine] != &ENG_DRUM) level = mulq15(level, duck_g1);
+    pl = ((pl >> 2) * level) >> 10; pr = ((pr >> 2) * level) >> 10;
+    pl = pl * (64 - (pan > 0 ? pan : 0)) >> 6;
+    pr = pr * (64 + (pan < 0 ? pan : 0)) >> 6;
+    track_pk[ti] = (int16_t)clamp(pl > pr ? pl : pr, 0, 32767);
+}
+/* mix_part's RAM copy may be out of the new helper's direct-call range. */
+static void (*const volatile TRACK_FOLLOW)(const track_t *, const int32_t *, uint32_t) = track_follow_peak;
+
 /* one synth part into the dry mix and the sends; a part with no voice sounding costs
  * the LFO tick and a cleared buffer only (after the DIST tail has run out) */
 static inline __attribute__((always_inline)) void mix_part(track_t *t, uint32_t n)   /* (0.6.78: inlined in both
@@ -2397,6 +2439,7 @@ static inline __attribute__((always_inline)) void mix_part(track_t *t, uint32_t 
             int32_t *const sx[3] = {sc, sd, sr};
             drum_mix(ol, or_, n, lq, dl, gl, dgl, gr, dgr, pm0, pm1, sx);
         }
+        if ((track_follow_mask >> ti) & 1u) TRACK_FOLLOW(t, b, n);
         for (i = 0; i < n; i++, lq += dl, gl += dgl, gr += dgr) {
             int32_t x = ((b[i] >> 2) * (lq >> 8)) >> 10, a = x < 0 ? -x : x;   /* pre-shift: 8 loud voices */
             int32_t xs = clamp(x, -xmax, xmax);         /* sends: mulq15 would overflow */
@@ -2442,9 +2485,10 @@ static __attribute__((noinline)) void dx_mot_block(uint32_t n)
         dx_mot_v = 0;
         return;
     }
-    len = beat_samples() * Q8[r] / 4u;                  /* (a quarter = 4 sixteenths) */
-    if (r == 8u)
-        len = beat_samples() / 8u;
+    /* Both branches read the same block's tempo. Avoid the duplicated tempo
+     * conversion at the fastest rate, preserving its exact integer period. */
+    len = beat_samples();
+    len = r == 8u ? len / 8u : len * Q8[r] / 4u;       /* a quarter = 4 sixteenths */
     if (len < 64u)
         len = 64u;
     pos = song.playing ? ms_clock : dx_mot_free;
@@ -2866,6 +2910,8 @@ static __attribute__((noinline)) void mix_block(int32_t *out, uint32_t n)   /* (
             mc_jobs++;
         } else {
             mc_lost();                                  /* (its parts' block and the buses' dropped; one core from here) */
+            for (i = 0; i < NPART; i++)
+                if ((c1m >> i) & 1u) track_pk[i] = 0;
             for (i = 0; i < n; i++)
                 fx_wet[i] = fx_sl[i] = fx_sr[i] = 0;
         }
@@ -2929,3 +2975,4 @@ static __attribute__((noinline)) void mix_block(int32_t *out, uint32_t n)   /* (
         out[2u * i + 1u] = r;
     }
 }
+

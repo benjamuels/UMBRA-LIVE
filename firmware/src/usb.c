@@ -1247,14 +1247,17 @@ static void uac_rs_init(void)                           /* the resampler from si
     if (rs_tab[0][UAC_FIR_N / 2u - 1u])                 /* (the pool is zeroed at boot) */
         return;
     for (i = 0; i < UAC_FIR_N; i++) {                   /* each tap along the phases: its differences summed back */
-        int32_t x = UAC_FIR0[0][i], a = UAC_FIR0[1][i], b = UAC_FIR0[2][i];
+        int32_t x = UAC_FIR0[0][i], a = UAC_FIR0[1][i], b = UAC_FIR0[2][i], c = UAC_FIR3S[i];
         for (p = 0; p < UAC_FIR_L / 2u; p++) {
             rs_tab[p][i] = x;
             rs_tab[UAC_FIR_L - 1u - p][UAC_FIR_N - 1u - i] = x;   /* (phase 159 - p: phase p backwards) */
             x += a;
             a += b;
-            if (p < UAC_FIR_L / 2u - 3u)
-                b += UAC_FIR3[i][p];
+            if (p < UAC_FIR_L / 2u - 3u) {
+                b += c;                                 /* (V10.6k: the third differences summed back from the fourth) */
+                if (p < UAC_FIR_L / 2u - 4u)
+                    c += UAC_FIR4[i][p];
+            }
         }
     }
 }

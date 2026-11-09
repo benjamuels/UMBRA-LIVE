@@ -44,11 +44,16 @@ def parse(path):
         name, f = m.group(1), [x.strip() for x in m.group(2).split(",")]
         arr = lambda n: [int(v, 0) for v in re.search(r"AF_%s_%s\[\d+\] = \{([^}]*)\}" % (name, n), t)
                          .group(1).replace("\n", " ").split(",") if v.strip()]
-        gh = [tuple(int(v) for v in e.split(",")) for e in            # (0.9.0) the packed glyph table
-              re.findall(r"\{(\d+, \d+)\}", re.search(r"AF_%s_GH\[\d+\] = \{(.*?)\n\};" % name, t, re.S).group(1))]
-        ph = 1 << (int(f[12]) if len(f) > 12 else 0)
-        g = [(gh[i // ph][0] + (v & 1023), gh[i // ph][1], ((v >> 10) & 7) - 1, (v >> 13) & 63, (v >> 19) & 127, v >> 26)
-             for i, v in enumerate(arr("GP"))]
+        if re.search(r"#define AF_%s_GP 0\b" % name, t):      # (818d979, 2026-11-05) compact single-phase faces: 5 bytes
+            pk = arr("PACK")                                      # an entry, as src/gfx.c ag() reads them
+            g = [(p[0] | (p[1] & 15) << 8, (p[1] >> 4 | p[2] << 4) & 511, (p[2] >> 5) - 1, p[3] & 31,
+                  (p[3] >> 5 | p[4] << 3) & 31, (p[4] >> 2) & 31) for p in (pk[k:k + 5] for k in range(0, len(pk) - 4, 5))]
+        else:
+            gh = [tuple(int(v) for v in e.split(",")) for e in        # (0.9.0) the packed glyph table
+                  re.findall(r"\{(\d+, \d+)\}", re.search(r"AF_%s_GH\[\d+\] = \{(.*?)\n\};" % name, t, re.S).group(1))]
+            ph = 1 << (int(f[12]) if len(f) > 12 else 0)
+            g = [(gh[i // ph][0] + (v & 1023), gh[i // ph][1], ((v >> 10) & 7) - 1, (v >> 13) & 63, (v >> 19) & 127, v >> 26)
+                 for i, v in enumerate(arr("GP"))]
         kern = {}
         if f[9] != "0":                  # (0.9.0) KI / KP: the pairs by the first glyph's number
             ki, kp, ex, n = arr("KI"), arr("KP"), arr("EX"), int(f[3]) - int(f[2]) + 1
@@ -193,6 +198,8 @@ def main():
         mx = abs(e[0][1])
         rms = (sum(v * v for _, v in pairs) / len(pairs)) ** 0.5
         limit = 1.0 / (1 << f["psh"])        # a phase step
+        if not f["psh"]:                     # (818d979: one phase, the rounded pen: two neighbours each up to 0.5 px off,
+            limit += 0.05                    # 1.0 px exactly; the centroids' own measuring error on top. S's 'TC' 1.01)
         over = sum(abs(v) > limit for _, v in pairs)
         ok = mx <= limit + 1e-9
         bad += not ok

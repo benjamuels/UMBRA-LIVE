@@ -69,6 +69,11 @@ static int st_prog(uint32_t off, const void *p, uint32_t n) { (void)off; (void)p
 static int st_erase(uint32_t off) { (void)off; return -1; }
 #include "../firmware/src/storage.c"
 #include "../firmware/src/editor.c"
+/* (V10.40) editor.c calls ui_input.c's excite_turn (a WAVE / EXCITE whose knobs change meaning); ui_input.c is not
+ * part of this test: the knob's value is what the protocol tests check, not the panel's follow-up */
+#ifndef EDITOR_TEST_NO_MAIN                              /* (V10.7.2: the files built on this one stub it themselves) */
+static void excite_turn(track_t *t, const int16_t *vp, int32_t old) { (void)t; (void)vp; (void)old; }
+#endif
 
 static int check(const char *what, int ok)
 {
@@ -151,7 +156,8 @@ static int preferences(void)
     int bad = 0;
     uint8_t a[4] = {0, 7, 0, 0};
     reset();
-    uint32_t n = request(ED_INFO, a, 0), n0 = n - 6u;   /* (0.8.5: the 'O' tag, the DRUM lane modes, then 'Y' last, LYRIC) */
+    uint32_t n = request(ED_INFO, a, 0), n0 = n - 10u;   /* (0.8.5: the 'O' tag, the DRUM lane modes, (1.0) 'C' the
+                                                          * protocol's version, then 'Y' last, LYRIC) */
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
         host_wire[n0 - 37] == CHAIN_ROWS && host_wire[n0 - 36] == 0x55 &&
@@ -163,13 +169,15 @@ static int preferences(void)
         host_wire[n0 - 23] == 0 &&                        /* (no bank since 1.0.3) */
         host_wire[n0 - 22] == 0x53 && host_wire[n0 - 21] == 1 && host_wire[n0 - 20] == 3 &&
         host_wire[n0 - 19] == 0x50 && host_wire[n0 - 18] == 1 && host_wire[n0 - 17] == 3 &&   /* FM6 v2: no bank, preset patches */
-        host_wire[n0 - 16] == 0x4E && host_wire[n0 - 15] == 1 && host_wire[n0 - 14] == 26 &&   /* MENU settings: 26 items (0.6.72: MIDI OUT; 0.8.9 SKIN; 0.9.7 SCOPE;
+        host_wire[n0 - 16] == 0x4E && host_wire[n0 - 15] == 1 && host_wire[n0 - 14] == 31 &&   /* MENU settings: 31 items (V10.6z4 OCT BEND; 6ba2f5e VELOCITY,
+                                                                                             * VEL MIN, AFTERTOUCH, VEL LEARN); 26 (0.6.72: MIDI OUT; 0.8.9 SKIN; 0.9.7 SCOPE;
                                                                                              * 0.9.9-stab CPU CLOCK; p1 CPU CORES, MIDI MAP) */
         host_wire[n0 - 13] == 0x52 && host_wire[n0 - 12] == 1 && host_wire[n0 - 11] == 4 &&   /* RATCH */
         host_wire[n0 - 10] == 0x4C && host_wire[n0 - 9] == 1 && host_wire[n0 - 8] == 1 &&   /* 1.1 parameter locks */
         host_wire[n0 - 7] == 0x56 && host_wire[n0 - 6] == 1 && host_wire[n0 - 5] == 32 &&   /* (0.6.11) FM6 voice bank */
         host_wire[n0 - 4] == 0x4A && host_wire[n0 - 3] == 1 && host_wire[n0 - 2] == 1 &&   /* (0.6.62) JIANT: the installer */
-        host_wire[n - 7] == 0x4F && host_wire[n - 6] == 1 && host_wire[n - 5] == LM_N &&   /* (0.8.5) DRUM lane modes */
+        host_wire[n - 11] == 0x4F && host_wire[n - 10] == 1 && host_wire[n - 9] == LM_N &&   /* (0.8.5) DRUM lane modes */
+        host_wire[n - 8] == 0x43 && host_wire[n - 7] == 2 && host_wire[n - 6] == ED_PROTO_MAJOR &&   /* (1.0) 'C' */
         host_wire[n - 4] == 0x59 && host_wire[n - 3] == 1 && host_wire[n - 2] == LYR_LEN - 1u);   /* (0.8.5) LYRIC, 63 */
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
@@ -901,8 +909,16 @@ static int menu_protocol(void)
     menu_desc(25, &it);                                   /* (p1) MIDI MAP, a row of CONTROL: FACTORY (the default) CUSTOM ADD CUSTOM */
     ok &= !strcmp(it.name, "MIDI MAP") && it.id == 25 && it.tab == 1 && it.value == 0 && it.max == 2 &&
           !strcmp(it.names[0], "FACTORY") && !strcmp(it.names[1], "CUSTOM ADD") && !strcmp(it.names[2], "CUSTOM");
-    n = menu_desc(26, &it);
-    ok &= n == 2u && it.index == 26 && it.id == 127;
+    {   /* (V10.6z4) OCT BEND, AUDIO; (6ba2f5e, V10.6z7) VELOCITY VEL MIN AFTERTOUCH VEL LEARN, CONTROL: ids 26..30 */
+        static const char *const NM[5] = {"OCT BEND", "VELOCITY", "VEL MIN", "AFTERTOUCH", "VEL LEARN"};
+        uint32_t q;
+        for (q = 0; q < 5u; q++) {
+            menu_desc(26u + q, &it);
+            ok &= !strcmp(it.name, NM[q]) && it.id == 26u + q && it.tab == (q ? 1u : 2u);
+        }
+    }
+    n = menu_desc(31, &it);
+    ok &= n == 2u && it.index == 31 && it.id == 127;
     n = menu_desc(127, &it);
     bad += check("MENU_DESC: no CALIBRATION / ABOUT; an index past the list answers index, 127 (no item)",
                  ok && n == 2u && it.index == 127 && it.id == 127);
@@ -966,7 +982,7 @@ static int menu_protocol(void)
         static uint8_t fav0[sizeof favorites], set0[sizeof settings];
         uint8_t hold0 = settings_hold, leds0 = settings_leds;
         memcpy(fav0, &favorites, sizeof favorites); memcpy(set0, &settings, sizeof settings);
-        ok = menu_set(26, 1) == 1 && host_wire[6] == 26 && ed_rv(host_wire + 7) == 1;
+        ok = menu_set(31, 1) == 1 && host_wire[6] == 31 && ed_rv(host_wire + 7) == 1;   /* (26..30 since V10.6z4 / z7) */
         ok &= menu_set(126, -3) == 1 && host_wire[6] == 126 && ed_rv(host_wire + 7) == -3;
         ok &= menu_set(127, 0) == 1 && host_wire[6] == 127;
         ok &= !memcmp(fav0, &favorites, sizeof favorites) && !memcmp(set0, &settings, sizeof settings) &&
@@ -1050,6 +1066,7 @@ static int drum_kit_retired(void)
 }
 
 #ifndef EDITOR_TEST_NO_MAIN                              /* (robust_test.c, fuzz_*.c: this file is their base) */
+#ifndef EDITOR_TEST_NO_MAIN
 int main(void)
 {
     int bad = preferences() + motion_locks() + framing() + uart_recovery() + steps() + stop_failures() + song_protocol() + malformed_saves() +
@@ -1058,4 +1075,7 @@ int main(void)
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }
+#endif
+
+
 #endif

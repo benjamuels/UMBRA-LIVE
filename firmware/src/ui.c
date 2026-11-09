@@ -12,11 +12,22 @@ static track_t *tsel_p(void) { return &trk[song.sel]; }
 static uint32_t trk_eng(const track_t *t) { return t->eng_req % NENGINES; }   /* (0.9.7, flash) a track's engine */
 static const engine_t *trk_engp(const track_t *t) { return ENGINES[trk_eng(t)]; }   /* .. its engine's table */
 static int project_save(uint32_t slot);
+static int song_save_as(uint32_t target, const char *name);
+static int song_draft_begin(void);
+static int song_erase_parts(uint32_t target, uint32_t parts);
+static void song_poll(void);
+static uint8_t song_save_loop;
+static void song_name(char *b);
+static uint8_t song_save_target __attribute__((section(".pool")));                   /* destination picker: never opens the project */
 static void panel_setup(void);
 static void project_load(uint32_t slot);
 static int section_jump(uint32_t s);    /* (song_main.c: 0.6.80, channel 16's PROGRAM CHANGE) */
 static int song_select(uint32_t n);
 static void undo_mark(void);                    /* (0.6.21) project.c: the music before a change, */
+static int trackgen_ok(const track_t *t);
+static void trackgen_knob(uint32_t k,int32_t s);
+static void trackgen_cards(void);
+static void trackgen_make(void);
 static void system_init(void);                  /* (0.6.40) project.c: INIT SYSTEM */
 static int undo_do(void);                       /* .. back (and again: forward) */
 static uint8_t undo_ok;
@@ -27,7 +38,8 @@ static uint32_t lib_gen(void);
 static int project_recall_sound(uint32_t slot, uint32_t k);
 static int undo_sound(uint32_t k);                 /* (0.6.65) project.c: the sound dice's CANCEL */
 static int project_recall_slot(void);
-static uint32_t chain_prepare(void);
+static uint32_t chain_prepare_at(uint32_t r0);       /* (V10.6o) song_main.c: the song from a row */
+#define chain_prepare() chain_prepare_at(0)
 static int up_used(uint32_t k);              /* user presets: upreset.c */
 static int up_load(uint32_t k);
 static uint32_t up_count(void);
@@ -139,6 +151,11 @@ static void prefs_update(void)
     }
     if (prefs_rev < 3u)                                /* (0.9.9-snd5) STRING's and ADD's stars (favorites.c fav_rows_new) */
         fav_rows_new();
+    if (prefs_rev < 4u) {                              /* (V10.6h) LOFI's stars: its chip presets' numbers are MATH's */
+        memset(favorites.factory[ENGI_LOFI], 0, sizeof favorites.factory[ENGI_LOFI]);   /* voices now (eng_lofi.c) */
+        prefs_rev = 4u;
+        settings_save();
+    }
 }
 /* MENU > AUDIO CLICK, CLICK LEVEL, COUNT-IN (1.1, Discussion #131; click.c, seq.c): two bits each in another byte no
  * engine uses, saved with the settings: bits 0-1 CLICK (OFF REC ON), 2-3 CLICK LEVEL (stored 0 MID, 1 LOW, 2 HIGH),
@@ -150,6 +167,7 @@ static void prefs_update(void)
 #define PREF_SCALE_LEDS (0x40u << 8)
 #define ui_load (favorites.factory[15][26])    /* (JIANT 0.6.30) LOAD (voice.c sys_load): 0 FULL, 1 LITE, 2 ECO; a byte no
                                                 * engine uses, 0 in older settings (0.6.29's 6 LITE: 1, LITE) */
+#define oct_xp (favorites.factory[15][16])    /* (V10.6z4) MENU > AUDIO > OCT BEND, its place ^ 2 (0, older settings: 2 ST) */
 #define midi_out_mode (favorites.factory[15][24])   /* (JIANT 0.6.72) MENU > MIDI OUT (seq.c MO_*): 0 KEYS (older settings,
                                                 * as ever), 1 CLOCK, 2 ALL, 3 OFF; a byte no engine uses */
 #define PREF_SIX (0x80u << 8)                  /* (JIANT 0.6.18) MENU > TRACKS 6: all six tracks play; clear (the
@@ -319,7 +337,7 @@ static struct {
     uint8_t uslot;               /* SAVE > USER: the selected user preset slot */
     uint8_t ppick;               /* SEQ > PATTERNS: the pattern picked (pat_count list index) */
     uint8_t song_row;            /* SONG: row selected, count selects the next empty row */
-    uint8_t song_tk;             /* (add15) TIMELINE: the lane KNOB 2 picks: 0 the rows (SEC), 1..6 T1..T6 */
+    uint8_t part;                /* (V10.6o) SAVE > PARTS: the section KNOB 1 picks (0..3 A..D; was add15's song_tk) */
     uint8_t ev_row;              /* SEQ > AUTO LIST (ui_input.c ev_*): the row selected (the track's count: + ADD LOCK) */
     uint8_t ev_step, ev_id;      /* .. + ADD LOCK: the step and the parameter a lock is added on */
     uint8_t uboot;               /* main.c: seconds left before UPDATE MODE (OCT- + OCT+ held), 0 = none */
@@ -355,7 +373,7 @@ static uint16_t val_col(uint32_t c) { return c == ui.hot_col && ui.hot_t ? T_ACC
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
        CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_CLEAR_PFX,
        CF_RECALL_SOUND, CF_CLEAR_ALL, CF_DICE_ALL, CF_INIT_SYS, CF_DICE_SOUND, CF_DICE_SEQ, CF_DICE_LFO,
-       CF_DICE_FX, CF_CPU_TEST, CF_MUT_BACK, CF_LIVE_COMMIT, CF_ERASE_SECT };   /* ui.confirm: TOOLS' clears; (0.6.21) HOME + SELECT:
+       CF_DICE_FX, CF_CPU_TEST, CF_MUT_BACK, CF_LIVE_COMMIT, CF_ERASE_SECT, CF_OVR_SONG, CF_ERASE_SONG };   /* ui.confirm: TOOLS' clears; (0.6.21) HOME + SELECT:
                                    * everything diced; (0.6.65) EDIT + SELECT: keep the diced sound?; (0.6.67) SEQ / LFO / FX + SELECT:
                                    * keep the diced sequence / LFO / effects?;
                                    * SAVE over a used slot; a pattern over the user's steps;
@@ -524,7 +542,7 @@ static uint32_t large_kind(void)
     if (ui.home)
         return LK_TALL;
     g = cur_page()->graph;
-    return g == GR_BROWSE || g == GR_SLOTS || g == GR_USER || g == GR_PATS || g == GR_SONG || g == GR_ROLL ||
+    return g == GR_BROWSE || g == GR_SONGSAVE || g == GR_SLOTS || g == GR_USER || g == GR_PATS || g == GR_SONG || g == GR_ROLL ||
            g == GR_CHANCE || g == GR_COMP || g == GR_EVENTS || g == GR_LYRIC || g == GR_LIVE ? LK_LABEL : LK_TALL;
 }
 /* the geometry of the page shown: the cards' height, the panel's top and height. (0.8.5) A lens page (lz_on): the
@@ -581,12 +599,14 @@ static int page_visible(uint32_t i)
     if (sys_load == LOAD_ECO && ((PAGES[i].graph == GR_SLCR || PAGES[i].graph == GR_SLPIT) ||
                                  (PAGES[i].fam == FAM_FX && PAGES[i].id[0] == G_CRATE)))
         return 0;                                       /* (0.6.30) LOAD ECO: no SLICER, no chorus: their pages gone */
-    if (PAGES[i].graph == GR_MORPH) {                   /* (0.6.45) MORPH: ANALOG's plain waves, PHASE, LOFI's (not BYTE FLOAT) */
+    if (PAGES[i].graph == GR_MORPH) {                   /* (0.6.45) MORPH: ANALOG's waves, PHASE (V10.6d: MATH none) */
         uint32_t e = trk_eng(TSEL);
-        return e == ENGI_ANALOG || ENGINES[e] == &ENG_PHASE ||   /* (0.6.81: every ANALOG WAVE) */
-               (ENGINES[e] == &ENG_LOFI && TSEL->p[P_E1] < RW_BYTE);
+        return e == ENGI_ANALOG || ENGINES[e] == &ENG_PHASE;   /* (0.6.81: every ANALOG WAVE) */
     }
-    if (PAGES[i].graph == GR_LYRIC)                     /* (0.8.5) WORDS: VOICE's */
+    if(PAGES[i].graph==GR_TRACKGEN) return trackgen_ok(TSEL);
+    if (PAGES[i].graph == GR_SWARM)                     /* (V10.6z6) FAR / NEAR: a SWARM track's */
+        return trk_eng(TSEL) == ENGI_INPUT && TSEL->p[P_E0] == AIN_SW;
+    if (PAGES[i].graph == GR_LYRIC || PAGES[i].graph == GR_LYRSTEP)
         return trk_engp(TSEL) == &ENG_FORMANT;
     if (PAGES[i].graph == GR_PATS || PAGES[i].graph == GR_CHANCE)   /* (0.6.37) PHRASES, a step's CHANCE: out of the */
         return !ui.home && ui.page == i;               /* SEQ pages' cycle (only where code put the screen) */
@@ -749,6 +769,12 @@ static uint8_t cp_add_lane;
 #define MSG_NOFILE "\x01"                      /* the no-file icon (ICON_X_NOFILE) */
 
 static int chain_busy(void) { return chain.running || chain.armed; }
+static uint32_t part_scan(uint32_t s);                 /* (V10.6o) song_main.c: PARTS / TIMELINE's picture, the song's way */
+static int chain_goto(uint32_t r, uint32_t hold);
+static void chain_cut(void);
+static int clip_launch(uint32_t k, uint32_t s);        /* (V10.6s) song_main.c: CLIPS' launches */
+static void song_rec_toggle(void);
+static int section_jump(uint32_t s);
 /* (0.6.22) ARRANGE: the rows 0..count-1, + ADD (while there is room), then the song's END row */
 static uint32_t song_end_row(void) { return chain_config.count < CHAIN_ROWS ? chain_config.count + 1u : CHAIN_ROWS; }
 /* Main loop only, with interrupts enabled. PLAY may be consumed between reads;
@@ -808,6 +834,7 @@ static void page_entered(void)
 {
     const page_t *pg = cur_page();
     br_armed = 0;
+    if (pg->graph == GR_SONGSAVE && !song_draft) song_save_target = song_cur;
     ui.knob_ms = fm1_ms;                         /* (0.9.0) HUD: the knob row whole again on a new page */
     if (!ui.home && pg->fam == FAM_FX && fx_trk_k(ui.page) < 0 && pg->graph != GR_BUSES)
         ui.fxmod = (uint8_t)fx_mod_of(ui.page);  /* (FX: the effect shown, BUSES' tile lit) */
@@ -855,7 +882,7 @@ static void rate_name(const track_t *t, uint32_t n, char *b)
 /* (gen3) the names short, each read whole on its card: the value's M where it fits with its unit (COMP's 49 px), else S
  * (ui_test test_comp_cards: every value of every knob, every page) */
 static const char *const CA_NAMES[CA_N] = {"OFF", "ARP", "SEQ", "OCT+", "OCT-", "RATCH", "STUT", "MUTE", "TRANS",
-                                           "RAND", "LOCK", "JUMP", "SOUND", "BEND", "SHIFT", "CHORD"};
+                                           "RAND", "LOCK", "RAMP", "SOUND", "BEND", "SHIFT", "CHORD"};
 static const char *const CC_NAMES[CC_NM] = {"ALWAYS", "25%", "50%", "75%", "1ST", "!1ST", "FILL", "!FILL", "PRE",
                                             "!PRE", "NEI", "!NEI", "ELSE"};
 #define CCL_NM 135u                                     /* N:M, M 2..16, N 1..M */
@@ -971,10 +998,16 @@ static void comp_vname(const track_t *t, const step_t *s, uint32_t a, uint32_t v
         str_cpy(lb, "LOCKS", 8); fmt_int(val, (int32_t)n);
         break;
     }
-    case CA_JUMP: str_cpy(lb, "TO STEP", 8); if (v >= CV_JUMP_REV) str_cpy(val, "REV", 8); else fmt_int(val, (int32_t)v + 1); break;
+    case CA_RAMP: {                                    /* (V10.6v) FROM over its CURVE ("KNOB" "EXP"); no LOCK on the step:
+                                                         * NO LOCK (it does nothing) */
+        static const char *const CRV[CV_RAMP_NC] = {"LIN", "EXP", "LOG", "S", "STEPS", "ZIGZAG"};
+        str_cpy(lb, !motion_lock_at(t, (uint32_t)(s - t->step) % NSTEP) ? "NO LOCK" : CV_RAMP_OPP(v) ? "OPP" : "KNOB", 8);
+        str_cpy(val, CRV[CV_RAMP_CURVE(v)], 8);
+        break;
+    }
     case CA_SOUND: str_cpy(lb, "HIT", 8); str_cpy(val, HIT[v % 3u], 8); break;
     case CA_CHORD: str_cpy(lb, "CHORD", 8); str_cpy(val, N_CHRD[1u + v % CD_POW], 8); break;
-    case CA_SHIFT: str_cpy(lb, "MOVE", 8); m = (int32_t)(v % 127u) - 63; val[0] = m < 0 ? '-' : '+'; fmt_int(val + 1, m < 0 ? -m : m); str_cpy(un, "STEPS", 8); break;
+    case CA_SHIFT: str_cpy(lb, "MOVE", 8); m = (int32_t)(v % 127u) - 63; val[0] = m < 0 ? '-' : '+'; fmt_int(val + 1, m < 0 ? -m : m); str_cpy(un, "ST", 8); break;   /* (ST as BEND: "-63 STEPS" was cut to "-.." on the card) */
     case CA_BEND: str_cpy(lb, "BEND", 8); m = (int32_t)(v % 25u) - 12; val[0] = m < 0 ? '-' : '+'; fmt_int(val + 1, m < 0 ? -m : m); str_cpy(un, "ST", 8); break;
     default: break;
     }
@@ -983,17 +1016,20 @@ static void comp_vname(const track_t *t, const step_t *s, uint32_t a, uint32_t v
  * keys 1..6 turn the tracks it applies to on and off; COMPS' KNOB 1..4 ACTION LENGTH CONDITION VALUE as COMP's (the
  * actions that mean something for all: GA_LIST; no ELSE, no NEI), COMPS 2's STEP, TRACK, its ON / OFF, MONO / POLY */
 static uint8_t gl_cur, gl_trk;
-static const uint8_t GA_LIST[] = {CA_NONE, CA_MUTE, CA_STUT, CA_OCTU, CA_OCTD, CA_RATCH, CA_TRANS, CA_ARP, CA_JUMP, CA_RAND, CA_CHORD};
+static const uint8_t GA_LIST[] = {CA_NONE, CA_MUTE, CA_STUT, CA_OCTU, CA_OCTD, CA_RATCH, CA_TRANS, CA_ARP, CA_RAND, CA_CHORD};
 static uint32_t gco_slot(void) { return ui.page > 0u && PAGES[ui.page - 1u].graph == GR_GCOMP; }
-static int gco_on(void) { return !ui.home && !ui.menu && !ui.confirm && !ui.layer && cur_page()->graph == GR_GCOMP; }
-static int ckeys_on(void) { return !ui.home && !ui.menu && !ui.confirm && !ui.layer && cur_page()->graph == GR_COMP; }   /* (seq2g) */
+static int keys_pg(uint32_t g) { return !ui.home && !ui.menu && !ui.confirm && !ui.layer && cur_page()->graph == g; }   /* (V10.6o) */
+static int gco_on(void) { return keys_pg(GR_GCOMP); }
+static int ckeys_on(void) { return keys_pg(GR_COMP); }   /* (seq2g) */
+/* (V10.6o) PARTS, TIMELINE: the keys are the page's (silent): F3..B3 the parts; T1..T6's mutes, F4..B4 a track's FROM */
+static int skeys_on(void) { return keys_pg(GR_SONG) && cur_page()->title[0] != 'A'; }
 static uint32_t ga_idx(uint32_t a)
 {
     uint32_t i;
     for (i = 0; i < sizeof GA_LIST && GA_LIST[i] != a; i++) {}
     return i < sizeof GA_LIST ? i : 0u;
 }
-static void gco_knob(uint32_t slot, int32_t steps)
+static __attribute__((noinline)) void gco_knob(uint32_t slot, int32_t steps)
 {
     gcomp_t *c = &glane[gl_cur % GL_N];
     uint32_t a = CO_ACT(c->comp);
@@ -1023,8 +1059,7 @@ static void gco_knob(uint32_t slot, int32_t steps)
         ui_message("ACTION FIRST");
         return;
     } else if (slot == 1u) {
-        if (a != CA_JUMP)
-            c->len = (uint8_t)clamp((int32_t)c->len + d, 0, CL_MAX - 1);
+        c->len = (uint8_t)clamp((int32_t)c->len + d, 0, CL_MAX - 1);
     } else if (slot == 2u) {
         uint32_t k, nm;
         int32_t i = clamp((int32_t)cond_idx(CO_COND(c->comp), c->nm) + steps, 0, (int32_t)CCL_N - 1);
@@ -1093,12 +1128,12 @@ static int black_held(uint32_t p)
 
 /* lane l of step s from now on is its hit alone: the step's lane notes become hits (nothing sounds different),
  * a note of another pitch on the lane (a low tom 41) becomes the lane's own */
-static void grid_own(step_t *s, uint32_t l)
+static void grid_own(track_t *t, step_t *s, uint32_t l)
 {
     uint32_t k, j = 0;
     step_to_grid(s);
     for (k = 0; k < s->n; k++)
-        if (drum_lane(s->note[k]) == l)
+        if (drum_note_lane(t,s->note[k]) == l)
             s->hit |= (uint8_t)(1u << l);
         else
             s->note[j++] = s->note[k];
@@ -1113,14 +1148,14 @@ static void grid_hit(track_t *t, uint32_t i, uint32_t l, uint32_t on)
     step_t *s = &t->step[i % NSTEP];
     uint32_t b = 1u << (l % NLANE);
     if (on == 2u)
-        on = !(step_lanes(s) & b);
+        on = !(step_lanes_of(t,s) & b);
     if (s->time != ST_NOTE) {                    /* a REST or a TIE: an empty step (nothing to turn off) */
         if (!on)
             return;
         step_clear(s);
         s->time = ST_NOTE;
     }
-    grid_own(s, l % NLANE);
+    grid_own(t,s, l % NLANE);
     if (on) {
         s->hit |= (uint8_t)b;
     } else {
@@ -1135,7 +1170,7 @@ static void grid_hit(track_t *t, uint32_t i, uint32_t l, uint32_t on)
 static const char *const GRID_HIT[LM_N + 1] = {"--", "ON", "x2", "x4", "x8", "SHORT", "GHOST", "FLAM"};
 static uint32_t grid_hit_of(const step_t *s, uint32_t l)
 {
-    return (step_lanes(s) >> (l % NLANE)) & 1u ? 1u + step_lmode(s, l) : 0u;
+    return (step_lanes_of(TSEL,s) >> (l % NLANE)) & 1u ? 1u + step_lmode(s, l) : 0u;
 }
 static void grid_hit_set(track_t *t, uint32_t i, uint32_t l, uint32_t v)
 {
@@ -1153,12 +1188,12 @@ static void grid_acc(track_t *t, uint32_t i, uint32_t l, uint32_t on)
     step_t *s = &t->step[i % NSTEP];
     uint32_t b = 1u << (l % NLANE);
     if (on == 2u)
-        on = !(step_accents(s) & b);
+        on = !(step_accents_of(t,s) & b);
     if (on)
         grid_hit(t, i, l, 1);
-    if (!(step_lanes(s) & b))
+    if (!(step_lanes_of(t,s) & b))
         return;
-    grid_own(s, l % NLANE);
+    grid_own(t,s, l % NLANE);
     if (s->flags & SF_ACCENT) {                  /* a step accent: each hit's own from now on */
         s->acc |= s->hit;
         s->flags &= (uint8_t)~SF_ACCENT;
@@ -1180,6 +1215,32 @@ static void cursor_fix(void)                           /* LEN got shorter: onto 
 {
     if (ui.cursor >= (uint32_t)TSEL->p[P_SLEN])
         cursor_set(TSEL->p[P_SLEN] - 1);
+}
+/* Main-loop lyric selection. All phones/counters are temporary, the result is
+ * an ordinary POS lock in the existing motion store, leaving both components. */
+static uint8_t lyric_word, lyric_syl=1;
+static __attribute__((noinline)) uint32_t lyric_pick(char *label)
+{
+    const char *txt=lyr_get(song.sel);
+    uint32_t p=0,a,b,mel,w=0,base=0,ns=0;
+    char word[20],nw[24];uint8_t ph[SW_MAX];
+    label[0]=0;
+    while(sy_tok(txt,p,&a,&b,&mel)) {
+        uint32_t i,m=0;
+        for(i=a;i<b&&m<19u;i++) word[m++]=txt[i];word[m]=0;
+        if(mel) ns=1;
+        else sy_word((uint32_t)clamp(TSEL->p[P_VLANG],1,LG_N-1),nw,
+                     sy_norm_lang((uint32_t)TSEL->p[P_VLANG],word,m,nw,sizeof nw),ph,&ns);
+        uint32_t na,nb,nmel;
+        if(w++>=lyric_word || !sy_tok(txt,b,&na,&nb,&nmel)) {
+            lyric_word=(uint8_t)(w-1u);
+            if(lyric_syl>ns) lyric_syl=(uint8_t)ns;
+            str_cpy(label,word,20);
+            return !lyric_syl?0u:(uint32_t)clamp((int32_t)(base+lyric_syl),1,127);
+        }
+        base+=ns;p=b;
+    }
+    return 0;
 }
 
 static void note_name(char *b, uint32_t n)
@@ -1289,8 +1350,6 @@ static void load_end(track_t *t)
     }
     motion_rebase(t);
 }
-
-static int param_kept(uint32_t i);
 
 /* a 16-step pattern (PATTERNS[] format, user presets too) into steps 1..16, the rest empty, LEN 16 */
 static void load_pat16(track_t *t, const uint8_t *note, const uint8_t *flags)
@@ -1402,41 +1461,47 @@ static void pat_load_ui(track_t *t, uint32_t n)
     ui_say("LOADED ", b);
 }
 
-/* the track's settings, not the sound's: what a sound load (factory or user preset, an engine jump,
- * TOOLS INIT) leaves alone. The mix (LEVEL, PAN, MUTE: the TRACKS faders), the arpeggiator (ARP, ARP 2),
- * the scale and key map (SCL), the pattern parameters (LEN, DIV, SWING, GATE) and the SLICER insert,
- * which chops whatever the track plays in time with its sequencer */
-static int param_kept(uint32_t i)
-{
-    return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_SOFS || i == P_POFS ||
-           (!FELUCCA_FM4 && (i == P_HVEL || i == P_HTIM || i == P_HGAT || i == P_HRQ)) ||   /* (0.6.87) HUMAN: the sequencer's, a sound
-                                                         * keeps it (FELUCCA_FM4: DIGITAL's OP SUS / LEVEL there) */
-           (!FELUCCA_FM4 && (i == P_CHRD || i == P_CVOI || i == P_CSTR || i == P_CLEN || i == P_TCHAN ||
-                             i == P_MSND || i == P_MPAT || i == P_MAMT || i == P_MMODE || i == P_MCFG));   /* (0.7.0) SCL > CHORD, C.LEN, CHANCE,
-                                                         * MUTATE: the sequencer's too (a community report: browsing
-                                                         * presets switched CHORD off) */
-}
 
 /* a retired preset kept as an alias (SAMPLE's, gone with it in JIANT): none now. -> the preset k stands for */
 static uint32_t preset_orig(const engine_t *e, uint32_t k) { (void)e; return k; }
 /* the presets of engine e that browsing shows before preset k (k = npresets: all of them) */
 /* (0.5.1) browsing order: LOFI's BYTE presets, then FLOAT's (appended in 0.5.1: the stored numbers stay), then the
  * rest; every other engine in its own order. preset_nth: the preset shown n-th */
-static const uint8_t LOFI_ORDER[18] = {0, 1, 2, 8, 9, 10, 11, 3, 4, 5, 6, 7, 12, 13, 14, 17, 15, 16};
-_Static_assert(sizeof LOFI_ORDER == NELEM(LOFI_PRESETS), "LOFI's browsing order: every preset once");
+/* (V10.6i) ANIMAL: the instruments first (in tune, to play a song with), then the experiments and the creatures' calls,
+ * then the bare voices (INIT: one mode each, nothing moving); the stored numbers stay (projects, PROGRAM CHANGE) */
+static const uint8_t ANIMAL_ORDER[] = {24, 25, 5, 27, 13, 15, 26, 12, 28, 6, 9,   /* to play */
+                                       3, 17, 16, 2, 0, 1, 4, 7, 10, 11, 14, 20, 21, 22, 23,   /* experiments, calls */
+                                       19, 8, 18};                                          /* INIT */
+_Static_assert(sizeof ANIMAL_ORDER == NELEM(ANIMAL_PRESETS), "ANIMAL's browsing order: every preset once");
+static const uint8_t *preset_order(const engine_t *e, uint32_t *n)
+{
+    if (e == &ENG_LOFI) { *n = sizeof MATH_ORDER; return MATH_ORDER; }   /* (eng_lofi.c) */
+    if (e == &ENG_ANIMAL) { *n = sizeof ANIMAL_ORDER; return ANIMAL_ORDER; }
+    if (e == &ENG_ANALOG) { *n = sizeof ANALOG_ORDER; return ANALOG_ORDER; }
+    if (e == &ENG_FORMANT) { *n = sizeof VOICE_ORDER; return VOICE_ORDER; }
+    if (e == &ENG_STRING) { *n = sizeof STRING_ORDER; return STRING_ORDER; }
+    if (e == &ENG_ADD) { *n = sizeof ADD_ORDER; return ADD_ORDER; }
+    if (e == &ENG_PHASE) { *n = sizeof PHASE_ORDER; return PHASE_ORDER; }
+    if (e == &ENG_NOISE) { *n = sizeof NOISE_ORDER; return NOISE_ORDER; }
+    if (e == &ENG_FM6) { *n = sizeof FM6_ORDER; return FM6_ORDER; }
+    if (e == &ENG_WHEEL) { *n = sizeof WHEEL_ORDER; return WHEEL_ORDER; }
+    *n = 0;
+    return 0;
+}
 static uint32_t preset_rank(const engine_t *e, uint32_t k)
 {
-    uint32_t i;
-    if (e == &ENG_LOFI)
-        for (i = 0; i < sizeof LOFI_ORDER; i++)
-            if (LOFI_ORDER[i] == k)
-                return i;
+    uint32_t i, n;
+    const uint8_t *o = preset_order(e, &n);
+    for (i = 0; i < n; i++)
+        if (o[i] == k)
+            return i;
     return k;
 }
 static uint32_t preset_nth(const engine_t *e, uint32_t n)
 {
-    return e == &ENG_LOFI && n < sizeof LOFI_ORDER ? LOFI_ORDER[n] : n;
+    uint32_t c;
+    const uint8_t *o = preset_order(e, &c);
+    return n < c ? o[n] : n;
 }
 #define preset_shown(e) (ENGINES[e]->npresets)
 
@@ -1513,6 +1578,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     }
     pi = preset_orig(e, pi % e->npresets);
     t->preset = (uint8_t)pi;
+    int16_t km = t->p[P_DKEYMODE];                    /* (a kit keeps DRUM-X's KEY MAP: set_engine_of sets it) */
     for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults: a preset */
         if (!param_kept(i))                           /* sounds the same after any edit */
             t->p[i] = TP[i].def;
@@ -1524,9 +1590,14 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     t->p[P_REL] = e->presets[pi].env[3];
     t->p[P_ED_FLT] = e->presets[pi].fenv;
     t->p[P_VOICE] = PR_MONO(&e->presets[pi]) ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
+    if (PR_TAG(&e->presets[pi]) == PT_BASS)           /* (VEL, the owner: a bass is better even) a bass's VEL 0 %: */
+        t->p[P_TVEL] = 0;                             /* every note at 100, its ACCENTs still 127 */
+    if (e == &ENG_LOFI || e == &ENG_DRUM)             /* (V10.6d) MATH: RTRG on, each note the formula from its start */
+        t->p[P_LRTRG] = e == &ENG_DRUM ? km : 1;
     if (e == &ENG_FORMANT) {                          /* (0.8.5) VOICE's words: LANG, LYRIC (0: its vowels) */
         t->p[P_VLANG] = (int16_t)(e->presets[pi].xp & 3u);
         t->p[P_VLYR] = (int16_t)(e->presets[pi].xp >> 2);
+        t->p[P_VCONS] = 127;                            /* (V10.6y) CONS 100 % (a DRUM part's lane level before) */
     } else if (e->presets[pi].xp) {                   /* (V10.36) BREATHE: the LFO DRIFT, slow, on the filter */
         uint32_t x = e->presets[pi].xp;
         t->p[P_LWAVE] = 5;
@@ -1539,6 +1610,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         const preset_t *pr = &e->presets[pi];
         for (i = 0; i < 4u; i++)
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
+        preset_mods(t, pr);                           /* (V10.6i) its movement: LFO, ENV 2, MOD, FILTER */
     }
     fm6_track_loaded(t);                              /* FM6: the preset's patch (its SLOT) */
     load_end(t);
@@ -1561,6 +1633,8 @@ static void set_engine_of(track_t *t, uint32_t ei)
 #endif
     load_begin(t, LOAD_SOUND);
     fm1_irq_off();
+    if (e == &ENG_DRUM)                               /* (V10.6r) DRUM-X: the EXTENDED key map (a kit's load keeps it) */
+        t->p[P_DKEYMODE] = 1;
     t->eng_req = (uint8_t)(ei % NENGINES);
     for (i = 0; i < 8u; i++)
         t->p[P_E0 + i] = e->edit[i].def;
@@ -1596,6 +1670,16 @@ static void apply_preset(uint32_t pi)                 /* the selected track's so
     }
 }
 static void set_engine(uint32_t ei) { set_engine_of(TSEL, ei); }
+/* (V10.6z6) a new sound (INIT SOUND, the power-on / NEW PROJECT parts): the keys' pressure (vel.c) audible, AFTERTOUCH
+ * on (the setting itself: power-on reads it before the main loop): its matrix's slot 4, if free, AT -> CUT by 20 */
+static void vel_at_route(track_t *t)
+{
+    if (!((VEL_SET2 ^ 2u) & 3u) || drum_track(t) || t->p[P_M1SRC + 9] || t->p[P_M1SRC + 10])   /* (AFTERTOUCH OFF: none) */
+        return;
+    t->p[P_M1SRC + 9] = MS_AT;
+    t->p[P_M1SRC + 10] = MD_CUT;
+    t->p[P_M1SRC + 11] = 20;
+}
 /* (0.6.46) INIT SOUND, NEW PROJECT, (0.6.49) the power-on: the engine's own defaults (its EDIT values as the engine
  * declares them, not its first preset's colour; the envelope, VOICE and the filter envelope as a new track has them),
  * dry (no DIST CHOR DLY REV send: the effects are the player's to add), on FM6 the init voice */
@@ -1614,6 +1698,7 @@ static void init_sound_of(track_t *t, uint32_t ei)
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = 0;
     fm6_init_voice(t);
+    vel_at_route(t);                          /* (V10.6z6) the keys' pressure audible */
     load_end(t);
 }
 /* (0.9.9) the power-on, INIT SYSTEM and NEW PROJECT: part i (engines.c TRK_DEF) its engine with its preset's sound
@@ -1624,8 +1709,11 @@ static void power_sound_of(track_t *t, uint32_t i)
     uint32_t k;
     init_sound_of(t, TRK_DEF[i % NPART][0]);
     apply_preset_to(t, TRK_DEF[i % NPART][1]);
+    if (TRK_DEF[i % NPART][0] == ENGI_DRUM)           /* (V10.6d) DRUM-X: its preset's kit too (ACOUSTIC's, soft) */
+        dx_kit_load(TRK_DEF[i % NPART][1]);
     for (k = 0; k < 4u; k++)
         t->p[P_DIST + k] = 0;
+    vel_at_route(t);                          /* (V10.6z6) the keys' pressure audible on a new project's sounds */
 }
 
 static void track_defaults(track_t *t)
@@ -1680,17 +1768,24 @@ static uint32_t preset_all_pos(uint32_t *total)          /* list index of the se
 
 /* list index n (< total) -> engine, *k its preset; NENGINES = user preset, *k its slot. The engines in the order of
  * `order` (NENG_SHOWN of them): ENGINE_ORDER, the list shown; (0.9.9) ENGINE_PC_ORDER, PROGRAM CHANGE's numbers */
+/* (V10.6h) PROGRAM CHANGE counts the engines as 0.9.8's numbers had them, so every number names what it named: MATH
+ * as LOFI's 18 (the chip presets' numbers onto MATH's voices), ANIMAL its first 24 (the 5 tonal ones appended are
+ * reached by the list, not by a program number); the user presets after them as before */
+static const uint8_t LOFI_PC[18] = {0, 1, 2, 8, 9, 10, 11, 3, 4, 5, 6, 7, 5, 3, 4, 4, 3, 6};
+static uint32_t pc_shown(uint32_t e, int pc) { return !pc ? preset_shown(e) : e == ENGI_LOFI ? 18u : e == ENGI_ANIMAL ? 24u : preset_shown(e); }
 static uint32_t preset_all_at_in(uint32_t n, uint32_t *k, const uint8_t *order)
 {
     uint32_t e, r;
-    for (r = 0; r < NENG_SHOWN && n >= preset_shown(order[r]); r++)
-        n -= preset_shown(order[r]);
+    int pc = order == ENGINE_PC_ORDER;
+    for (r = 0; r < NENG_SHOWN && n >= pc_shown(order[r], pc); r++)
+        n -= pc_shown(order[r], pc);
     if (r == NENG_SHOWN) {
         *k = up_nth(n);
         return NENGINES;
     }
     e = order[r];
-    *k = preset_nth(ENGINES[e], n);                     /* the n-th shown preset */
+    *k = pc ? (e == ENGI_LOFI ? LOFI_PC[n % 18u] : n) : preset_nth(ENGINES[e], n);   /* the n-th shown preset (PROGRAM
+                                                     * CHANGE: the stored number, LOFI's as 0.9.8 had them) */
     return e;
 }
 static uint32_t preset_all_at(uint32_t n, uint32_t *k) { return preset_all_at_in(n, k, ENGINE_ORDER); }
@@ -1809,7 +1904,7 @@ static void preset_engine_jump(int32_t dir)
 static void midi_pc_poll(void)
 {
     uint32_t i, sel = song.sel;
-    if (midi_song_req) {                               /* (0.6.80) channel 16: 0..3 a section, 16..23 a project */
+    if (midi_song_req) {                               /* (0.6.80) channel 16: 0..3 a section, 16..21 a project */
         uint32_t n = midi_song_req - 1u;
         midi_song_req = 0;
         if (n < 4u)
@@ -1823,7 +1918,8 @@ static void midi_pc_poll(void)
             midi_pc_req[i] = 0;
             song.sel = (uint8_t)i;
             preset_all_pos(&all);
-            if (n < all) {
+            all = all - preset_shown(ENGI_LOFI) - preset_shown(ENGI_ANIMAL) + pc_shown(ENGI_LOFI, 1) + pc_shown(ENGI_ANIMAL, 1);
+            if (n < all) {                              /* (V10.6h: as PROGRAM CHANGE counts them) */
                 e = preset_all_at_in(n, &k, ENGINE_PC_ORDER);   /* (0.9.9: 0.9.8's numbers) */
                 if (e == NENGINES) {
                     up_load(k);
@@ -1920,7 +2016,11 @@ static uint32_t dx_pagen(const page_t *pg)            /* SOUND 1..3; (0.5.1) X-M
 static void dx_knob(const page_t *pg, uint32_t k, int32_t s);
 static void dx_cards(const page_t *pg);
 static void dx_kit3_knob(uint32_t k, int32_t s);      /* (0.6.54) KIT 3: TONE's BP, FEEDBK */
+static void sw_ui_knob(const page_t *pg, uint32_t k, int32_t s);   /* (V10.6z6) EDIT > SWARM, SWARM 2 */
+static void sw_ui_cards_bt(const page_t *pg);
 #define SONG_TRK(pg) ((pg)->graph == GR_SONG && (pg)->title[0] == 'T')   /* (add15-beta5) TIMELINE (was ARRANGE 2) */
+#define SONG_PARTS(pg) ((pg)->graph == GR_SONG && (pg)->title[0] == 'P')   /* (V10.6o) PARTS */
+#define SONG_CLIPS(pg) ((pg)->graph == GR_SONG && (pg)->title[0] == 'C')   /* (V10.6s) CLIPS */
 #define DX_KIT3(pg) ((pg)->graph == GR_DXIMG && (pg)->title[0] == 'K')   /* (0.6.58) GR_DXIMG: KIT 3, or STEREO (IMAGE) */
 static void dx_kit3_cards(void);
 static uint32_t dx_sig(void);
@@ -1938,16 +2038,17 @@ static uint32_t act_cols(void)                   /* the columns that are actions
     if (ui.home)
         return 0;
     if (pg->graph == GR_MOTION || pg->graph == GR_PUNCH) return 8u;   /* (0.6.99) PUNCH: KNOB 4 CLEAR */
-    if (pg->graph == GR_EVENTS) return 16u;     /* AUTO LIST: no knob is an action; OCT+ adds / toggles (ev_oct) */
+    if (pg->graph == GR_EVENTS || pg->graph==GR_TRACKGEN) return 16u;
     if (pg->graph == GR_TOOLS) return 15u;
-    if (pg->graph == GR_LYRIC) return 8u;       /* (0.8.5) WORDS: OCT+ TYPE (the lyric, ui_name.c) */
+    if (pg->graph == GR_LYRIC || pg->graph==GR_LYRSTEP) return 8u;
     if (pg->graph == GR_SONG)
         return 1u;                               /* (0.8.5) ADD a row (PLAY: the song) */
     if (pg->graph == GR_PATS)
         return 2u;                               /* LOAD */
+    if (pg->graph == GR_SONGSAVE) return 8u;
     if (pg->graph == GR_USER)
         return 14u;                              /* LOAD ERASE SAVE */
-    if (pg->graph == GR_SLOTS && save_on() && save_level() == SV_PROJ)
+    if (pg->graph == GR_SLOTS && save_on())
         return 14u;                              /* (V10.17) SECTIONS: ERASE LOAD SAVE */
     if (pg->scope == SC_GLOBAL)
         for (c = 0; c < 4u; c++)
@@ -1966,8 +2067,8 @@ static uint32_t shp_rep(void) { return shp_r == 0u ? 1u : shp_r < 8u ? shp_r + 1
 static uint32_t act_col(void)
 {
     if (!ui.home && cur_page()->graph == GR_SONG) return 1u;
-    if (!ui.home && cur_page()->graph == GR_EVENTS) return 5u;
-    if (!ui.home && cur_page()->graph == GR_LYRIC) return 4u;
+    if (!ui.home && (cur_page()->graph == GR_EVENTS || cur_page()->graph==GR_TRACKGEN)) return 5u;
+    if (!ui.home && (cur_page()->graph == GR_LYRIC || cur_page()->graph==GR_LYRSTEP)) return 4u;
     return !ui.home && cur_page()->graph == GR_PATS ? 2u : ui.act;
 }
 
@@ -1975,16 +2076,19 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
 {
     static const char *const UP_GO[3] = {"LOAD", "ERASE", "SAVE"};
     uint32_t id = cur_page()->id[c & 3u];
+    if (cur_page()->graph == GR_SONGSAVE) return "SAVE AS";
     if (cur_page()->graph == GR_PUNCH) return "CLR AUTO";   /* (snd2) the punch-in lane only */
     if (cur_page()->graph == GR_MOTION) return "CLEAR";
     if (cur_page()->graph == GR_EVENTS) return ev_act_name();
     if (cur_page()->graph == GR_LYRIC) return "TYPE";
+    if (cur_page()->graph == GR_LYRSTEP) return "PLACE";
+    if (cur_page()->graph == GR_TRACKGEN) return "MAKE";
     if (cur_page()->graph == GR_TOOLS) {
         static const char *const actions[] = {"CLEAR", "INIT", "DELETE", "CLEAR", "INIT"};
         return actions[c < 5u ? c : 4u];
     }
-    if (cur_page()->graph == GR_SONG)                   /* (0.8.5) SAVE's lens: OCT+ adds a row (PLAY plays) */
-        return "ADD";
+    if (cur_page()->graph == GR_SONG)                   /* (0.8.5) SAVE's lens: OCT+ adds a row (PLAY plays); PARTS: */
+        return SONG_PARTS(cur_page()) ? "LOOP" : SONG_CLIPS(cur_page()) ? "GO" : "ADD";   /* the part loops; CLIPS: the cell */
     if (cur_page()->graph == GR_PATS)
         return "LOAD";
     if (cur_page()->graph == GR_USER)
@@ -2001,12 +2105,17 @@ static int act_ready(void)
     uint32_t c = act_col(), s = song.sel, id;
     if (!c--)
         return 0;
+    if (cur_page()->graph == GR_SONGSAVE) return !transport_busy();
     if (cur_page()->graph == GR_MOTION) return !chain_busy() && motion_count(TSEL);
     if (cur_page()->graph == GR_EVENTS) return ev_act_ready();
     if (cur_page()->graph == GR_LYRIC) return 1;
+    if (cur_page()->graph == GR_LYRSTEP) return !chain_busy() && lyr_get(song.sel)[0];
+    if (cur_page()->graph == GR_TRACKGEN) return !chain_busy() && trackgen_ok(TSEL);
     if (cur_page()->graph == GR_TOOLS)                  /* one case per column: CLEAR PAT, INIT, DELETE ROW, CLEAR SONG */
         return !chain_busy() && (c == 0u ? !seq_is_empty(TSEL) || motion_count(TSEL) : c == 1u || c >= 4u ? 1 :
                                  c == 2u ? ui.song_row < chain_config.count : chain_config.count != 0u);
+    if (SONG_PARTS(cur_page()) || SONG_CLIPS(cur_page()))
+        return project_used(ui.part);
     if (cur_page()->graph == GR_SONG)
         return !chain_busy() && chain_config.count < CHAIN_ROWS;
     if (cur_page()->graph == GR_PATS)
@@ -2014,7 +2123,9 @@ static int act_ready(void)
     if (cur_page()->graph == GR_USER)
         return c == 3u ? !song.playing : up_used(ui.uslot) && (c == 1u || !song.playing);
     if (cur_page()->graph == GR_SLOTS && c == 1u)       /* (V10.17) SECTIONS: ERASE a stored section, stopped */
-        return project_used((uint32_t)song.g[G_SLOT] - 1u) && !transport_busy();
+        return !transport_busy() && (save_level() == SV_LIB || project_used((uint32_t)song.g[G_SLOT] - 1u));
+    if (cur_page()->graph == GR_SLOTS && c == 2u && save_level() == SV_LIB && song_draft)
+        return !transport_busy();
     id = cur_page()->id[c & 3u];
     if (id == G_LOAD)
         return project_used((uint32_t)song.g[G_SLOT] - 1u);
@@ -2025,3 +2136,21 @@ static int act_ready(void)
     return 1;
 }
 
+
+
+
+/* Shared split-card conversion, UI only: no parameter IDs or DSP globals added. */
+static uint32_t split_field(uint32_t slot) { static const uint8_t f[8]={0,2,3,1,4,5,6,7}; return f[(cur_page()->graph == GR_SPLIT2 ? 4u : 0u)+slot]; }
+static int32_t split_value(uint32_t f)
+{
+    if (f==1u || f==7u) return (int32_t)split_cut(f==7u);
+    return f==4u || f==5u ? (int8_t)split_cfg[f] : split_cfg[f];
+}
+static void split_edit(uint32_t slot,int32_t steps)
+{
+    static const int8_t lo[8]={0,1,0,0,-4,-4,0,1};
+    static const int8_t hi[8]={1,26,NTRK-1,NTRK-1,4,4,15,127};
+    uint32_t f=split_field(slot);
+    split_cfg[f]=(uint8_t)clamp(split_value(f)+steps,lo[f],hi[f]);
+    ui.force=1;
+}

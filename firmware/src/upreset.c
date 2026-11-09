@@ -16,14 +16,11 @@
  * That holds as long as common parameters are only ever added just before
  * P_E0 (else bump UP_VER and translate). Version 1 (before 1.0) has the
  * same layout; only its PHYS MODEL 2 meant DUST, which up_values loads as
- * MODAL bowed (PHYS itself is retired in TONIC: a PHYS record loads as ANALOG, ui.c set_engine_of). A record of PHYS MODEL 4 (DRUM, version 2
- * until the kit became the DRUM engine) is that engine: up_migrate rewrites it
- * in the RAM mirror when a bank is read and when UP_PUT sends one (core.h
- * drum_from_phys); flash keeps the old record until its bank is written again,
- * which stores the new one. No version bump: today's PHYS has no MODEL 4, so
- * such a record cannot be anything else, and older firmware keeps reading the bank.
- * A record of SAMPLE SET 4 (PERC, the GM kit, retired after 1.0.2) is migrated the same way to the DRUM engine
- * with its default kit (core.h drum_from_perc: its E values the kit's, the rest of the sound and its pattern as
+ * MODAL bowed (PHYS itself is retired in TONIC: a PHYS record loads as ANALOG, ui.c set_engine_of; V10.6s: its
+ * MODEL 4, DRUM before 1.0, too).
+ * A record of SAMPLE SET 4 (PERC, the GM kit, retired after 1.0.2) is the DRUM engine: up_migrate rewrites it in the
+ * RAM mirror when a bank is read and when UP_PUT sends one (flash keeps the old record until its bank is written
+ * again), with its default kit (core.h drum_from_perc: its E values the kit's, the rest of the sound and its pattern as
  * stored; the GM notes play the same drums).
  * Version 3 (UP_VER_GRID, since the DRUM grid) is the same record with a drum grid as its pattern: note[i] is
  * step i's lane hits (bit l = lane l), flags[i] their accents. A DRUM track whose first 16 steps strike a
@@ -90,7 +87,7 @@ static void up_migrate(up_rec_t *r)
     int16_t e[8]; uint32_t k;
     if (!up_valid(r)) return;
     for (k = 0; k < 8u; k++) e[k] = up_value(r, r->np - 8u + k);
-    if (drum_from_phys(r->engine, e) || drum_from_perc(r->engine, e)) {   /* (SAMPLE PERC: see the top) */
+    if (drum_from_perc(r->engine, e)) {                 /* (SAMPLE PERC: see the top) */
         r->engine = ENGI_DRUM;
         for (k = 0; k < 8u; k++) up_set_value(r, r->np - 8u + k, e[k]);
     }
@@ -108,6 +105,17 @@ static void up_migrate(up_rec_t *r)
             for (k = 0; k < 8u; k++) up_set_value(r, r->np - 8u + k, e[k]);
             r->packed[UP_FM_AT] = UP_V04_MARK;
         }
+    }
+    for (k = 0; k < 8u; k++) e[k] = up_value(r, r->np - 8u + k);
+    if (r->engine == ENGI_LOFI) {                       /* (V10.6d) LOFI's chips: ANALOG's nearest (MATH's CHIP */
+        if (analog_from_chip(r->engine, e)) {           /* STEP: 4BIT) */
+            r->engine = 0;
+            if (r->np == P_COUNT) {                     /* (V10.6h) its FILTER page's CUT RES as ANALOG's own E4 E5 */
+                e[4] = (int16_t)clamp(up_value(r, P_FCUT), 0, 127);
+                e[5] = (int16_t)clamp(up_value(r, P_FRES), 0, 127);
+            }
+        }
+        for (k = 0; k < 8u; k++) up_set_value(r, r->np - 8u + k, e[k]);
     }
 }
 
@@ -195,7 +203,7 @@ static int up_pat_empty(const up_rec_t *r)
 /* UP_PUT arguments: slot, engine, name, P_COUNT x v14, 16 x (note, flags) [, kind, 16 x hi] -> *r (values not
  * yet clamped); 0 ok, 1 bad arguments. *slot gets the slot byte when there is one. kind 1 (and its 16 bytes):
  * a drum grid, the pairs the low 7 bits of each step's hits and accents, hi bit 0 / 1 their bit 7 (lane 8) */
-static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
+static __attribute__((noinline)) int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
 {
     uint32_t i, n, k, end;
     if (na < 3u)
@@ -250,7 +258,7 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
     int16_t def[P_COUNT];
     uint32_t i;
     for (i = 0; i < P_COUNT; i++)
-        def[i] = param_desc_of(r->engine, i)->def;
+        def[i] = param_store_def(r->engine, i);
     up_params(r, v, def);
     for (i = 0; i < P_COUNT; i++)
         v[i] = (int16_t)param_fit(param_desc_of(r->engine, i), v[i]);   /* (a retired KIT: the kit it plays) */
@@ -383,12 +391,12 @@ static int up_store(uint32_t k, const char *name)
     if (drum_track(TSEL)) {                             /* a DRUM track that strikes a lane: its grid */
         uint32_t any = 0;
         for (i = 0; i < 16u; i++)
-            any |= step_lanes(&TSEL->step[i]);
+            any |= step_lanes_of(TSEL,&TSEL->step[i]);
         if (any) {
             r.ver = UP_VER_GRID;
             for (i = 0; i < 16u; i++) {
-                r.note[i] = (uint8_t)step_lanes(&TSEL->step[i]);
-                r.flags[i] = (uint8_t)step_accents(&TSEL->step[i]);
+                r.note[i] = (uint8_t)step_lanes_of(TSEL,&TSEL->step[i]);
+                r.flags[i] = (uint8_t)step_accents_of(TSEL,&TSEL->step[i]);
             }
         }
     }
@@ -398,6 +406,9 @@ static int up_store(uint32_t k, const char *name)
             int u = upf_store(k, (uint32_t)(TSEL - trk));
             if (u == 2)
                 rc = 2;
+        } else if ((rc == 0 || rc == 3) && r.engine == ENGI_VOICE) {
+            int u = upf_lyric_store(k, (uint32_t)(TSEL - trk));
+            if (u == 2) rc = 2;
         }
         return rc;
     }
@@ -565,3 +576,4 @@ static void up_ui_named(uint32_t op, uint32_t k, const char *name)   /* 0 load, 
 }
 static void up_ui(uint32_t op, uint32_t k) { up_ui_named(op, k, 0); }
 #endif
+

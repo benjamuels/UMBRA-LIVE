@@ -365,7 +365,7 @@ static void lv_rail(uint32_t i, int32_t y, int32_t h)
         uint16_t c;
         if (!step_on(st))
             continue;
-        c = k - ws >= n && n ? T_DIM : k == ix ? T_TEXT : lz_note(st, (st->flags & SF_ACCENT) || st->acc, T_THEME);
+        c = k - ws >= n && n ? T_DIM : k == ix ? T_TEXT : lz_note(st, (st->flags & SF_ACCENT) || st->acc, drum ? -1 : st->note[0]);
         x1 -= x1 - x0 > 3;
         e = drum ? 0 : h - 2 - ((st->note[0] - lo) * sy >> 8);
         cv_rect(x0, y + e, x1 - x0, drum ? h : 2, c);

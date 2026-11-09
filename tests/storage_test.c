@@ -125,12 +125,17 @@ int main(void)
               !memcmp(got, a, sizeof a) && !memcmp(snap, nor, 0xE5000u) && !memcmp(snap + 0xE7000u, nor + 0xE7000u, 0x19000u);
         bad += check("the autosave in its own sectors 0xE5000 / 0xE6000, nothing else touched", ok);
     }
-    /* JIANT's songs: song 1 is the four project slots; songs 2..8 (28 objects) at 0xA0000..0xD7FFF, the index at
-     * 0xD8000 / 0xD9000; every object's pair apart from every other one's, all in the store below 0xE0000 */
+    /* JIANT's songs: song 1 is the four project slots; songs 2..6 (20 objects; V10.6p: 2..8, 28, before) at
+     * 0xA0000..0xC7FFF, the drum sample bank's reserve (FL_SAMPLES) above them up to the index at 0xD8000 / 0xD9000;
+     * every object's pair apart from every other one's, all in the store below 0xE0000, none in the reserve */
     {
-        uint32_t o, c, p, q, ok = OBJ_COUNT == OBJ_SONG1 + 28 && st_sector(OBJ_SONG1, 0) == 0xA0000u &&
-                                  st_sector(OBJ_COUNT - 1, 1) + 4096u == 0xD8000u && st_sector(OBJ_SONGIDX, 0) == 0xD8000u &&
+        uint32_t o, c, p, q, ok = OBJ_COUNT == OBJ_SONG1 + 20 && st_sector(OBJ_SONG1, 0) == 0xA0000u &&
+                                  st_sector(OBJ_COUNT - 1, 1) + 4096u == FL_SAMPLES && FL_SAMPLES == 0xC8000u &&
+                                  FL_SAMPLES + FL_SAMPLES_SIZE == 0xD8000u && st_sector(OBJ_SONGIDX, 0) == 0xD8000u &&
                                   st_sector(OBJ_SONGIDX, 1) == 0xD9000u;
+        for (o = 0; o < OBJ_COUNT; o++)
+            for (c = 0; c < 2u; c++)
+                ok &= st_sector(o, c) + 4096u <= FL_SAMPLES || st_sector(o, c) >= FL_SAMPLES + FL_SAMPLES_SIZE;
         for (o = OBJ_SONGIDX; o < OBJ_COUNT; o++)
             for (c = 0; c < 2u; c++) {
                 ok &= st_sector(o, c) >= 0xA0000u && st_sector(o, c) + 4096u <= 0xDC000u;
@@ -139,7 +144,7 @@ int main(void)
                         ok &= (p == o && q == c) || st_sector(p, q) != st_sector(o, c) ||
                               (p == OBJ_FM6BANK && o == OBJ_UPFM6) || (o == OBJ_FM6BANK && p == OBJ_UPFM6);
             }
-        bad += check("songs 2..8 and the song index: their own sectors in the freed sample area", ok);
+        bad += check("songs 2..6 and the song index: their own sectors in the freed sample area, the sample bank's reserve none's", ok);
     }
     {
         static uint8_t bank[3472], back[3728], tab[3728];

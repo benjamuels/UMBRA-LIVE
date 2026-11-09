@@ -110,24 +110,18 @@ static int graph_env_lz(const track_t *t, const page_t *pg)
  *            amounts as rows, each lit by what it sends now; MSEQ, MSEQ 2: graph_mseq under its caption */
 static void graph_mod_net(const track_t *t)
 {
-    uint32_t k, s, used = 0;
-    for (k = 0; k < NMSLOT; k++)
-        used |= 1u << clamp(t->p[P_M1SRC + 3u * k], 0, MS_N - 1);
-    for (s = 1; s < (uint32_t)MS_N; s++)
-        cv_text(10, 6 + (int32_t)(s - 1u) * 9 - AF_X_CAP_Y, &AF_X, N_MSRC[s], used >> s & 1u ? T_TEXT : T_DIM);
+    uint32_t k;
     for (k = 0; k < NMSLOT; k++) {
         const int16_t *p = &t->p[P_M1SRC + 3u * k];
-        int32_t y = 4 + (int32_t)k * 33, on = p[0] && p[1], sel = k == mod_ui_slot, sy = 9 + (p[0] - 1) * 9, w;
+        int32_t y = 4 + (int32_t)k * 33, on = p[0] && p[1], sel = k == mod_ui_slot, sy = y + 11, w;
         uint16_t bg = sel ? T_TINT : T_RAISE, lc = sel ? T_THEME : on ? T_MID : T_DIM;
         char b[16];
         const char *u = "";
+        cv_text(6, sy - AF_X_CAP_Y, &AF_X, N_MSRC[clamp(p[0], 0, MS_N - 1)], on ? T_TEXT : T_DIM);
         if (on) {
-            og_quad_a(48 * 16, sy * 16, 110 * 16, sy * 16, 158 * 16, (y + 11) * 16, lc, 16u, 256);
-            if (sel && !ANIM_OFF()) {               /* (the pulse: a quadratic's point at u = frame) */
-                int32_t q = (int32_t)(anim_fr * 6u % 256u), r = 256 - q;
-                og_node((48 * r * r + 2 * 110 * r * q + 158 * q * q) >> 12, (sy * r * r + 2 * sy * r * q + (y + 11) * q * q) >> 12,
-                        2, T_TEXT);
-            }
+            cv_rect(58, sy, 100, 1, lc);
+            if (sel && !ANIM_OFF())
+                og_node((58 + (int32_t)(anim_fr * 3u % 100u)) * 16, sy * 16, 2, T_TEXT);
         } else
             cv_text(124, y + 9 - AF_X_CAP_Y, &AF_X, "----", T_DIM);
         cv_rect(160, y, 72, 26, bg);
@@ -158,7 +152,7 @@ static void lfo_cap(const track_t *t, int32_t x, int32_t y, int mode)   /* "1.18
         str_cpy(b + str_len(b), t->p[P_LPHASE] < 0 ? " \xB7 FREE" : " \xB7 TRIG", 32 - str_len(b));
     ed_cap(x, y, b, T_TEXT);
 }
-static void graph_lfodest(const track_t *t, const page_t *pg)
+static __attribute__((noinline)) void graph_lfodest(const track_t *t, const page_t *pg)
 {
     int32_t x, py = 0, src = mulq15(t->lfo_val, t->lfo_fade), k;
     uint32_t span = 0xFFFFFFFFu / 40u, ph = t->lfo_ph - 20u * span;
@@ -244,7 +238,13 @@ static void key_val(int32_t x, int32_t y, const page_t *pg, uint32_t k)   /* a k
     ed_cap(x, y, d->label, T_DIM);
     cv_text(x, y + 10 - AF_M_CAP_Y, &AF_M, b, T_TEXT);
 }
-static void graph_key(const track_t *t, const page_t *pg)
+/* (V10.6i) a note's colour: each of the twelve its own heat, C coldest .. B hottest (the user's pick B: the same note
+ * the same colour on KEY, CHORD, ARP, SCENE); other palettes their theme */
+static uint16_t note_col(uint32_t n)
+{
+    return settings.palette == UI_JIANT_INDEX ? heat_col(40 + (int32_t)(n % 12u) * 200 / 11) : T_THEME;
+}
+static __attribute__((noinline)) void graph_key(const track_t *t, const page_t *pg)
 {
     static const char *const NN[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
     static const uint8_t BLK[12] = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0};
@@ -263,21 +263,23 @@ static void graph_key(const track_t *t, const page_t *pg)
         if (!(mask >> i & 1u))
             continue;
         if (prev < 12u)
-            og_line(px[prev] * 16, py[prev] * 16, px[n] * 16, py[n] * 16, T_THEME);
+            og_line(px[prev] * 16, py[prev] * 16, px[n] * 16, py[n] * 16, note_col(prev));
         else
             first = n;
         prev = n;
     }
     if (first < 12u && prev != first)
-        og_line(px[prev] * 16, py[prev] * 16, px[first] * 16, py[first] * 16, T_THEME);
+        og_line(px[prev] * 16, py[prev] * 16, px[first] * 16, py[first] * 16, note_col(prev));
     for (i = 0; i < 12u; i++) {
         uint32_t deg = (i + 12u - rt) % 12u, in = mask >> deg & 1u;
-        uint16_t c = deg == 0u ? T_ACCENT : in ? T_THEME : T_RAISE;
+        uint16_t c = in ? note_col(i) : T_RAISE;
+        if (deg == 0u)                                  /* the ROOT: its colour in a ring of text */
+            og_node(px[i] * 16, py[i] * 16, 9, T_TEXT);
         og_node(px[i] * 16, py[i] * 16, in ? 7 : 4, c);
         if (in)
             cv_text_in(px[i] - 7, py[i] - 3 - AF_X_CAP_Y, 14, &AF_X, NN[i], T_INK, c);
     }
-    cv_text_in(42, 48 - AF_M_CAP_Y, 40, &AF_M, NN[rt], T_TEXT, T_SURF);
+    cv_text_in(42, 48 - AF_M_CAP_Y, 40, &AF_M, NN[rt], note_col(rt), T_SURF);
     param_format(&TP[P_SCALE], t->p[P_SCALE], b, &u);
     cv_text_in(32, 66 - AF_X_CAP_Y, 60, &AF_X, b, T_MID, T_SURF);
     key_val(130, 10, pg, 2);
@@ -285,10 +287,12 @@ static void graph_key(const track_t *t, const page_t *pg)
     for (i = 0; i < 24u; i++) {                         /* two octaves from C */
         uint32_t deg = (i + 24u - rt) % 12u;
         cv_rect(8 + (int32_t)i * 9, BLK[i % 12u] ? 112 : 122, 8, BLK[i % 12u] ? 10 : 12,
-                deg == 0u ? T_ACCENT : mask >> deg & 1u ? T_THEME : BLK[i % 12u] ? T_LINE : T_RAISE);
+                mask >> deg & 1u ? note_col(i) : BLK[i % 12u] ? T_LINE : T_RAISE);
+        if (deg == 0u)
+            cv_rect(8 + (int32_t)i * 9, BLK[i % 12u] ? 110 : 120, 8, 1, T_TEXT);
     }
 }
-static void graph_chord(const track_t *t)
+static __attribute__((noinline)) void graph_chord(const track_t *t)
 {
     static const char *const RN[7] = {"I", "II", "III", "IV", "V", "VI", "VII"};
     uint32_t mask = scale_mask(t), deg[12], c = 0, i, d, rt = (uint32_t)clamp(t->p[P_ROOT], 0, 11);
@@ -310,8 +314,12 @@ static void graph_chord(const track_t *t)
         int32_t x = 14 + (int32_t)d * 31;
         uint32_t n = chord_peek(t, 48u + rt + deg[d], nt), k;
         cv_rect(x - 2, 18, 27, 100, d == 0u ? T_TINT : T_SURF);
-        for (k = 0; k < n && k < 8u; k++)
-            cv_rect(x, 112 - clamp((int32_t)nt[k] - 48, 0, 31) * 3, 23, 3, k == 0u ? T_ACCENT : T_THEME);
+        for (k = 0; k < n && k < 8u; k++) {
+            int32_t y = 112 - clamp((int32_t)nt[k] - 48, 0, 31) * 3;
+            cv_rect(x + 2, y, 21, 3, note_col(nt[k]));
+            if (k == 0u)                                /* the chord's root: a tick of text */
+                cv_rect(x - 1, y, 2, 3, T_TEXT);
+        }
         cv_text_in(x - 2, 125 - AF_X_CAP_Y, 27, &AF_X, RN[d], d == 0u ? T_THEME : T_DIM, T_SURF);
     }
 }
@@ -342,7 +350,7 @@ static void graph_arp(const track_t *t)
         int32_t semi = TRI[k % 3u] + 12 * (int32_t)(k / 3u), x = 10 + (int32_t)i * 14 + (i & 1u ? t->p[P_ASWING] * 6 / 127 : 0);
         int32_t w = 2 + t->p[P_AGATE] * 10 / 127, y = 118 - semi * 2;
         uint32_t on = (i * 40503u >> 8) % 100u < (uint32_t)t->p[P_APROB] * 100u / 127u;
-        cv_rect(x, y, w, 4, on ? (settings.palette == UI_JIANT_INDEX ? heat_col(80 + semi * 4) : T_THEME) : T_RAISE);
+        cv_rect(x, y, w, 4, on ? note_col((uint32_t)(clamp(t->p[P_ROOT], 0, 11) + semi)) : T_RAISE);
     }
     cv_rect(10, 124, 220, 1, T_RAISE);
 }
@@ -413,3 +421,4 @@ static void graph_system(void)
     str_cpy(b + str_len(b), "%", 2);
     cv_text_r(230, 62 - AF_X_CAP_Y, &AF_X, b, T_TEXT, T_SURF);
 }
+

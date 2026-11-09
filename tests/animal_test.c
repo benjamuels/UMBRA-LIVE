@@ -332,8 +332,16 @@ static void presets(void)
             track_render(&trk[0], b, CTL);
         for (k = 0; k < NVOICE; k++)
             ends &= !trk[0].v[k].active;
-        /* a note from silence: the same samples twice */
-        setup((int32_t)pi, 0);
+        /* a note from silence: the same samples twice (the engine's, at the preset's knobs: V10.6i's movement, its RAND,
+         * S&H and DRIFT, draws anew each note, and the part's FILTER keeps its own state) */
+        {
+            int16_t e[8];
+            for (k = 0; k < 8u; k++)
+                e[k] = ENG_ANIMAL.presets[pi].e[k];
+            setup(-1, e);
+            tf_on[0] = 0;                               /* (no note: the chain never ran its fade) */
+            tf_ic1[0] = tf_ic2[0] = 0;
+        }
         trk_note_on(&trk[0], 62, 100);
         for (i = 0; i < FS / 2 / CTL; i++) {
             track_render(&trk[0], b, CTL);

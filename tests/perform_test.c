@@ -671,6 +671,8 @@ static int test_pfx(void)
     song_setup();
     for (i = 0; i < NTRK; i++) trk[i].p[P_DIST] = trk[i].p[P_CHOR] = trk[i].p[P_DLY] = trk[i].p[P_REV] = 0;
     host_preset(t1, 0, 1);
+    for (i = P_LD_PIT; i <= P_LD_AMP; i++) t1->p[i] = 0;   /* (V10.6i: presets that move, the LFO and the matrix on the */
+    for (i = P_M1SRC; i <= P_M4AMT; i++) t1->p[i] = 0;     /* sound: a pitch counted by zero crossings must hold still) */
     trk_note_on(t1, 45, 100);
     pfx_render(4u * 44032u, 88064u, 132096u, PF_OCTU);   /* (its first second: the sound settles) */
     c0 = zc(song_l, 66048u, 88064u);

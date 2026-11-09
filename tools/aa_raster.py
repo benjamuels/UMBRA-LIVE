@@ -177,6 +177,18 @@ def glyph_tables(name, table, phases):
     glyph -> (C text, bytes). AF_<N>_GH aagh_t {off, adv} a glyph (its phases' lowest data offset, the advance in 1/16
     px, the same in every phase); AF_<N>_GP uint32_t a glyph and phase: off - GH.off | (bx + 1) << 10 | by << 13 |
     bw << 19 | bh << 26 (12 B a glyph of 4 phases less than an 8-byte entry each)"""
+    # Single-phase UI faces can store the entire entry in five bytes. Keep
+    # the wide format for custom faces outside these exact (lossless) bounds.
+    if phases == 1 and all(0 <= off < 4096 and 0 <= adv < 512 and -1 <= bx <= 6 and
+                           0 <= by < 32 and 0 <= bw < 32 and 0 <= bh < 32
+                           for off, adv, bx, by, bw, bh in table):
+        data = []
+        for off, adv, bx, by, bw, bh in table:
+            value = off | adv << 12 | (bx+1) << 21 | by << 24 | bw << 29 | bh << 34
+            data.extend(value.to_bytes(5, 'little'))
+        text = c_array(f"AF_{name}_PACK", "uint8_t", data, 20)
+        text += f"\n#define AF_{name}_GH AF_{name}_PACK\n#define AF_{name}_GP 0\n#define AF_{name}_COMPACT 1\n#define AF_{name}_PHASES {phases}"
+        return text, len(data)
     gh, gp = [], []
     for i in range(0, len(table), phases):
         es = table[i:i + phases]
@@ -193,6 +205,7 @@ def glyph_tables(name, table, phases):
         lines.append("    " + " ".join("{%d, %d}," % e for e in gh[k:k + 8]))
     lines.append("};")
     lines.append(c_array(f"AF_{name}_GP", "uint32_t", gp, 8, "0x{:08x}"))
+    lines += [f"#define AF_{name}_COMPACT 0", f"#define AF_{name}_PHASES {phases}"]
     return "\n".join(lines), 4 * len(gh) + 4 * len(gp)
 
 
@@ -202,3 +215,4 @@ def c_array(name, ctype, values, per_line=16, fmt="{}"):
         lines.append("    " + ", ".join(fmt.format(v) for v in values[i:i + per_line]) + ",")
     lines.append("};")
     return "\n".join(lines)
+

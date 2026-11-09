@@ -84,7 +84,7 @@ static void fg_play(track_t *t, fg_head_t *h, const fg_set_t *f, uint32_t i, uin
     c = trk_chance(t, s);
     if (c < 100u && rng() % 100u >= c)
         return;
-    vel = (s->flags & SF_ACCENT) ? 127u : (s->vel ? s->vel : 96u);
+    vel = STEP_VEL(t, s);                                /* (VEL: the sound's share) */
     for (k = 0; k < s->n && k < 4u && !kit; k++) {
         int32_t x = s->note[k] + t->p[P_POFS];
         if (f->ivl)

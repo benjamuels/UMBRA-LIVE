@@ -1,5 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Optional keyboard split. Kept in the pool so DSP globals retain their addresses.
+ * on, physical cut (0=13), low/high track, low/high signed octaves, MIDI channel, MIDI cut (0=60). */
+static uint8_t split_cfg[8] __attribute__((section(".pool")));
+static uint32_t split_cut(uint32_t midi) { return split_cfg[midi ? 7 : 1] ? split_cfg[midi ? 7 : 1] : (midi ? 60u : 13u); }
+static uint32_t split_track(uint32_t high) { return split_cfg[2u + high] % NTRK; }
+static int32_t split_oct(uint32_t high) { return (int8_t)split_cfg[4u + high]; }
 static uint8_t shift_valid[2][NTRK];
 /* Keyboard, scale, arpeggiator, sequencer and transport.
  * Everything here runs in the audio ISR, once per CTL-sample block (64 samples since 0.9.9 ctl64; the note-ons it
@@ -70,7 +76,7 @@ static void mo_send(uint32_t st, uint32_t d1, uint32_t d2)
 static int mo_plays(const track_t *t, uint32_t note)   /* trk_note_on would sound it (voice.c: the same tests) */
 {
     return trk_index(t) < trk_live && !t->p[P_MUTE] && !((trk_hush >> trk_index(t)) & 1u) &&
-           !(t->engine == ENGI_DRUM && drum_muted(note));
+           !(t->engine == ENGI_DRUM && drum_muted_t(t, note));
 }
 /* (0.9.9 ctl64) the block being handled (events_block: its samples) and the sample within it an event falls on (core.h
  * ev_off; voice.c starts or releases the voice there). Set around the note-ons and -offs fired inside the block, 0
@@ -79,8 +85,10 @@ static uint32_t blk_n = CTL;
 static void ev_at(uint32_t k) { ev_off = k < blk_n ? k : blk_n; }   /* (blk_n: the next block's first) */
 /* a note the FM-1 plays (not a key's): sounded, and with ALL sent as it sounds: the punch-ins' OCT- / OCT+ and RANDOM
  * on it (pfx.c pfx_pit, pfx_rpit: drawn by trk_note_on) */
+static int dxp_overrides(const track_t *t);
 static void seq_note_on(track_t *t, uint32_t note, uint32_t vel)
 {
+    if(dxp_overrides(t)) return; /* held fill owns this track; direct/live notes stay independent */
     uint32_t i = trk_index(t) % NTRK, send = mo_lvl == MO_ALL && note < 128u && mo_plays(t, note) && !pfx_holds(t);
     trk_note_on(t, note, vel);
     if (send) {
@@ -118,8 +126,66 @@ static void mo_key(const track_t *t, uint32_t pkt)   /* a key's note: not with O
         midi_out_event(pkt);
 }
 static int mo_clock_on(void) { return (mo_lvl == MO_CLOCK || mo_lvl == MO_ALL) && !song.g[G_CLOCK]; }
+/* (V10.6z3, protocol 1.0) MIDI OUT ALL: a knob turned on the panel goes out as an NRPN (docs/NRPN.md): the UI queues
+ * which (mo_knob: track k << 7 | P_* id; k 7: global id), the ISR sends the value it holds then, scaled to 14 bits over
+ * the range DESC gives: CC99 0 (track, its channel) or 1 (global, channel 16), CC98 the id, CC6 / CC38 the value */
+#define NRPN_G_NO (1u << G_CLOCK | 1u << G_MIDI | 1u << G_ROUTE | 1u << G_INFO | 1u << G_SLOT | 1u << G_LOAD | \
+                   1u << G_SAVE | 1u << G_ENGSEL | 1u << G_CLRSEQ | 1u << G_INITSND)
+static int motion_param(uint32_t id);   /* (motion.c) */
+/* a global NRPN 1 reaches (in and out): not the transport, routing, load / save or engine switch, nor a fixed one */
+static int nrpn_g_ok(uint32_t id)
+{
+    return id < G_COUNT && !(id < 32u && (NRPN_G_NO >> id) & 1u) && GP[id].max > GP[id].min;
+}
+static const uint8_t NRPN_CC[4] = {99, 98, 6, 38};
+static uint16_t mo_kq[8];
+static volatile uint8_t mo_kw, mo_kr;
+static void mo_knob(uint32_t k, uint32_t id)
+{
+    uint32_t e = k << 7 | id;
+    if (mo_lvl != MO_ALL || (k >= NTRK && !nrpn_g_ok(id)) || (k < NTRK && !motion_param(id)) || (uint8_t)(mo_kw - mo_kr) >= 8u ||
+        ((uint8_t)(mo_kw - mo_kr) >= 2u && mo_kq[(mo_kw - 1u) & 7u] == e))   /* (queued, not taken yet: its latest value goes) */
+        return;
+    mo_kq[mo_kw & 7u] = (uint16_t)e;
+    RING_PUBLISH();
+    mo_kw++;
+}
+/* value v of a parameter of range d as 14 bits (docs/NRPN.md: the inverse of midi_nrpn's scaling) */
+static uint32_t nrpn_of(const param_desc_t *d, int32_t v)
+{
+    int32_t r = d->max - d->min;
+    return r > 0 ? (uint32_t)(((clamp(v, d->min, d->max) - d->min) * 16383 + r / 2) / r) : 0u;
+}
+static __attribute__((noinline)) void mo_knobs(void)
+{
+    while (mo_kr != mo_kw) {
+        uint32_t e = mo_kq[mo_kr & 7u], k = e >> 7, id = e & 127u, ch = 15u, x;
+        const param_desc_t *d;
+        int32_t v;
+        mo_kr++;
+        if (k < NTRK) {
+            d = track_desc(&trk[k], id);
+            v = trk[k].p[id];
+            ch = trk_midi_ch(k);
+        } else {
+            d = &GP[id];
+            v = song.g[id];
+        }
+        if (d->max <= d->min)
+            continue;
+        x = nrpn_of(d, v);
+        x = (uint32_t)(k >= NTRK) | id << 7 | (x >> 7) << 14 | (x & 127u) << 21;   /* CC99, CC98, CC6, CC38 */
+        for (k = 0; k < 4u; k++, x >>= 7)
+            mo_send(0xB0u | ch, NRPN_CC[k], x & 127u);
+    }
+}
+static void kx_block(void);
 static __attribute__((noinline)) void mo_block(uint32_t n)   /* events_block: the setting changed; the clock */
 {
+    kx_block();                                     /* (V10.6z4) the expression keys (from here: RAM code calls none
+                                                     * of the image's last functions) */
+    if (mo_kr != mo_kw)
+        mo_knobs();
     if (mo_lvl != mo_last) {
         if (mo_last == MO_ALL)
             mo_flush();
@@ -141,6 +207,69 @@ static __attribute__((noinline)) void mo_block(uint32_t n)   /* events_block: th
             off = n - mo_pulse_acc / 24u;
             midi_out_event_at(0x0Fu | 0xF8u << 8, (t0 + off * 8000000u / ((uint32_t)FS / 3u)) | 1u);
         }
+    }
+}
+
+/* (V10.6z4, the owner) the expression keys: OCT- or OCT+ held while a key's note sounds (ui_input.c oct_key; with no
+ * note held they are the octave, as ever). OCT- a vibrato faded in as a mod wheel raised and out again (~200 ms), 5.5 Hz,
+ * +-0.35 semitone; OCT+ a bend up along a fixed curve (smoothstep: eased in and landing, ~300 ms, and back so), up to
+ * MENU > AUDIO > OCT BEND's semitones (kx_semi; OFF: no expression keys). Into the track's pitch bend (voice.c kx_q8,
+ * beside MIDI's): every engine follows, DRUM none. Recording, they are automation of P_XPR (the gates: the same curves
+ * play back); MIDI OUT ALL sends them as CC1 (the vibrato's depth) and pitch bend (full: the range; set the receiver's
+ * bend range to OCT BEND's) */
+#include "vel_kb.h"                                /* (V10.6z6) the keys' velocity and pressure */
+_Static_assert(VK_NTRK == NTRK, "vel_kb.h VK_NTRK: the tracks");
+static uint8_t kb_on[27];                           /* (below: how many of a key's notes sound) */
+#define KX_BSS __attribute__((section(".bss.kx")))   /* (out of the merged statics, as fx.c's djf: theirs keep their places) */
+static volatile uint8_t kx_g[2] KX_BSS;            /* the keys' gates: tracks (bit i) with OCT- (vibrato), OCT+ (bend) held */
+static volatile uint8_t kx_semi KX_BSS;            /* the bend's range, semitones (0: OFF) */
+static uint16_t kx_amt[NTRK][2] KX_BSS, kx_ph[NTRK] KX_BSS;   /* the ramps (vibrato depth, bend: 0..65535), the vibrato's phase */
+static uint8_t kx_mo[NTRK][2] KX_BSS;              /* MIDI OUT's last CC1, bend MSB - 64 */
+/* (V10.6z6) the keys' pressure (vel_kb.h vk[].at, MENU > CONTROL > AFTERTOUCH): a track's is its held keys' highest
+ * (vs.atl), or what its recording plays (P_XPR bits 2..4: 0..7), slewed (~12 ms) into t->at, the matrix's AT (mod.c;
+ * MIDI's channel aftertouch writes it too, the last one wins); MIDI OUT ALL sends it as channel aftertouch. Nothing
+ * pressed and nothing recorded: t->at untouched (bit for bit as before) */
+#define KX_STEP(ms) (int32_t)(65536u * CTL / ((uint32_t)FS / 1000u * (ms)))   /* a block's step of a ramp of ms */
+static __attribute__((noinline)) void kx_block(void)
+{
+    uint32_t i, k, g;
+    for (i = 0; i < NTRK; i++)
+        vs.atl[i] = 0;
+    for (k = 0; k < VK_NK; k++)                     /* (V10.6z6) the held keys' pressure, per track */
+        if (kb_on[k] && vk[k].at > vs.atl[kb_trk[k] % NTRK])
+            vs.atl[kb_trk[k] % NTRK] = vk[k].at;
+    for (i = 0; i < NTRK; i++) {
+        int32_t x, q, v;
+        g = 127u - (uint32_t)trk[i].p[P_XPR];
+        g = g < 32u && !drum_track(&trk[i]) ? g : 0u;   /* (bits 0, 1 the gates; V10.6z6: 2..4 the pressure) */
+        x = (int32_t)(g >> 2) * 18;
+        x = (x > vs.atl[i] ? x : vs.atl[i]) << 8;
+        if (x != (q = vs.at8[i])) {                 /* (V10.6z6) the pressure, slewed */
+            q += (x - q + (x > q ? 7 : -7)) / 8;
+            vs.at8[i] = (uint16_t)q;
+            trk[i].at = (uint8_t)(q >> 8);
+            if (mo_lvl == MO_ALL && (q >> 9) != vs.ato[i])   /* (MIDI OUT: in steps of 2, 0 at the end) */
+                mo_send(0xD0u | i, (uint32_t)(vs.ato[i] = (uint8_t)(q >> 9)) << 1, 0);
+        }
+        g = ((kx_g[0] >> i) & 1u) | ((kx_g[1] >> i) & 1u) << 1 | (g & 3u);
+        if (drum_track(&trk[i]))
+            g = 0;
+        for (k = 0; k < 2u; k++)
+            kx_amt[i][k] = (uint16_t)clamp(kx_amt[i][k] + ((g >> k) & 1u ? 1 : -1) * (k ? KX_STEP(300) : KX_STEP(200)), 0, 65535);
+        kx_ph[i] = (uint16_t)(kx_amt[i][0] ? kx_ph[i] + 65536u * 11u * CTL / 2u / (uint32_t)FS : 0u);   /* 5.5 Hz, from its middle */
+        q = (int16_t)kx_ph[i];
+        x = (kx_amt[i][1] + 8) >> 4;                /* Q12 (0..4096) */
+        x = (x * x >> 12) * (3 * 4096 - 2 * x) >> 12;   /* smoothstep */
+        v = q * (32768 - (q < 0 ? -q : q)) >> 13;   /* a sine, near enough (Q15) */
+        kx_q8[i] = ((90 * (int32_t)kx_amt[i][0] >> 16) * v >> 15) + ((int32_t)kx_semi * x >> 4);
+        if (mo_lvl != MO_ALL)
+            continue;
+        q = kx_amt[i][0] >> 9;
+        v = kx_semi ? x * 63 >> 12 : 0;             /* (the bend's MSB above the middle: 0..63) */
+        if (q != kx_mo[i][0])
+            mo_send(0xB0u | i, 1u, (uint32_t)(kx_mo[i][0] = (uint8_t)q));   /* (track i: channel i, trk_midi_ch) */
+        if (v != kx_mo[i][1])
+            mo_send(0xE0u | i, 0u, (uint32_t)(kx_mo[i][1] = (uint8_t)v) + 64u);
     }
 }
 
@@ -228,6 +357,18 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
 #define KB_CH 4u
 static uint8_t kb_snd[27][KB_CH], kb_sn[27], kb_on[27];
 static uint16_t kb_sdue[27];                    /* (0.6.81) samples to the strum's next note */
+/* (V10.6z6) key velocity (vel_kb.h KB_VEL: each key's press's, 100 with VELOCITY OFF; its chord, strum, recording and
+ * MIDI OUT use it) */
+#define ARP_VEL(t) (vs.arpv[trk_index(t)] ^ 100u)    /* (stored ^ 100: 0, as zeroed, 100) */
+/* (VEL, core.h P_TVEL) a velocity as track t's sound takes it: its distance from 100 scaled by VEL / 127 (127, every
+ * store before: as played; 0: 100). Applied where a velocity enters, before what the FM-1 adds to it: the keys and MIDI
+ * in (input_on, after the recording: the step keeps the key's own), the arp's notes, a step's own (STEP_VEL); a
+ * step's ACCENT (127), HUMAN's spread and RATCHET's DECAY act after it, as they would on any note */
+static inline uint32_t tvel(const track_t *t, uint32_t v)
+{
+    return FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL ? v : (uint32_t)(100 + ((int32_t)v - 100) * t->p[P_TVEL] / 127);
+}
+#define STEP_VEL(t, s) ((s)->flags & SF_ACCENT ? 127u : tvel((t), (s)->vel ? (s)->vel : 96u))
 
 /* (JIANT 0.6.81) CHORD (SCL > CHORD; after the Omnichord and the Orchid, light): a key plays a chord on the track.
  * TRIAD 7TH ADD9 SUS2 SUS4 are built in the track's scale on the key (every tone in key; a key outside it takes the
@@ -385,8 +526,19 @@ static void rec_release(track_t *t, uint32_t note);
  * key's chord of the scale (its CHORD type, TRI if off), ARP that chord into the track's arp, BASS the key an octave
  * down, LEAD an octave up; KEEP: the track as it is (its sequence plays on, the keys do not reach it). Armed, REC
  * records every track with a role into its own steps. The roles are the session's (RAM) */
-enum { SC_KEEP, SC_CHORD, SC_ARP, SC_BASS, SC_LEAD, SC_N };
+enum { SC_KEEP, SC_CHORD, SC_ARP, SC_BASS, SC_LEAD, SC_DRUM, SC_N };
 static uint8_t scn_on, scn_role[NTRK];   /* (V10.26: all KEEP until set or diced) */
+/* (V10.6j) BASS and LEAD play a pattern over the key's chord (the track's arp: notes, MODE, RATE (N_DIV), GATE, PROB);
+ * the kit's DRUM writes a beat of its own a key (ui_scene.c sc_beat: the main loop, scn_dreq the key + 1) */
+static uint8_t scn_pat[NTRK];
+enum { SC_GEN = 8, SC_NPAT, SC_DGEN = 4 };            /* (V10.6r) DRUM's 5th: GEN, GENE's drums (gen_track.c sc_gen) */                       /* (V10.6m) BASS LEAD's 9th: GEN, the generator's line (ui_scene.c sc_gen) */
+static volatile uint8_t scn_dreq;
+enum { SN_ROOT, SN_R5, SN_ROCT, SN_TRI, SN_R5O, SN_SEV };
+static const uint8_t SC_PAT[2][8][5] = {
+    {{SN_ROOT, 1, 0, 70, 127}, {SN_ROOT, 1, 1, 40, 127}, {SN_ROCT, 1, 1, 50, 127}, {SN_R5, 1, 1, 55, 127},
+     {SN_TRI, 13, 0, 75, 127}, {SN_ROOT, 1, 2, 35, 127}, {SN_R5O, 11, 1, 50, 127}, {SN_ROCT, 4, 2, 45, 112}},
+    {{SN_TRI, 11, 1, 60, 127}, {SN_SEV, 3, 1, 55, 127}, {SN_TRI, 8, 2, 45, 127}, {SN_SEV, 13, 1, 60, 127},
+     {SN_TRI, 1, 0, 80, 90}, {SN_TRI, 12, 2, 40, 127}, {SN_SEV, 9, 1, 55, 127}, {SN_SEV, 4, 2, 45, 100}}};
 static uint32_t scn_keys;                           /* the keys down that play the scene (their key-up too) */
 static int rec_on(const track_t *t)
 {
@@ -430,6 +582,7 @@ static __attribute__((noinline)) void arp_chord_off(track_t *t, int rec)   /* th
 static __attribute__((noinline)) void arp_chord(track_t *t, const uint32_t *list, uint32_t n)
 {
     uint32_t i, nt, top = 0, o = t->arp_idx % (uint32_t)(t->p[P_AOCT] > 0 ? t->p[P_AOCT] : 1);
+    uint32_t av = ARP_VEL(t);                       /* (V10.6z6: its keys' velocity) */
     if (n > 4u)
         n = 4u;
     for (i = 0; i < n; i++) {                       /* the held notes (sorted or as played), o octaves up */
@@ -441,8 +594,8 @@ static __attribute__((noinline)) void arp_chord(track_t *t, const uint32_t *list
         else
             t->arp_ch[i - 1u] = (uint8_t)nt;
         if (rec_on(t))
-            rec_note(t, nt, 100);
-        seq_note_on(t, nt, 100);
+            rec_note(t, nt, av);
+        seq_note_on(t, nt, tvel(t, av));
     }
 }
 
@@ -512,6 +665,8 @@ static volatile uint8_t fx_lock_on;              /* (0.6.44) ui_layer.c: the FX 
                                                  * the keys are its effects without FX held */
 static volatile uint32_t beat_pos, beat_n;      /* samples into the beat, the beat of the bar (0..3) */
 static volatile uint32_t bar_n;                 /* (0.6.43) the bars since PLAY (MUTATE: project.c mutate_poll) */
+static uint8_t mut_n[NTRK];                     /* (V10.6z3) each track's EUCLID MUTATEs, counted (ui_euclid.c eu_mutate; the
+                                                 * editor's MUTATE push, editor.c) */
 
 /* the metronome (click.c) and the count-in (1.1, Discussion #131). The click follows the song tempo's quarter notes
  * (BPM, or the external clock's 24 pulses), 4 to the bar, the first accented, whatever a track's DIV or SWING: a beat is
@@ -605,10 +760,11 @@ static void arp_step_do(track_t *t, uint32_t n)
             ev_off = 0;
             return;
         }
+        uint32_t av = ARP_VEL(t);                   /* (V10.6z6: its keys' velocity) */
         t->arp_note = (uint8_t)list[j];
         if (rec_on(t))
-            rec_note(t, t->arp_note, 100);           /* recording: what the arp plays */
-        seq_note_on(t, t->arp_note, 100);
+            rec_note(t, t->arp_note, av);            /* recording: what the arp plays */
+        seq_note_on(t, t->arp_note, tvel(t, av));
     }
     ev_off = 0;
 }
@@ -618,8 +774,10 @@ static void arp_tick(track_t *t, uint32_t n) { arp_step(t, n, n); }
 /* -------------------------------------------------------- note input --- */
 /* the length of step idx in samples: SWING (the track's + the global, at most 100) makes the even steps longer
  * and the odd ones shorter, so every odd step starts late */
-static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
+#include "seq_fit.c"
+static __attribute__((noinline)) uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
 {
+    if (t->seq_fit & 128u) return fit_step_samples(t, period, idx);
     return swing_step_len(t, period, idx);   /* core.h: own + global, at most 100 */
 }
 
@@ -646,7 +804,7 @@ static uint32_t rec_repeats(const track_t *t, const step_t *s);
 /* a hit (a GM note) into step s of a DRUM track (rec_note, a held ratchet's next step: dxo_rec_hold) */
 static void rec_drum(track_t *t, step_t *s, uint32_t note, uint32_t vel, int32_t mic)
 {
-    uint32_t l = drum_lane(note), k, m = rec_lmode(), was;
+    uint32_t l = drum_note_lane(t, note), k, m = rec_lmode(), was;
     if (s->time != ST_NOTE || (!s->n && !s->hit)) {
         s->n = s->hit = s->acc = 0;
         s->flags = 0;
@@ -700,6 +858,54 @@ static uint8_t rec_at, rec_late;                        /* (0.8.5) the step (pla
 #else
 #define REC_LAT 0                                        /* (the host's tests, the emulator: no DAC between) */
 #endif
+/* (V10.6z4, the owner: "the feel of how I play is never recorded") a held note's end as played: its length (from where
+ * it was played, rh_p; its start where it was recorded, MICRO) into the LEN of the step it ends in (n/16, CT_LEN; a TIE's
+ * too), the last TIE given back when it ends in that one's first 1/32 (or before it: a quantised start); held to the
+ * step's end, the track's GATE (it reaches the next step: 0 at 120 and up, else 15/16). A legato (the next note down
+ * before this one is up, rec_legato): held to it, and on LEGATO / UNISON with SLIDE, so it plays back as one envelope
+ * gliding (GLIDE's time; 0: SLIDE's ~45 ms) as the keys played it; MONO and POLY retrigger, touching */
+static void rec_len(track_t *t, step_t *s, int32_t e, int32_t l)
+{
+    int32_t v = l > 0 ? (e * 16 + l / 2) / l : 16;
+    s->ctime = (uint8_t)((s->ctime & 7u) | (uint32_t)(v >= 16 ? (t->p[P_SGATE] >= 120 ? 0 : 15) : v < 1 ? 1 : v) << 3);
+}
+static __attribute__((noinline)) void rec_end(track_t *t)
+{
+    uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, period = div_samples((uint32_t)t->p[P_SDIV]);
+    uint32_t i = t->seq_idx % len, s0 = t->rh_start % len, tie = t->rh_ties, j;
+    int32_t l = (int32_t)step_samples(t, period, i), e = (int32_t)t->seq_pos - (int32_t)t->ext - REC_LAT - t->rh_p, o = 0;
+    if (tie)                                        /* in its last tie: where it started as recorded (MICRO) */
+        o = ST_MICRO(&t->step[seq_src(t, s0)]) * (int32_t)step_samples(t, period, s0) / 64;
+    else if (i != s0) {                             /* (recorded into the next step, not in it yet) */
+        e -= l;
+        i = s0;
+        l = (int32_t)step_samples(t, period, i);
+    }
+    if (tie && (e + o) * 32 < l) {                  /* it ends in that tie's first 1/32 (or before: a quantised
+                                                     * start): the tie as it was, the step before to its end */
+        if (seq_src(t, i) == t->rh_last)
+            t->step[t->rh_last] = t->rh_bak;
+        tie = --t->rh_ties;
+        i = (i ? i : len) - 1u;
+        l = (int32_t)step_samples(t, period, i);
+        e += l;
+    }
+    if (tie)
+        e += o;                                     /* (a tie: from its place; the note's own step: its length) */
+    j = seq_src(t, i);
+    if (j < NSTEP && (t->step[j].time == ST_TIE || (t->step[j].time == ST_NOTE && i == s0)))
+        rec_len(t, &t->step[j], e, l);
+}
+static void rec_legato(track_t *t, uint32_t p)  /* p: the step before the next note's (play index), the held one's last */
+{
+    step_t *s = &t->step[seq_src(t, p)];
+    uint32_t m = trk_vmode(t);
+    if (p != t->rh_start && (!t->rh_ties || s->time != ST_TIE))
+        return;
+    rec_len(t, s, 1, 0);
+    if (m == V_LEGATO || m == V_UNISON)
+        s->flags |= SF_SLIDE;
+}
 static void rec_note_at(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, idx = t->seq_idx % len, k;
@@ -708,7 +914,8 @@ static void rec_note_at(track_t *t, uint32_t note, uint32_t vel)
                  - REC_LAT;                         /* (p8, the owner: live notes landed late) what was heard: the
                                                          * sequencer a half buffer and a block ahead of the DAC, the key
                                                          * up to a half more: the press placed where its sound was heard */
-    uint32_t next = t->seq_pos < 0x7FFFFFFFu && gp > (int32_t)(sl / 2u);
+    uint32_t next = gp > (int32_t)(sl / 2u);       /* (V10.6z4: the block PLAY starts in, before its first step,
+                                                     * seq_pos 0x7FFFFFFF: into step 1, was the last step) */
     int32_t mic = 0;
     step_t *s;
     if (next)
@@ -738,6 +945,7 @@ static void rec_note_at(track_t *t, uint32_t note, uint32_t vel)
         s->flags = 0;
         s->vel = 0;
         s->lm[0] = s->lm[1] = s->lm[2] = 0;         /* (p1: no note of it once) */
+        s->ctime &= 7u;                             /* (V10.6z4) LEN: the track's GATE until the release says (rec_end) */
         ST_MICRO_SET(s, mic);                       /* (0.6.88) its place off the grid (REC Q) */
     }
     for (k = 0; k < s->n && s->note[k] != note; k++)
@@ -752,7 +960,7 @@ static void rec_note_at(track_t *t, uint32_t note, uint32_t vel)
         step_set_lmode(s, s->n - 1u, rep ? LM_ONCE : LM_NONE);
     }
     s->time = ST_NOTE;
-    if (vel > 110)
+    if (vel > 126)                                  /* (V10.6z4: an accent plays 127; 111..126 came back 127) */
         s->flags |= SF_ACCENT;
     if (vel > s->vel)
         s->vel = (uint8_t)vel;
@@ -765,9 +973,12 @@ static void rec_note_at(track_t *t, uint32_t note, uint32_t vel)
             t->rskip[t->rskip_n++] = (uint8_t)note;
     }
     if (!t->rh_n || t->rh_start != idx) {           /* a new hold (one in another step ends) */
+        if (t->rh_n)                                /* (V10.6z4) .. still held: a legato, into this one */
+            rec_legato(t, (idx ? idx : len) - 1u);
         t->rh_n = 0;
         t->rh_start = (uint8_t)idx;
         t->rh_ties = 0;
+        t->rh_p = (int16_t)(t->seq_pos < 0x7FFFFFFFu ? clamp(next ? gp - (int32_t)sl : gp, -32768, 32767) : 0);
     }
     for (k = 0; k < t->rh_n && t->rh_note[k] != note; k++)
         ;
@@ -798,6 +1009,7 @@ static void rec_hold(track_t *t, uint32_t idx, uint32_t len)
     s->time = ST_TIE;
     s->flags &= SF_MFINE;                           /* (0.9.1: MICRO kept whole, as its sixteenth in cwhen) */
     s->vel = 0;
+    s->ctime = 0;                                   /* (V10.6z4: a TIE's LEN is where the note ends: rec_end) */
     s->hit = s->acc = 0;
     s->lm[0] = s->lm[1] = s->lm[2] = 0;
 }
@@ -824,9 +1036,8 @@ static void rec_release_at(track_t *t, uint32_t note)
             t->rh_note[k++] = t->rh_note[i];
     if (k == t->rh_n || (t->rh_n = (uint8_t)k))
         return;                                     /* not one of them, or others still held */
-    if (t->rh_ties && seq_src(t, t->seq_idx) == t->rh_last &&
-        t->seq_pos < step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx) / 2u)
-        t->step[t->rh_last] = t->rh_bak;            /* released early in it: not held into this step */
+    rec_end(t);                                     /* (V10.6z4) its length, as held (was: the steps it reached, a
+                                                     * tie kept past its middle; one step, the track's GATE) */
 }
 static void rec_release(track_t *t, uint32_t note)
 {
@@ -871,7 +1082,7 @@ static void input_on(track_t *t, uint32_t note, uint32_t vel)
     if (t->p[P_AMODE])
         arp_add(t, note);
     else
-        trk_note_on(t, note, vel);
+        trk_note_on(t, note, tvel(t, vel));         /* (VEL: the sound's share of it; recorded as played) */
 }
 
 static int midi_note_held(const track_t *t, uint32_t note);
@@ -916,6 +1127,11 @@ typedef struct {
 } dxo_t;
 static dxo_t dxo[NPART][DXO_N];
 static uint8_t dxo_n[NPART];
+static int dxp_overrides(const track_t *t)
+{
+    uint32_t ti=trk_index(t);
+    return ti<NPART&&dxo_n[ti]&&dxo[ti][0].half>=2u&&dxo[ti][0].ph<16u;
+}
 static step_t dxo_bak[NPART];                           /* the step a held one was last recorded into, as it was */
 static uint8_t dxo_bak_at[NPART];                       /* .. which (its source step + 1; 0 none), entered at play idx */
 static uint16_t dxo_bak_idx[NPART];
@@ -925,10 +1141,87 @@ static uint32_t dxo_part(const track_t *t, uint32_t r)  /* the part of the playi
     p = t->seq_pos / (sl ? sl : 1u);
     return p < r ? p : r - 1u;
 }
+/* Extended held performances use the existing four held-key slots. Each cell
+ * describes actual GM hits and a recordable per-lane 1/2/4 rate, never a jump
+ * of the playhead. No additional voice pool or per-track buffer. */
+/* (V10.6r) FILLS (OCT +1): 27 drum fills, nine kinds (the key's place mod 9) in three lengths (the key / 9: half a bar,
+ * a bar, a bar over four kicks), on the step grid from the press: 0 the snare's roll building (8ths, 16ths, 32nds:
+ * the lane's x2), 1 the toms high to low (GM 50 .. 41: the tom's pitches), 2 the snare then the toms, 3 snare + kick
+ * FLAMs (TOUCH FLAM; 16ths at the third length), 4 kick + snare in unison (4ths, 8ths, 16ths; 32nds at the third), 5 the clap's roll, 6 32nds over the toms on the
+ * beats, 7 3-3-2 accents, 8 hats and rims; held past its end, an open hat (a crash at the third length) and the kick
+ * on the downbeat after it (e->rec 255: it went round once), then again. A hit's TOUCH: dx_in_tch (dxp_fire) */
+static const uint8_t DXP_TOM[6] = {50, 48, 47, 45, 43, 41};
+static uint32_t dxp_note(const dxo_t *e, uint32_t phase, uint32_t slot, uint32_t *rate)
+{
+    uint32_t key=e->note%27u;
+    *rate=1;
+    if (e->half==2u) {
+        uint32_t ty=key%9u, v=key/9u, L=v?16u:8u, p=phase&(L-1u), q=p*4u/L, tom=DXP_TOM[p*6u/L], n=0;
+        if (!p && (phase>=L || e->rec==255u)) return slot==0u?(v==2u?49u:46u):slot==2u?36u:0u;
+        switch (ty) {
+        case 0: case 5:
+            if (!slot && (q>=2u || !(p&1u))) { n=ty?39u:38u; *rate=q==3u?2u:1u; }
+            break;
+        case 1: if (!slot) n=tom; break;
+        case 2: if (!slot) n=q<2u?38u:DXP_TOM[(p*2u-L)*6u/L]; break;
+        case 3:
+            if (slot!=1u && (q==3u || v==2u || !(p&1u))) { n=slot?36u:38u; dx_in_tch=3; }
+            break;
+        case 4: if (slot!=1u && !(p&(q<2u?3u:q==2u?1u:0u))) { n=slot?36u:38u; *rate=v==2u&&q==3u?2u:1u; } break;
+        case 6: if (!slot) { n=38u; *rate=2u; } else if (slot==1u && !(p&3u)) n=tom; break;
+        case 7: if (slot!=1u ? (p&7u)%3u==0u : (p&1u)) n=slot==1u?tom:slot?36u:38u; break;
+        default:
+            if (!slot) { n=42u; *rate=q==3u?2u:1u; } else if (slot==1u && (p&3u)==2u) n=37u;
+            break;
+        }
+        if (slot==2u && !n && (!p || (v==2u && !(p&3u)))) n=36u;
+        return n;
+    }
+    /* Sets vary rhythm, lane and density independently. */
+    if (slot==2u && (phase&3u)) return 0;
+    *rate=1u<<((key+slot)%3u);
+    return slot==0u?(key&1u?42u:38u):slot==1u?(key%3u==0u?45u:37u):36u;
+}
+static void dxp_fire(track_t *t, const dxo_t *e, uint32_t phase, uint32_t sub, uint32_t how)
+{
+    uint32_t j, rate, note, sh=e->note%27u>=9u?4u:3u, p=phase&((1u<<sh)-1u);
+    if(phase>=16u) return; /* queued: no off-grid first hit */
+    uint32_t vel=(uint32_t)clamp((int32_t)e->vel+(int32_t)(e->r>>4)-4,1,127);
+    if(e->half==2u&&p) vel=(vel*((3u<<sh)+p)+(2u<<sh))>>(sh+2u);   /* (a fill builds: 3/4 of the level to all of it) */
+    for(j=0;j<3u;j++) {
+        note=dxp_note(e,phase,j,&rate);
+        if(note && !(sub%(4u/rate))) {
+            dx_in_rat=(uint8_t)rate;
+            if(how==2u) rec_drum(t,&t->step[seq_src(t,t->seq_idx)],note,vel,0);
+            else trk_note_on(t,note,vel);
+        }
+        dx_in_tch=0;
+    }
+    dx_in_rat=0;
+}
+/* One active performance and at most one replacement, using existing slots.
+ * The last pressed key wins on the next step; releasing an old key cannot
+ * cancel its replacement and old held keys never restart by themselves. */
+static void dxp_choke(uint32_t ti)
+{
+    if(dxo_n[ti]>1u&&dxo[ti][1].half>=2u&&dxo[ti][1].ph==255u) {
+        dxo[ti][0]=dxo[ti][1];dxo_n[ti]=1;
+    }
+}
+static void dxp_step(dxo_t *e,uint32_t idx)
+{
+    if(e->ph==15u) e->rec=255u;                          /* (a fill went round: its downbeat next) */
+    e->idx=(uint16_t)idx;e->part=255u;e->ph=(uint8_t)((e->ph+1u)&15u);
+    /* A small, shared per-step velocity change is representable in step_t.
+     * Keep all hit times on the tempo grid; don't jitter ratchets separately. */
+    e->r=(uint8_t)(4u|((rng()&7u)<<4));
+}
 static void dxo_on(track_t *t, uint32_t note, int32_t o, uint32_t vel, uint32_t id)
 {
     uint32_t ti = trk_index(t), k;
     dxo_t *e;
+    uint32_t ext=drum_track(t)&&drum_ext(t)&&note>=86u&&note<=127u, extcnt=0, extpart=0;
+    if(ext) o=1;
     if (!o || t->p[P_AMODE] || ti >= NPART || !drum_track(t)) {
         input_on(t, note, vel);
         return;
@@ -941,11 +1234,15 @@ static void dxo_on(track_t *t, uint32_t note, int32_t o, uint32_t vel, uint32_t 
     }
     dx_in_rat = DXO_RAT[o > 3 ? 3 : o];
     rec_at = 0;
-    input_on(t, note, vel);                             /* (its first hit; recorded with the RATCH) */
-    for (k = 0; k < dxo_n[ti] && dxo[ti][k].id != id; k++)
-        ;
-    if (k == dxo_n[ti] && dxo_n[ti] < DXO_N)
-        dxo_n[ti]++;
+    if(!ext) input_on(t, note, vel);                    /* (its first hit; recorded with the RATCH) */
+    if(ext) {
+        if(dxo_n[ti]) {extcnt=dxo[ti][0].cnt;extpart=dxo[ti][0].part;}
+        k=dxo_n[ti]&&dxo[ti][0].half>=2u&&dxo[ti][0].ph<16u?1u:0u;
+        dxo_n[ti]=(uint8_t)(k+1u);
+    } else {
+        for (k = 0; k < dxo_n[ti] && dxo[ti][k].id != id; k++);
+        if (k == dxo_n[ti] && dxo_n[ti] < DXO_N) dxo_n[ti]++;
+    }
     e = &dxo[ti][k < DXO_N ? k : DXO_N - 1u];
     e->id = (uint16_t)id;
     e->note = (uint8_t)note;
@@ -957,6 +1254,14 @@ static void dxo_on(track_t *t, uint32_t note, int32_t o, uint32_t vel, uint32_t 
     e->idx = t->seq_idx;
     e->part = song.playing && t->seq_pos < 0x7FFFFFFFu ? (uint8_t)dxo_part(t, e->r) : 255u;
     e->quiet = e->rec = 0;
+    if(ext) {
+        e->half=note<113u?2u:3u;
+        e->note=(uint8_t)(note<113u?note-86u:(note-113u)%12u);
+        e->r=4;
+        e->part=song.playing&&t->seq_pos<0x7FFFFFFFu?(uint8_t)dxo_part(t,4):(uint8_t)extpart;
+        e->cnt=extcnt;e->ph=255u;
+        dx_in_rat=0;return;
+    }
     if (cin_left)                                       /* (the count-in keeps it for step 1) */
         e->rec = 1;
     else if (rec_at && rec_on(t)) {
@@ -968,17 +1273,18 @@ static void dxo_on(track_t *t, uint32_t note, int32_t o, uint32_t vel, uint32_t 
 }
 static void dxo_off(track_t *t, uint32_t id)
 {
-    uint32_t ti = trk_index(t), k, j = 0;
+    uint32_t ti = trk_index(t), k, j = 0, ext=0;
     if (ti >= NPART || !dxo_n[ti])
         return;
     for (k = 0; k < dxo_n[ti]; k++)
         if (dxo[ti][k].id != id)
             dxo[ti][j++] = dxo[ti][k];
+        else ext|=dxo[ti][k].half>=2u;
     if (j == dxo_n[ti])
         return;
     dxo_n[ti] = (uint8_t)j;
     if (!j && dxo_bak_at[ti]) {                         /* let go early in a step it was held into: that step back */
-        if (rec_on(t) && dxo_bak_idx[ti] == t->seq_idx && seq_src(t, t->seq_idx) == dxo_bak_at[ti] - 1u &&
+        if (!ext && rec_on(t) && dxo_bak_idx[ti] == t->seq_idx && seq_src(t, t->seq_idx) == dxo_bak_at[ti] - 1u &&
             t->seq_pos < step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx) / 2u)
             t->step[dxo_bak_at[ti] - 1u] = dxo_bak[ti];
         dxo_bak_at[ti] = 0;
@@ -988,13 +1294,15 @@ static void dxo_off(track_t *t, uint32_t id)
 static __attribute__((noinline)) void dxo_rec_hold(track_t *t, uint32_t idx)
 {
     uint32_t ti = trk_index(t), k, src = seq_src(t, idx), bak = 0;
+    dxp_choke(ti);
     for (k = 0; k < dxo_n[ti]; k++) {
         dxo_t *e = &dxo[ti][k];
+        if(e->half>=2u&&(e->idx!=idx||e->ph==255u)) dxp_step(e,idx);
         if (e->rec == idx + 1u) {                       /* (its press went into this one: it plays it) */
             e->quiet = (uint8_t)(idx + 1u);
             continue;
         }
-        if (!rec_on(t) || !drum_track(t) || (e->half && !e->ph))   /* (p1: OCT +1, every other step) */
+        if (!rec_on(t) || !drum_track(t) || (e->half==1u && !e->ph))   /* (p1: OCT +1, every other step) */
             continue;
         if (!bak) {
             dxo_bak[ti] = t->step[src];
@@ -1002,13 +1310,28 @@ static __attribute__((noinline)) void dxo_rec_hold(track_t *t, uint32_t idx)
             dxo_bak_idx[ti] = (uint16_t)idx;
             bak = 1;
         }
-        dx_in_rat = e->r;
-        rec_drum(t, &t->step[src], e->note, e->vel, 0);
-        dx_in_rat = 0;
+        if(e->half>=2u) {
+            step_t *s=&t->step[src];
+            /* Replace this step's musical contents, including rests in a fill.
+             * Both components, conditions, probability and automation remain. */
+            memset(s,0,__builtin_offsetof(step_t,probability));s->time=ST_REST;memset(s->lm,0,sizeof s->lm);
+            dxp_fire(t,e,e->ph,0,2);
+            s->comp=dxo_bak[ti].comp;s->carg=dxo_bak[ti].carg;
+            s->comp2=dxo_bak[ti].comp2;s->carg2=dxo_bak[ti].carg2;
+            continue; /* hear the live performance once, not its sequencer copy */
+        } else {
+            dx_in_rat = e->r;
+            rec_drum(t, &t->step[src], e->note, e->vel, 0);
+            dx_in_rat = 0;
+        }
         e->quiet = (uint8_t)(idx + 1u);
     }
 }
-static void dxo_hit(track_t *t, const dxo_t *e) { trk_note_on(t, e->note, e->vel); }
+static void dxo_hit(track_t *t, const dxo_t *e)
+{
+    if(e->half>=2u) dxp_fire(t,e,e->ph,e->part,0);
+    else trk_note_on(t, e->note, e->vel);
+}
 /* a block on (events_block, after the sequencer): the held ones' next hits */
 static __attribute__((noinline)) void dxo_tick(track_t *t, uint32_t n)
 {
@@ -1017,12 +1340,16 @@ static __attribute__((noinline)) void dxo_tick(track_t *t, uint32_t n)
         dxo_n[ti] = 0;
         return;
     }
+    if(dxo_n[ti]>1u&&(!song.playing||t->seq_pos>=0x7FFFFFFFu)&&
+       dxo[ti][0].half>=2u&&dxo[ti][0].part==3u&&
+       dxo[ti][0].cnt+n>=div_samples((uint32_t)t->p[P_SDIV])/4u) dxp_choke(ti);
     for (k = 0; k < dxo_n[ti]; k++) {
         dxo_t *e = &dxo[ti][k];
-        uint32_t r = e->r ? e->r : 1u, part;
+        uint32_t r = e->half>=2u?4u:e->r ? e->r : 1u, part;
+        if(e->half>=2u&&cin_left) continue;
         if (!song.playing || t->seq_pos >= 0x7FFFFFFFu) {   /* stopped: from the press */
-            uint32_t per = div_samples((uint32_t)t->p[P_SDIV]) / r << e->half;
-            e->part = 255u;
+            uint32_t per = div_samples((uint32_t)t->p[P_SDIV]) / r << (e->half==1u);
+            if(e->half<2u) e->part = 255u;
             e->idx = 0xFFFFu;
             e->cnt += n;
             if (per && e->cnt >= per) {               /* (ctl64: the hit at its sample) */
@@ -1030,6 +1357,10 @@ static __attribute__((noinline)) void dxo_tick(track_t *t, uint32_t n)
                 if (e->cnt >= per)
                     e->cnt = 0;
                 ev_at(e->cnt >= n ? 0u : n - e->cnt);
+                if(e->half>=2u) {
+                    e->part=(uint8_t)((e->part+1u)&3u);
+                    if(!e->part) {dxp_step(e,0xFFFFu);e->part=0;}
+                }
                 dxo_hit(t, e);
                 ev_off = 0;
             }
@@ -1038,9 +1369,8 @@ static __attribute__((noinline)) void dxo_tick(track_t *t, uint32_t n)
         e->cnt = 0;
         part = dxo_part(t, r);
         if (t->seq_idx != e->idx) {
-            e->idx = t->seq_idx;
-            e->part = 255u;
-            e->ph ^= 1u;
+            if(e->half>=2u) dxp_step(e,t->seq_idx);
+            else {e->idx=t->seq_idx;e->part=255u;e->ph^=1u;}
         }
         if (e->quiet == t->seq_idx + 1u) {
             e->part = (uint8_t)part;
@@ -1051,7 +1381,7 @@ static __attribute__((noinline)) void dxo_tick(track_t *t, uint32_t n)
             e->part = (uint8_t)part;
             past = t->seq_pos - part * sl;              /* (ctl64) the part's first sample in this block */
             ev_at(past >= n ? 0u : n - past);
-            if (!(e->half & e->ph))                     /* (p1: OCT +1, every other step) */
+            if (e->half!=1u || !e->ph)                 /* (p1: OCT +1, every other step) */
                 dxo_hit(t, e);
             ev_off = 0;
         }
@@ -1101,11 +1431,19 @@ static void latch_drop(track_t *t)
 static void key_next(uint32_t k, track_t *t)
 {
     uint32_t x = kb_snd[k][kb_on[k]], mc = trk_midi_ch(trk_index(t));
+    if(drum_track(t)&&drum_ext(t)&&kb_oct[k] && kb_oct[k]>=-2) {
+        uint32_t key=(x+128u-29u)%128u;
+        x=kb_oct[k]==-1?key%27u:kb_oct[k]==-2?drum_fx_note(key):
+          kb_oct[k]==1?86u+key%27u:113u+key%12u;
+        kb_snd[k][kb_on[k]]=(uint8_t)x;
+        kb_oct[k]=0;                                  /* retain the exact MIDI note until release */
+    }
     if (!midi_local_held(t, x)) {
         in_norec = kb_sn[k] > 1u;                   /* (0.6.84: the chord's notes recorded at once, key_on) */
-        dxo_on(t, x, kb_oct[k], 100, DXO_KEY + k);  /* (0.8.5: a kit's octave; else input_on) */
+        vs.arpv[trk_index(t)] = kb_velx[k];            /* (V10.6z6: the key's velocity, its arp's too) */
+        dxo_on(t, x, kb_oct[k], KB_VEL(k), DXO_KEY + (x>=86u&&x<=127u?x:k));
         in_norec = 0;
-        mo_key(t, 0x09u | (0x90u | mc) << 8 | drum_oct_note(x, kb_oct[k]) << 16 | 100u << 24);
+        mo_key(t, 0x09u | (0x90u | mc) << 8 | drum_oct_note(x, kb_oct[k]) << 16 | (uint32_t)KB_VEL(k) << 24);
     }
     kb_on[k]++;
 }
@@ -1130,7 +1468,7 @@ static void key_on(uint32_t k, track_t *t)
                                                      * key went down (the strum's later notes would fall into the next
                                                      * step); the sequencer strums it back as it plays (seq_step) */
         for (i = 0; i < n; i++)
-            rec_note(t, kb_snd[k][i], 100);
+            rec_note(t, kb_snd[k][i], KB_VEL(k));
     for (i = 0; i < n && (!gap || !i); i++)        /* (STRUM: the first now, the others by keys_strum) */
         key_next(k, t);
     kb_sdue[k] = (uint16_t)(gap < 65535u ? gap : 65535u);
@@ -1163,10 +1501,13 @@ static void key_off(uint32_t k, track_t *t)
     uint32_t n = kb_on[k], i, mc = trk_midi_ch(trk_index(t));
     if (!n)
         return;
-    if (kb_oct[k] > 0)
-        dxo_off(t, DXO_KEY + k);                    /* (0.8.5) its ratchet ends (LATCH too) */
+    dxo_off(t, DXO_KEY + k);                         /* the held performance ends (LATCH too) */
     kb_on[k] = 0;                                   /* (the strum's notes not in yet: never) */
     kb_sn[k] = 0;
+    /* Repeated physical octaves share a performance note. Its scheduler is
+     * released by the last owner, even if the key map/octave or LATCH changed. */
+    uint32_t control=kb_snd[k][0];
+    if(control>=86u&&control<=127u&&!midi_local_held(t,control)) dxo_off(t,DXO_KEY+control);
     if (key_latch(t)) {                             /* LATCH: it keeps sounding (recorded as let go) */
         if (t->arp_phys)
             t->arp_phys--;
@@ -1186,9 +1527,20 @@ static void key_off(uint32_t k, track_t *t)
 /* (V10.25) SCENE: key k down (on) or up on every track with a role; the notes again from the key at the key-up */
 static uint32_t scn_notes(const track_t *t, uint32_t r, uint32_t root, uint8_t *o, int pk)
 {
-    if (r == SC_BASS || r == SC_LEAD) {
-        o[0] = (uint8_t)clamp((int32_t)root + (r == SC_BASS ? -12 : 12), 0, 127);
-        return 1;
+    if (r == SC_BASS || r == SC_LEAD) {                 /* (V10.6j) the pattern's notes: the arp plays them */
+        uint32_t set = SC_PAT[r == SC_LEAD][scn_pat[trk_index(t) % NTRK] & 7u][0], n, i;
+        int32_t b = (int32_t)root - 12;
+        if (set >= SN_TRI && set != SN_R5O) {
+            n = chord_build_mode(t, (uint32_t)clamp(r == SC_LEAD ? (int32_t)root + 12 : b, 0, 127), o,
+                                 (set == SN_SEV ? CD_SEV : CD_TRI) | 0x80u | (pk ? 0x40u : 0u));
+            return n;
+        }
+        o[0] = (uint8_t)clamp(b, 0, 127);
+        n = 1;
+        if (set == SN_R5 || set == SN_R5O) o[n++] = (uint8_t)clamp(b + 7, 0, 127);
+        if (set == SN_ROCT || set == SN_R5O) o[n++] = (uint8_t)clamp(b + 12, 0, 127);
+        for (i = 0; r == SC_LEAD && i < n; i++) o[i] = (uint8_t)clamp(o[i] + 24, 0, 127);
+        return n;
     }
     return chord_build_mode(t, root, o, (t->p[P_CHRD] ? (uint32_t)t->p[P_CHRD] : CD_TRI) | 0x80u | (pk ? 0x40u : 0u));
 }
@@ -1198,20 +1550,31 @@ static void scene_key(uint32_t k, int on)
     uint8_t o[KB_CH + 1];
     for (i = 0; i < trk_live && i < NTRK; i++) {
         track_t *t = &trk[i];
-        if (!scn_role[i] || drum_track(t))
+        if (drum_track(t)) {                            /* (V10.6j) the kit's DRUM: a beat of its own for the key */
+            if (on && scn_role[i] == SC_DRUM)
+                scn_dreq = (uint8_t)(k + 1u);
             continue;
+        }
+        if (!scn_role[i] || scn_role[i] == SC_DRUM)      /* (DRUM: a kit's alone) */
+            continue;
+        if ((scn_role[i] == SC_BASS || scn_role[i] == SC_LEAD) && scn_pat[i] % SC_NPAT == SC_GEN) {
+            if (on)                                     /* (V10.6m) GEN: the key's chord moves the line (the root's
+                                                         * interval from the key's, the nearest way; QUANT SEQ: in scale) */
+                t->trn = (int8_t)(((kb_map(t, k) + 132u - (uint32_t)t->p[P_ROOT]) % 12u + 5u) % 12u - 5);
+            continue;
+        }
         n = scn_notes(t, scn_role[i], kb_map(t, k), o, 0);
         mc = trk_midi_ch(i);
         if (on && n > 1u && rec_on(t) && !t->p[P_AMODE])   /* (a chord: into one step, as key_on) */
             for (j = 0; j < n; j++)
-                rec_note(t, o[j], 100);
+                rec_note(t, o[j], KB_VEL(k));
         in_norec = (uint8_t)(on && n > 1u);
         for (j = 0; j < n; j++) {
             if (midi_local_held(t, o[j]))
                 continue;
             if (on) {
-                input_on(t, o[j], 100);
-                mo_key(t, 0x09u | (0x90u | mc) << 8 | (uint32_t)o[j] << 16 | 100u << 24);
+                input_on(t, o[j], KB_VEL(k));
+                mo_key(t, 0x09u | (0x90u | mc) << 8 | (uint32_t)o[j] << 16 | (uint32_t)KB_VEL(k) << 24);
             } else {
                 input_off(t, o[j]);
                 mo_key(t, 0x08u | (0x80u | mc) << 8 | (uint32_t)o[j] << 16);
@@ -1245,7 +1608,7 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 
 static void keyboard_block(void)
 {
-    uint32_t cur = fm1_in.notes, ch, k;
+    uint32_t cur = fm1_in.notes & ~vk_hold, ch, k;   /* (V10.6z6: a press waiting for its strike, vel_kb.h: not yet) */
     uint32_t lay, fx;
     keys_strum(CTL);                              /* (0.6.81) the chords' strums */
     ch = cur ^ kb_prev;                           /* keys also sound while entering steps */
@@ -1283,12 +1646,17 @@ static void keyboard_block(void)
                     lv.kb |= 1u << k;
             } else if (song.grid)                   /* the DRUM grid: a lane key plays its lane, the rest are the UI's */
                 kb_note[k] = key_black(k) && key_place(k) < NLANE ? DRUM_LANE_NOTE[key_place(k)] : KB_SILENT;
-            else
+            else {
+                uint32_t high = k >= split_cut(0);
+                if (split_cfg[0]) kb_trk[k] = (uint8_t)split_track(high);
                 kb_note[k] = (uint8_t)kb_map(&trk[kb_trk[k]], k);
-            kb_oct[k] = (int8_t)(!song.grid && drum_track(&trk[kb_trk[k]]) ? song.octave : 0);   /* (0.8.5) */
+                if (split_cfg[0] && kb_note[k] != KB_SILENT && !drum_track(&trk[kb_trk[k]]))
+                    kb_note[k] = (uint8_t)clamp((int32_t)kb_note[k] + 12 * split_oct(high), 0, 127);
+            }
+            kb_oct[k] = (int8_t)(!song.grid && drum_track(&trk[kb_trk[k]]) ? song.octave + (split_cfg[0] ? split_oct(k >= split_cut(0)) : 0) : 0);   /* split drum octave retained until release */
             if (kb_note[k] == KB_SILENT)
                 continue;
-            if (scn_on && !song.grid) {           /* (V10.25) SCENE: every track with a role */
+            if (scn_on && !song.grid && !split_cfg[0]) {           /* (V10.25) SCENE: every track with a role */
                 scn_keys |= 1u << k;
                 scene_fp(k, 1);
                 continue;
@@ -1318,9 +1686,13 @@ static void keyboard_block(void)
     kb_prev = cur;
 }
 
-/* (0.6.62) JUMP / REV: the steps that turned the track this pass (seq2d: once a pass each, fl_once); the passes */
-static uint8_t fl_cnt[NTRK][NSTEP], fl_pass[NTRK];
-static void fl_reset(uint32_t ti) { memset(fl_cnt[ti % NTRK], 0, NSTEP); }
+/* (V10.6v) RAMP (core.h CV_RAMP_*): a track's one gliding parameter (the RAMP launched last): its id + 1 (0 none), the
+ * step that launched it, VALUE, LENGTH - 1; how far, Q24 of the way (past RAMP_ONE: the knob's value coming back, in
+ * samples); the lock's value it goes to */
+typedef struct { uint8_t id, st, val, len; uint32_t pos; int16_t to; } ramp_t;
+static ramp_t rmp[NTRK] __attribute__((section(".bss.swarm")));   /* (out of the merged statics, as fx.c's djf) */
+#define RAMP_ONE (1u << 24)
+#define RAMP_BACK 1024u                             /* (~23 ms: the knob's value back without a click) */
 /* -------------------------------------------------------- sequencer --- */
 static void fg_reset(void);                         /* (fugue.c) */
 static void gl_reset(void);                         /* (seq2f: the global lane) */
@@ -1344,12 +1716,12 @@ static void seq_start(void)
         t->rh_n = 0;
         t->rat_left = 0;
         t->arp_from = 0; t->loops = 0;             /* (0.6.39) the components: the first loop, no arpeggio */
-        t->jump_to = t->rev = 0;                   /* (0.6.42) no JUMP, REV */
+        t->jump_to = 0;                            /* (0.6.42) no JUMP (LIVE's) */
         t->csp_n = t->c_pre = t->c_acc = 0;        /* (seq2d) no component span, PRE false, TRANSPOSE from its place */
         t->cpos = t->cv_on = 0;                    /* (0.6.47) C.LEN's lane from its first step */
-        fl_reset(i), fl_pass[i] = 0;               /* (0.6.62) TIMES from the first pass */
     }
     fg_reset();                                    /* (0.6.52) FUGUE's heads from their first step */
+    memset(rmp, 0, sizeof rmp);                    /* (V10.6v) no RAMP (a stop: motion_end the knob's values back) */
     lv.act = 0;                                    /* (p2) LIVE: the ghosts from step 0 too (live_q) */
     gl_reset();                                    /* (seq2f) the global lane from its first step, its first pass */
     song.tick = 0;
@@ -1495,7 +1867,6 @@ static const step_t *seq_unit(const track_t *t, uint32_t len, uint32_t k, uint32
     *cnt = n;
     return r;
 }
-static uint8_t cx_jump[NTRK];                       /* the step's JUMP: to step v (1..64), 65 REV; 0 none */
 /* (0.9.9-seq2f) GLOBAL STEP COMPONENTS (GLO > COMPS, the approved mock-up's G1): a lane of GL_N steps on the transport's
  * 1/16 grid (clk_n: one bar, looping), one component a step (ACTION | CONDITION << 4, VALUE, LENGTH - 1, N:M as the
  * tracks', core.h CA_* CC_*) and the TRACKS it applies to (mask, bit k track k). Each global step's CONDITION is
@@ -1519,7 +1890,8 @@ static void gl_touch(void)                              /* (after an edit or a l
 {
     uint32_t i, on = 0;
     for (i = 0; i < GL_N; i++) {
-        if (CO_ACT(glane[i].comp) >= CA_N || CO_COND(glane[i].comp) >= CC_N) glane[i].comp = 0;
+        if (CO_ACT(glane[i].comp) >= CA_N || CO_COND(glane[i].comp) >= CC_N || CO_ACT(glane[i].comp) == CA_RAMP)
+            glane[i].comp = 0;                          /* (V10.6v: a JUMP of before, RAMP's code: a track's alone) */
         if (glane[i].len >= CL_MAX) glane[i].len = CL_MAX - 1u;
         glane[i].mask &= (1u << NTRK) - 1u;
         on |= CO_ACT(glane[i].comp) != 0u;
@@ -1614,7 +1986,7 @@ static void gl_eval(uint32_t g)                         /* every global step up 
             gsp_n--;
         }
         gsp[gsp_n].g0 = gl_next; gsp[gsp_n].act = (uint8_t)a; gsp[gsp_n].val = (uint8_t)v;
-        gsp[gsp_n].len = (uint8_t)(a == CA_JUMP ? 1u : c->len + 1u); gsp[gsp_n].mask = c->mask;
+        gsp[gsp_n].len = (uint8_t)(c->len + 1u); gsp[gsp_n].mask = c->mask;
         gsp[gsp_n].ser = ++gl_ser; gsp[gsp_n].mv = (int8_t)clamp(mv, -100, 100);
         gsp_n++;
     }
@@ -1629,10 +2001,6 @@ static void gl_take(track_t *t, const step_t *s, uint32_t ti, uint32_t g)
         if (!((G->mask >> ti) & 1u) || g < G->g0 || g >= G->g0 + G->len || (int8_t)(G->ser - gl_took[ti]) <= 0)
             continue;
         gl_took[ti] = G->ser;
-        if (G->act == CA_JUMP) {
-            cx_jump[ti] = (uint8_t)(G->val % (CV_JUMP_REV + 1u) + 1u);
-            continue;
-        }
         if (G->act == CA_MUTE && G->val)
             trk_fade_out(t);
         if (G->act == CA_STUT)
@@ -1658,9 +2026,9 @@ static __attribute__((noinline)) const step_t *comp_run(track_t *t, const step_t
     uint32_t i, n = 0, k, acted = 0, rep = 0, rq = 0, rb = 0, arp = 0, av = 0, mute = 0, ti = trk_index(t) % NTRK, cnt;
     uint32_t g = 0, gm = 0, ps, grep = 0, chord = 0;
     const step_t *src = s;
+    uint8_t probability = s->probability;   /* save before cvs can replace an aliased C.LEN input */
     t->cx_deg = t->cx_oct = 0;
     t->cx_rnd = t->cx_rat = t->cx_dec = t->cx_tch = t->cx_bend = t->cx_arp = t->cx_lock = 0;
-    cx_jump[ti] = 0;
     if (gl_on || gsp_n) {                               /* (seq2f) the global lane: evaluated up to here */
         g = gl_step_at(ev_off);
         gl_eval(g);
@@ -1694,6 +2062,8 @@ static __attribute__((noinline)) const step_t *comp_run(track_t *t, const step_t
         if (!a || a >= CA_N)
             continue;
         if (a == CA_SHIFT) { acted |= shift_cond(t, s, k, t->loops); continue; }
+        if (a == CA_RAMP)                           /* (V10.6v: no condition, no span: seq_tick's ramp_run) */
+            continue;
         ok = (uint32_t)comp_cond(t, s, k, acted);
         if (a == CA_TRANS) {
             mv = CV_TR_MOVE(v);
@@ -1710,10 +2080,6 @@ static __attribute__((noinline)) const step_t *comp_run(track_t *t, const step_t
         if (!ok)
             continue;
         acted = 1;
-        if (a == CA_JUMP) {
-            cx_jump[ti] = (uint8_t)(v % (CV_JUMP_REV + 1u) + 1u);
-            continue;
-        }
         if (a == CA_MUTE && v)
             trk_fade_out(t);                        /* CUT: what sounds goes (~3 ms) */
         if (a == CA_STUT)
@@ -1775,10 +2141,10 @@ static __attribute__((noinline)) const step_t *comp_run(track_t *t, const step_t
     }
     if (src != &t->cvs)
         t->cvs = *src;
-    if (rep) {                                      /* (the step it replaces: its own place, its own chance gone) */
+    if (rep) {                                      /* the replacement keeps this position's timing and probability */
         t->cvs.cwhen = s->cwhen;
         t->cvs.flags = (uint8_t)((t->cvs.flags & ~SF_MFINE) | (s->flags & SF_MFINE));
-        t->cvs.probability = 0;
+        t->cvs.probability = probability;
         if (rep == 2u) { t->cvs.time = ST_REST; t->cvs.n = 0; t->cvs.hit = 0; }
     }
     /* CHORD changes the rendered copy only. The track's CHORD page, root and source stay intact. */
@@ -1800,15 +2166,80 @@ static __attribute__((noinline)) const step_t *comp_run(track_t *t, const step_t
     t->cv_on = 1;
     return &t->cvs;
 }
-/* JUMP / REV at most once a pass from the same step (a jump back: the second time it plays on); fl_pass the passes */
-static int fl_once(const track_t *t)
+/* (V10.6v) RAMP's shape: x of the way (Q15, 0..32768) -> how far the value is (Q15): LIN, EXP (slow, then fast), LOG
+ * (fast, then slow), S, STEPS (8 stairs), ZIGZAG (rising, small bounces back) */
+static int32_t ramp_curve(uint32_t c, int32_t x)
 {
-    uint32_t ti = (uint32_t)(t - trk) % NTRK, k = t->seq_idx % NSTEP;
-    if (fl_cnt[ti][k])
-        return 0;
-    fl_cnt[ti][k] = 1;
-    return 1;
+    int32_t y = 32768 - x, f;
+    switch (c) {
+    case 1: return ((x * x >> 15) * x) >> 15;
+    case 2: return 32768 - (((y * y >> 15) * y) >> 15);
+    case 3: return (x * x >> 15) * ((98304 - 2 * x) >> 1) >> 14;
+    case 4: f = x >> 12; return f >= 7 ? 32768 : f * 4681;
+    case 5: f = (x * 6) & 32767; return clamp(x + (f < 16384 ? f : 32768 - f) / 4, 0, 32768);
+    default: return x;
+    }
 }
+/* (V10.6v) RAMP on track t: s the step starting now (play: it plays; its RAMP launches the glide of the step's LOCK, the
+ * first one, unless that glide still runs from this step: it goes on), 0 none; then n samples on: the value into its
+ * parameter (motion.c's records and locks move it, this after them: the ramp's value wins), at its end the knob's back */
+static __attribute__((noinline)) void ramp_run(track_t *t, const step_t *s, uint32_t play, uint32_t n)
+{
+    uint32_t ti = trk_index(t) % NTRK, k, id, u, b, st = t->seq_idx % NSTEP, bars;
+    ramp_t *r = &rmp[ti];
+    const motion_event_t *e;
+    int32_t from, to, v, base;
+    if (!motion_enabled(t)) {                       /* (its records off: so are its locks; motion_restore the values) */
+        r->id = 0;
+        return;
+    }
+    for (k = 0; s && play && k < 2u; k++) {
+        uint32_t val = k ? s->carg2 : s->carg, l = s->clen[k];
+        if (CO_ACT(k ? s->comp2 : s->comp) != CA_RAMP)
+            continue;
+        if (!(e = motion_lock_at(t, st)))           /* (no lock: nothing) */
+            break;
+        id = MOTION_ID(e) + 1u;
+        if (r->id == id && r->st == st &&           /* (running from here, more than half a step to go: on) */
+            r->pos + RAMP_ONE / (2u * (val & CV_RAMP_BARS ? (l % 16u + 1u) << 4 : l + 1u)) < RAMP_ONE)
+            break;
+        if (r->id && r->id != id)
+            t->p[r->id - 1u] = motion_base[ti][r->id - 1u];   /* (another one: its knob's value back) */
+        r->id = (uint8_t)id; r->st = (uint8_t)st; r->val = (uint8_t)val; r->len = (uint8_t)l;
+        r->pos = 0; r->to = MOTION_VAL(e);
+        break;
+    }
+    if (!r->id)
+        return;
+    id = r->id - 1u;
+    motion_active[ti][id / 32u] |= 1u << (id % 32u);   /* (a stop puts the knob's value back; seq_tick runs this after
+                                                     * each step's motion_step: its value over the lock's unlock) */
+    base = motion_base[ti][id];
+    to = r->to;
+    b = r->pos - RAMP_ONE;
+    if (r->pos < RAMP_ONE) {                        /* (on its way; the values between its ends: no fit) */
+        const param_desc_t *d = param_desc_of(eng_idx(t->eng_req), id);
+        bars = (r->val & CV_RAMP_BARS) != 0u;
+        u = div_samples(bars ? 2u : (uint32_t)t->p[P_SDIV]) * (bars ? (r->len % 16u + 1u) << 4 : r->len + 1u);
+        r->pos += (n << 16) / ((u >> 8) | 1u);
+        if (r->pos > RAMP_ONE)
+            r->pos = RAMP_ONE;
+        from = CV_RAMP_OPP(r->val) ? (to >= (d->min + d->max) >> 1 ? d->min : d->max) : base;
+        b = (uint32_t)ramp_curve(CV_RAMP_CURVE(r->val), (int32_t)(r->pos >> 9)) >> 5;
+    } else if (b >= RAMP_BACK) {                    /* (its end: the knob's) */
+        t->p[id] = (int16_t)base;
+        r->id = 0;
+        return;
+    } else {                                        /* (then the knob's value back, RAMP_BACK samples) */
+        r->pos += n;
+        from = to;
+        to = base;
+    }
+    v = from + ((to - from) * (int32_t)b >> 10);
+    t->p[id] = (int16_t)v;
+}
+/* (called through a pointer: seq_tick is inlined in RAM code, out of a direct call's reach of the image's end) */
+static void (*const volatile RAMP_RUN)(track_t *, const step_t *, uint32_t, uint32_t) = ramp_run;
 /* (seq2d) a legacy component (CP_* c, its argument a; projects before seq2d, GEN, DICE) into slot k of step i of st as
  * ACTION LENGTH CONDITION VALUE: ev the step's EVERY (both components'), len the pattern's; other: the other slot is
  * free (OCT's ALT takes it). LENGTH: an ARP's over the TIEs after it, TONAL's to the loop's end, PULSE's over the
@@ -1856,10 +2287,6 @@ static void cm_one(step_t *st, uint32_t i, uint32_t k, uint32_t c, uint32_t a, u
             if (o->time == ST_NOTE && (o->n || o->hit)) break;
         }
         break;
-    case CP_JUMP: case CP_REV:
-        act = CA_JUMP; v = c == CP_JUMP ? CP_JTO(a) : CV_JUMP_REV;
-        if (CP_TIMES(c, a) == 3u) { own = 1; cond = CC_NM; nm = CNM_MAKE(1u, 2u); }
-        break;
     case CP_FILL: act = CA_MUTE; own = 1; cond = CC_NFILL; break;
     case CP_KILL: act = CA_MUTE; v = 1; break;
     case CP_WALK: case CP_CLIMB: {
@@ -1892,6 +2319,10 @@ static void comp_migrate(step_t *st, uint32_t len)
         step_t *s = &st[i];
         uint32_t c1 = s->comp, a1 = s->carg, c2 = s->comp2, a2 = s->carg2, ev = s->cwhen & 15u;
         int l1 = s->clen[0] == CL_LEGACY, l2 = s->clen[1] == CL_LEGACY;
+        if (!l1 && CO_ACT(c1) == CA_RAMP && !CV_RAMP_OK(a1))   /* (V10.6v) a JUMP of before whose VALUE is no RAMP: */
+            s->comp = 0;                            /* none */
+        if (!l2 && CO_ACT(c2) == CA_RAMP && !CV_RAMP_OK(a2))
+            s->comp2 = 0;
         if (!l1 && !l2)
             continue;
         if (l1) { s->comp = s->carg = 0; s->clen[0] = s->cnm[0] = 0; }
@@ -1926,13 +2357,17 @@ static uint32_t seq_early(const track_t *t, uint32_t period, uint32_t len)
     uint32_t ni = (t->seq_idx + 1u) % (len ? len : 1u);
     const step_t *s;
     int32_t m;
-    if (t->jump_to || t->rev || (t->pfx & PFX_RND) || (!ni && (chain.running || chain.armed)))
+    if (t->jump_to || (t->pfx & PFX_RND) || (!ni && (chain.running || chain.armed)))
         return 0;
     s = shift_ahead(t, 1u, len);
     if (s->time != ST_NOTE || (!s->n && !s->hit))       /* (nothing to play there: never early) */
         return 0;
     m = ST_MICRO(s);
-    return m < 0 ? (uint32_t)-m * step_samples(t, period, ni) / 64u : 0u;   /* (0.9.1: 64ths) */
+    if (m < 0) {
+        uint32_t early = fit_scale_samples(step_samples(t, period, ni), (uint32_t)-m, 6u);
+        return (t->seq_fit & 128u) && early > 65535u ? 65535u : early;
+    }
+    return 0u;   /* (0.9.1: 64ths) */
 }
 static const step_t *comp_lane(track_t *t, const step_t *s)
 {
@@ -2064,6 +2499,9 @@ static void seq_release(track_t *t)
     uint32_t i;
     for (i = 0; i < t->seq_n; i++)
         seq_note_off(t, t->seq_notes[i]);
+    for (i = t->ss_i; i < t->ss_n; i++)             /* (V10.6z4) a slide's note-off still queued (seq_step) */
+        if (!t->ss_vv[i])
+            seq_note_off(t, t->ss_nn[i]);
     t->seq_n = 0;
     t->seq_hold = 0;
     t->slide_glide = 0;                             /* live MONO / LEG keys must not glide after it */
@@ -2088,7 +2526,7 @@ static void seq_stop(void)
         trk[i].rh_n = 0;                           /* a recorded note held over the stop: as far as it got */
         trk[i].rat_left = 0;
         trk[i].arp_from = 0;
-        trk[i].csp_n = trk[i].jump_to = trk[i].rev = 0;   /* (seq2d: no component span) */
+        trk[i].csp_n = trk[i].jump_to = 0;   /* (seq2d: no component span) */
         trk[i].cpos = trk[i].cv_on = 0;
     }
     fg_reset();                                    /* (0.6.52) FUGUE's heads silent */
@@ -2245,8 +2683,9 @@ static int lm_once(const step_t *s, uint32_t l, uint32_t kit)
 }
 static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint32_t period, uint32_t skip)
 {
-    uint32_t i, j, gate = period * (uint32_t)t->p[P_SGATE] / 128u;
-    uint32_t vel = (s->flags & SF_ACCENT) ? 127u : (s->vel ? s->vel : 96u);
+    uint32_t unit = t->seq_fit & 128u ? step_samples(t, period, t->seq_idx) : period;
+    uint32_t i, j, gate = fit_scale_samples(unit, (uint32_t)t->p[P_SGATE], 7u);
+    uint32_t vel = STEP_VEL(t, s);
     uint32_t slide_in = t->seq_hold && t->seq_n && !(skip & SEQ_REP);
     uint32_t len = t->p[P_SLEN] ? (uint32_t)t->p[P_SLEN] : 1u;
     uint32_t next_tie = shift_ahead(t, 1u, len)->time == ST_TIE;
@@ -2277,10 +2716,11 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     if (s->time == ST_TIE && arp) {
         s = arp;                                    /* (0.6.39) the arpeggio goes on over the TIE */
         cont = 1;
-        vel = (s->flags & SF_ACCENT) ? 127u : (s->vel ? s->vel : 96u);
+        vel = STEP_VEL(t, s);
     } else if (s->time == ST_TIE) {
         if (t->seq_n) {
-            t->seq_off = gate + period / 2u + ev_off;
+            t->seq_off = (CT_LEN(s) ? unit * CT_LEN(s) / 16u : gate + unit / 2u) + ev_off;   /* (V10.6z4) LEN: where the
+                                                         * held note ends in it (rec_end) */
             t->seq_hold = (s->flags & SF_SLIDE) != 0 || next_tie || chord_auto(t, len);   /* chains hold at any GATE /
                                                          * swing; (0.6.81) GLIDE on POLY: to the next chord */
         }
@@ -2307,9 +2747,10 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
         ac = aa & CV_ARP_SCALE ? CP_ARPS : CP_ARPN;
     }
     if (CT_LEN(s))                                  /* (0.6.82) LEN: the step's own gate, n/16 */
-        gate = period * CT_LEN(s) / 16u;
+        gate = unit * CT_LEN(s) / 16u;
     if (hits > 1u) {                                /* RATCH: the gate of a part, no slide or tie out */
-        gate = step_samples(t, period, t->seq_idx) / div * (CT_LEN(s) ? CT_LEN(s) * 8u : (uint32_t)t->p[P_SGATE]) / 128u;
+        gate = fit_scale_samples(step_samples(t, period, t->seq_idx) / div,
+                                CT_LEN(s) ? CT_LEN(s) * 8u : (uint32_t)t->p[P_SGATE], 7u);
         if (!(skip & SEQ_REP))
             t->rat_left = (uint8_t)(hits - 1u);
         if (!arp && t->cx_rat && t->cx_dec) {       /* (seq2d) RATCHET's DECAY: each part softer (1) or louder (2)
@@ -2319,6 +2760,7 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
             if (vel < 8u) vel = 8u;
         }
     }
+    if ((t->seq_fit & 128u) && !gate) gate = 1u;
     for (i = 0; i < (arp ? 1u : s->n) && i < 4u && !(kit && arp); i++) {
         uint32_t x = arp ? cp_arp_note(t, arp, ac, aa, t->arp_k++) : s->note[i];
         x = (uint32_t)clamp((int32_t)x + up, 0, 127);
@@ -2344,7 +2786,7 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
         nn[m] = (uint8_t)x;
         vv[m] = (uint8_t)vel;
         sk |= ((skip >> i) & 1u) << m;
-        once |= (uint32_t)(arp ? 0 : lm_once(s, kit ? drum_lane(s->note[i]) : i, kit)) << m;
+        once |= (uint32_t)(arp ? 0 : lm_once(s, kit ? drum_note_lane(t, s->note[i]) : i, kit)) << m;
         m++;
     }
     for (i = 0; i < NLANE && !arp; i++)
@@ -2407,17 +2849,21 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
         if (hg && hits == 1u)
             gate = (uint32_t)clamp((int32_t)gate + (int32_t)gate / 100 * hum_pm(hg * 40u / 127u), 16, 0x7FFFFFFF);
         if (ht && hits == 1u && !bend && !slide_in) {   /* (late, never early: the step can't play before it starts) */
-            uint32_t d = hum_rnd() % (HUM_TMAX * ht / 127u + 1u), cap = period / 3u;
+            uint32_t d = hum_rnd() % (HUM_TMAX * ht / 127u + 1u), cap = unit / 3u;
             hdel = d < cap ? d : cap;
         }
-        if (t->mic > 0 && hits == 1u && !bend && !slide_in && !(skip & SEQ_REP))   /* (0.6.88) TIMING late: on top */
-            hdel += (uint32_t)t->mic * step_samples(t, period, t->seq_idx) / 64u;   /* (0.9.1: 64ths) */
+        if (t->mic > 0 && hits == 1u && !bend && !(skip & SEQ_REP))   /* (0.6.88) TIMING late: on top (V10.6z4: a SLIDE
+                                                         * into it too: the note before held to it, below) */
+            hdel += fit_scale_samples(step_samples(t, period, t->seq_idx), (uint32_t)t->mic, 6u);   /* (0.9.1: 64ths) */
     }
     sk0 = sk;                                       /* (the notes the step sounds, strummed or not: seq_notes) */
     if (!kit && !arp && m > 1u && t->p[P_CSTR] > 0 && t->p[P_VOICE] == V_POLY) {   /* (0.6.84) STRUM: the chord in
                                                          * one note after another, low to high, as the keys strum it
-                                                         * (the first now, the others by seq_tick); within half the gate */
-        uint32_t g = chord_gap(t), cap = gate / (2u * (m - 1u)), q, w = 0;
+                                                         * (the first now, the others by seq_tick) at the keys' gaps
+                                                         * (V10.6o: it was squeezed into half the gate: a long STRUM
+                                                         * recorded came back a fast one); the gate held on past the
+                                                         * last note's entry by half itself */
+        uint32_t g = chord_gap(t), q, w = 0;
         uint8_t ord[4 + NLANE];
         for (q = 0; q < m; q++)
             if (!((sk >> q) & 1u)) {
@@ -2429,7 +2875,9 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
             t->ss_vv[t->ss_n++] = vv[ord[q]];
             sk |= 1u << ord[q];
         }
-        t->ss_gap = (uint32_t)clamp((int32_t)(g < cap ? g : cap), 1, 65535);
+        t->ss_gap = (uint32_t)clamp((int32_t)g, 1, 65535);
+        if (w > 1u && g * (w - 1u) > gate / 2u)
+            gate = g * (w - 1u) + gate / 2u;
         t->ss_due = t->ss_gap + ev_off;             /* (ctl64: from the step's sample) */
     }
     if (hdel) {                                     /* (0.6.87) HUMAN TIME: every note of the step queued, hdel late
@@ -2455,7 +2903,7 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     }
     for (i = 0; i < m; i++)
         if (!((sk >> i) & 1u)) {
-            uint32_t a0 = vage, dt0 = t->dtch, lt = kit ? lm_touch(step_lmode(s, drum_lane(nn[i]))) : 0u;
+            uint32_t a0 = vage, dt0 = t->dtch, lt = kit ? lm_touch(step_lmode(s, drum_note_lane(t, nn[i]))) : 0u;
             if (lt)
                 t->dtch = (uint8_t)lt;
             seq_note_on(t, nn[i], vv[i]);
@@ -2486,7 +2934,13 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
         for (i = 0; i < t->seq_n; i++) {
             for (j = 0; j < m && nn[j] != t->seq_notes[i]; j++)
                 ;
-            if (j == m)
+            if (j < m)
+                continue;
+            if (hdel && t->ss_n < sizeof t->ss_nn) {   /* (V10.6z4) the slide's note late: this one up as it comes
+                                                         * in (seq_due: a velocity 0 is a note-off), legato */
+                t->ss_nn[t->ss_n] = t->seq_notes[i];
+                t->ss_vv[t->ss_n++] = 0;
+            } else
                 seq_note_off(t, t->seq_notes[i]);
         }
     t->seq_n = 0;
@@ -2525,7 +2979,7 @@ static __attribute__((noinline)) void seq_lane_rat(track_t *t, uint32_t period, 
 {
     const step_t *s = t->cv_on ? &t->cvs : shift_step(t, t->seq_idx);
     uint32_t sl = step_samples(t, period, t->seq_idx), pos = t->seq_pos, prev, l, k, any = 0;
-    uint32_t vel = (s->flags & SF_ACCENT) ? 127u : (s->vel ? s->vel : 96u);
+    uint32_t vel = STEP_VEL(t, s);
     if (pos >= 0x7FFFFFFFu || s->time != ST_NOTE) {
         t->lr_on = 0;
         return;
@@ -2544,7 +2998,7 @@ static __attribute__((noinline)) void seq_lane_rat(track_t *t, uint32_t period, 
         if ((s->hit >> l) & 1u)
             seq_note_on(t, DRUM_LANE_NOTE[l], (s->acc >> l) & 1u ? 127u : vel);
         for (k = 0; k < s->n && k < 4u; k++)
-            if (drum_lane(s->note[k]) == l)
+            if (drum_note_lane(t, s->note[k]) == l)
                 seq_note_on(t, s->note[k], vel);
         ev_off = 0;
     }
@@ -2591,11 +3045,14 @@ static void seq_due(track_t *t, uint32_t n)
             t->dtch = t->ss_tch;
             if (trk_kit(t)) {                       /* (0.8.5) its lane's TOUCH, from the step playing */
                 const step_t *ps = t->cv_on ? &t->cvs : shift_step(t, t->seq_idx);
-                uint32_t lt = lm_touch(step_lmode(ps, drum_lane(t->ss_nn[t->ss_i])));
+                uint32_t lt = lm_touch(step_lmode(ps, drum_note_lane(t, t->ss_nn[t->ss_i])));
                 if (lt)
                     t->dtch = (uint8_t)lt;
             }
-            seq_note_on(t, t->ss_nn[t->ss_i], t->ss_vv[t->ss_i]);
+            if (t->ss_vv[t->ss_i])
+                seq_note_on(t, t->ss_nn[t->ss_i], t->ss_vv[t->ss_i]);
+            else
+                seq_note_off(t, t->ss_nn[t->ss_i]);
             t->dtch = 0;
             t->ss_i++;
             t->ss_due += t->ss_gap;
@@ -2642,23 +3099,12 @@ static void seq_tick(track_t *t, uint32_t n)
         ev_at(start || t->seq_pos >= n ? 0u : n - t->seq_pos);   /* (ctl64) the step's first sample (seq_pos: the samples
                                                          * past it at the block's end; 0 past it: the next block's first) */
         t->ext = (uint16_t)(start ? 0u : e);            /* (the next one longer by as much: the grid kept) */
-        if (t->jump_to && !start) {              /* (0.6.42) JUMP: the step it names */
+        if (t->jump_to && !start)                /* (0.6.42) JUMP: the step it names (LIVE's; V10.6y: REV, never set
+                                                 * since LIVE's went, gone) */
             t->seq_idx = (uint16_t)((t->jump_to - 1u) % (len ? len : 1u));
-            t->rev = 0;
-        } else if (t->rev && !start && t->seq_idx > 1u) {   /* REV: back towards step 1 */
-            t->seq_idx--;
-        } else if (t->rev && !start) {
-            t->seq_idx = 0;
-            t->rev = 0;
-        } else {
+        else
             t->seq_idx = (uint16_t)((t->seq_idx + 1u) % (len ? len : 1u));
-            if (!t->seq_idx && !start) {                /* (0.6.62) the pattern wrapped by itself: a new pass */
-                fl_reset((uint32_t)(t - trk));
-                fl_pass[(t - trk) % NTRK]++;
-            }
-        }
         t->jump_to = 0;
-        if (start) t->rev = 0;
         if (!t->seq_idx && !start && t->loops < 0xFFFFu)
             t->loops++;                                 /* (0.6.39) one more loop of the pattern (TRIG) */
         if (!lon)
@@ -2670,8 +3116,10 @@ static void seq_tick(track_t *t, uint32_t n)
             const step_t *s = (t->pfx & PFX_RND) && !(rng() & 1u)   /* (JIANT) RANDOM held: half the */
                                             ? &seq_steps(t)[rng() % (len ? len : 1u)] : shift_step(t, t->seq_idx);   /* steps, any */
             uint32_t skip = SEQ_ROLLED, i, k;
+            const step_t *s0;
             t->mic = (int8_t)ST_MICRO(s);               /* (0.6.88) its own TIMING (late: seq_step) */
             s = comp_lane(t, s);                        /* (0.6.47) C.LEN: the lane's component on it */
+            s0 = s;
             s = comp_run(t, s, len ? len : 1u);         /* (seq2d) the components: the step as they play it */
             /* the chance first (the one roll, as seq_step made it): a step that does not play applies no lock; the
              * automation and the locks before the notes, so a note-on reads them (eng_drum's KIT, ..) */
@@ -2681,6 +3129,8 @@ static void seq_tick(track_t *t, uint32_t n)
             motion_step(t, t->seq_idx, &motion, skip == SEQ_ROLLED && t->cx_lock != 2u);   /* (a song: its section's
                                                          * motion is the motion) */
             cx_lkhold = 0;
+            if (comp_any(s0) || rmp[trk_index(t) % NTRK].id)   /* (V10.6v) RAMP: launched, its value */
+                RAMP_RUN(t, s0, skip == SEQ_ROLLED && t->cx_lock != 2u, 0);
             if (t->rskip_n && t->rskip_idx == t->seq_idx) {
                 for (k = 0; k < t->rskip_n; k++) {
                     for (i = 0; i < s->n; i++)
@@ -2693,16 +3143,11 @@ static void seq_tick(track_t *t, uint32_t n)
                 t->rskip_n = 0;
             }
             seq_step(t, s, period, skip);
-            if (skip != SEQ_MISS && cx_jump[trk_index(t) % NTRK]) {   /* (seq2d) JUMP: then that step, or backwards */
-                uint32_t jv = cx_jump[trk_index(t) % NTRK] - 1u;
-                if (jv != CV_JUMP_REV && fl_once(t))
-                    t->jump_to = (uint8_t)(jv % NSTEP + 1u);
-                else if (jv == CV_JUMP_REV && t->seq_idx > 0u && fl_once(t))
-                    t->rev = 1;
-            }
         }
         ev_off = 0;
     }
+    if (rmp[trk_index(t) % NTRK].id)
+        RAMP_RUN(t, 0, 0, n);                           /* (V10.6v) a RAMP on its way */
     if (t->rat_left)
         seq_ratchet(t, period);
     if (t->lr_on)
@@ -2847,6 +3292,7 @@ static void events_block(uint32_t n)
         memset(midi_sel_on, 0, sizeof midi_sel_on);
         memset(midi_ch, 0, sizeof midi_ch);
         memset(midi_owners, 0, sizeof midi_owners);
+        memset(&midi_map, 0, sizeof midi_map);
         midi_hint = 0;
         for (i = 0; i < NTRK; i++) {
             trk[i].rh_n = trk[i].rskip_n = 0;
@@ -2952,4 +3398,6 @@ static void events_block(uint32_t n)
 }
 
 #include "song_play.c"                           /* the song: the ISR's part (song_chain.c) */
+
+
 

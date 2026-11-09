@@ -57,6 +57,7 @@ static void fl_plain_window_init(void) {}
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
+#include "legacy_proj.h"                        /* (V10.6s) FUN5, retired: refused */
 
 enum { ED_UI_STATE = 34, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET };
 static uint8_t ed_rep[64];                        /* the reply's bytes (MENU_SET) */
@@ -76,6 +77,7 @@ static int check(const char *what, int ok)
 
 static void reset(void)
 {
+    song_draft = song_save_loop = 0;
     memset(nor, 0xFF, sizeof nor);
     memset(&song, 0, sizeof song);
     memset(trk, 0, sizeof trk);
@@ -100,9 +102,12 @@ static void reset(void)
     irq_start_race = irq_races = 0;
 }
 
-/* ---- 1.0.3: the retired FM6 bank's patches move into the user presets on the first boot (up_fm6.c) ---- */
+/* ---- 1.0.3 retired the FM6 bank (OBJ_FM6BANK) and moved its patches into the user presets once; (V10.6s) that move
+ * is retired too (up_fm6.c): a 1.0.2 flash boots with the bank left alone and nothing written, the presets on a B slot
+ * the init voice (SLOT OWN), the F ones their factory patch; the patches object works as ever ---- */
 static uint8_t mig_pre[0x100000];
-static fm6_bank_t mig_bank;
+static struct { uint32_t magic; uint16_t ver, nslot; uint32_t used, rsv; uint8_t v[27][FM6_PACKED]; } mig_bank;   /* (1.0's) */
+_Static_assert(sizeof mig_bank == sizeof(fm6_bank_t), "the retired bank's size");
 
 static void mig_rec(up_bank_t *b, uint32_t i, uint32_t engine, int16_t slot, char tag)
 {
@@ -131,7 +136,7 @@ static void mig_setup(void)
     st_save(OBJ_UPRESET0, &b[0], sizeof b[0]);
     st_save(OBJ_UPRESET0 + 1, &b[1], sizeof b[1]);
     memset(&mig_bank, 0, sizeof mig_bank);
-    mig_bank.magic = FM6_BANK_MAGIC; mig_bank.ver = 1; mig_bank.nslot = FM6_BANK_N; mig_bank.used = 1u | 1u << 2;
+    mig_bank.magic = 0x42364D46u; mig_bank.ver = 1; mig_bank.nslot = 27; mig_bank.used = 1u | 1u << 2;
     memcpy(mig_bank.v[2], FM6_FACTORY[4], FM6_PACKED); memcpy(mig_bank.v[2] + 118, "OLD BANK 1", 10);
     st_save(OBJ_FM6BANK, &mig_bank, sizeof mig_bank);   /* A: an older bank */
     memcpy(mig_bank.v[0], FM6_FACTORY[6], FM6_PACKED); memcpy(mig_bank.v[0] + 118, "NEW B1    ", 10);
@@ -146,80 +151,46 @@ static void mig_boot(void)                               /* a power-on: RAM lost
     up_boot();
 }
 
-/* the presets play what 1.0.2 played: slot 1 the newest B3, 18 B1, 2 F2, 3 init (an empty B5), DRUM none */
-static int mig_ok(void)
+/* no preset has a patch of its own (nothing moved) */
+static int mig_none(void)
 {
     uint8_t pk[FM6_PACKED];
-    return !upf_get(0, pk) && !memcmp(pk + 118, "NEW B3    ", 10) && !upf_get(17, pk) &&
-           !memcmp(pk + 118, "NEW B1    ", 10) && upf_get(1, pk) && upf_get(2, pk) && upf_get(3, pk);
+    return upf_valid(&upf) && upf_get(0, pk) && upf_get(17, pk) && upf_get(1, pk) && upf_get(2, pk) && upf_get(3, pk);
 }
 
 static int mig_test(void)
 {
-    int bad = 0, ok = 1;
-    uint32_t cut, before, cuts = 0;
+    int bad = 0;
+    uint32_t before;
     uint8_t pk[FM6_PACKED];
-    upf_t got;
     reset();
     mig_setup();
     memcpy(mig_pre, nor, sizeof nor);
+    before = erases;
     mig_boot();
-    bad += check("FM6 bank -> user presets: B slots get the bank's newest patches", mig_ok());
-    bad += check("  .. written into A (the bank's older copy); the bank's newest copy (B) still whole",
-                 st_load(OBJ_UPFM6, &got, sizeof got) == (int)sizeof got && !memcmp(&got, &upf, sizeof got) &&
-                     ((st_hdr_t *)(nor + 0x9F000))->type == OBJ_UPFM6 && st_load(OBJ_FM6BANK, &mig_bank, sizeof mig_bank) > 0 &&
-                     !memcmp(mig_bank.v[0] + 118, "NEW B1", 6));
+    bad += check("1.0.2 flash with an FM6 bank (V10.6s: its move retired): nothing moved, nothing written",
+                 mig_none() && erases == before && !memcmp(mig_pre, nor, sizeof nor));
     up_load(0);
-    bad += check("  .. UP_LOAD 1 plays the bank's B3, SLOT OWN", !memcmp(fm6_patch[song.sel] + FP_NAME, "NEW B3    ", 10) &&
-                 TSEL->p[P_E7] == FM6_OWN);
+    bad += check("  .. UP_LOAD 1 (stored SLOT B3) plays the init voice, SLOT OWN",
+                 !memcmp(fm6_patch[song.sel] + FP_NAME, "INIT VOICE", 10) && TSEL->p[P_E7] == FM6_OWN);
     up_load(1);
     bad += check("  .. UP_LOAD 2 (F2) plays F2, SLOT F2", !memcmp(fm6_patch[song.sel] + FP_NAME, FM6_FACTORY[1] + 118, 10) &&
                  TSEL->p[P_E7] == 1);
-    up_load(2);
-    bad += check("  .. UP_LOAD 3 (an empty B5) plays the init voice, as before",
-                 !memcmp(fm6_patch[song.sel] + FP_NAME, "INIT VOICE", 10) && TSEL->p[P_E7] == FM6_OWN);
-    before = erases;
-    mig_boot();
-    bad += check("  .. the next boot: done (no write), the same patches", mig_ok() && erases == before);
-    /* a power cut at every write step of the migration: the next boot ends with the same result */
-    for (cut = 0; cut < 64u && ok; cut++) {
-        memcpy(nor, mig_pre, sizeof nor);
-        fail_after = (int)cut;
-        mig_boot();                                      /* (writes stop at the cut: the rest fails) */
-        if (fail_after > 0) break;                       /* (this boot finished before the cut) */
-        fail_after = -1;
-        cuts++;
-        mig_boot();
-        ok &= mig_ok() && st_load(OBJ_UPFM6, &got, sizeof got) == (int)sizeof got;
-    }
-    memcpy(nor, mig_pre, sizeof nor);
-    erase_error = 1;
-    mig_boot();                                          /* a cut before the erase */
-    erase_error = 0;
-    mig_boot();
-    ok &= mig_ok();
-    bad += check("a power cut at any step of the migration loses nothing (the next boot redoes it)", ok && cuts >= 10u);
-    /* after it: a preset save writes the other sector (the bank's last copy); a cut there keeps the first copy */
-    memcpy(nor, mig_pre, sizeof nor);
-    fail_after = -1;
-    mig_boot();
     trk[song.sel].eng_req = ENGI_FM6;
     fm6_load_slot(song.sel, 3);
     fail_after = (int)((sizeof(up_bank_t) + 255u) / 256u + 1u + 3u);   /* the preset bank's write passes, the patches' fails */
     up_store(20, "CUT");
     fail_after = -1;
     mig_boot();
-    bad += check("a cut while a preset's patch is written: the others kept, that preset without one",
-                 mig_ok() && upf_get(20, pk));
+    bad += check("a cut while a preset's patch is written: that preset without one", upf_get(20, pk));
     up_store(20, "SAVED");
     mig_boot();
-    bad += check("saved again: its patch, and the bank's sectors now both hold the patches object",
-                 mig_ok() && !upf_get(20, pk) && !memcmp(pk + 118, FM6_FACTORY[3] + 118, 10) &&
-                     ((st_hdr_t *)(nor + 0x9F000))->type == OBJ_UPFM6 && ((st_hdr_t *)(nor + 0xFE000))->type == OBJ_UPFM6);
+    bad += check("saved again: its patch over a boot, the others none",
+                 !upf_get(20, pk) && !memcmp(pk + 118, FM6_FACTORY[3] + 118, 10) && mig_none());
     memset(nor, 0xFF, sizeof nor);                        /* a device that never had a bank: nothing written */
     before = erases;
     mig_boot();
-    bad += check("no bank: nothing to move, nothing written", erases == before && upf_valid(&upf));
+    bad += check("no bank: nothing written", erases == before && upf_valid(&upf));
     return bad;
 }
 
@@ -500,6 +471,13 @@ static int songs_test(void)
     return bad;
 }
 
+
+#include "song_save_cases.h"
+#include "fit_storage_cases.h"
+#include "voice_user_cases.h"
+#include "split_storage_cases.h"
+
+#ifndef PERSISTENCE_TEST_NO_MAIN
 int main(void)
 {
     int bad = 0, ok;
@@ -684,7 +662,9 @@ int main(void)
         proj_slot[0] = old;
         st_save(OBJ_PROJECT0, &proj_slot[0], sizeof proj_slot[0]);
     }
-    {   /* an older format (FUN5) with values FUN7 cannot pack still loads, bounded */
+    {   /* (V10.6s) an older format (FUN5, retired) with values FUN7 cannot pack: refused, the slot empty, the tracks
+         * as they were; the parameter ranges all fit FUN7's byte */
+        step_t keep;
         uint32_t i;
         memset(&v5, 0, sizeof v5);
         v5.magic = PROJ_MAGIC_V5;
@@ -700,11 +680,13 @@ int main(void)
         v5.sum = proj_hash(&v5, sizeof v5 - 4u);
         st_save(OBJ_PROJECT0 + 3u, &v5, sizeof v5);
         memset(proj_slot[3].raw, 0, 4);
+        keep = trk[0].step[0];
+        ui.msg[0] = 0;
         project_load(3);
-        bad += check("FUN5 load bounds steps and masks lane accents", trk[0].step[0].n == 4u &&
-                      trk[0].step[0].time == ST_REST && trk[0].step[0].note[0] == 127u &&
-                      !trk[0].step[0].note[1] && trk[0].step[0].acc == 5u && project_used(3));
-        bad += check("FUN5 load clamps a parameter into its range", trk[0].p[P_LEVEL] == TP[P_LEVEL].max);
+        bad += check("FUN5 (retired) in flash: refused, EMPTY SLOT, the steps kept", !project_used(3) &&
+                      !strcmp(ui.msg, "EMPTY SLOT") && !memcmp(&trk[0].step[0], &keep, sizeof keep));
+        trk[0].step[0] = (step_t){{60, 64, 0, 0}, 2, ST_NOTE, 0, 96, 0, 0};
+        bad += check("  .. a save there stores today's format", project_save(3) == 0 && project_used(3));
         for (i = 0; i < P_COUNT; i++) {
             uint32_t e;
             for (e = 0; e < NENGINES; e++)
@@ -723,6 +705,7 @@ int main(void)
     transport_req = 0;
     {                                                          /* (add15) ARRANGE 2: a row's tracks from other sections */
         uint8_t na, nb;
+        trk[0].step[0].time = trk[2].step[0].time = ST_NOTE;   /* (notes that sound: no FUN5 load before this now) */
         trk[0].step[0].note[0] = 40; trk[2].step[0].note[0] = 41;
         project_save(0);
         trk[0].step[0].note[0] = 50; trk[2].step[0].note[0] = 51;
@@ -774,6 +757,37 @@ int main(void)
         song_index_load();
         bad += check("ARRANGE 2: a version 2 song index loads as 3, its scenes kept, every track its row's",
                      song_idx.version == SONG_IDX_V && song_idx.scene[1][3].mac[0] == 77 && !song_idx.tsrc[1][3]);
+    }
+    {   /* (V10.6p) 6 songs: an older JIANT's index on song 8, songs 7 and 8 stored (their commit records in the sample
+         * bank's reserve): it loads, the current song song 6, the rows of 1..6 kept; said once, the reserve never written */
+        static song_index_t v8;
+        static uint8_t keep[FL_SAMPLES_SIZE];
+        st_hdr_t h = {ST_MAGIC, OBJ_COUNT + 5u, 1u, 1u, 0u, 0u, {0, 0}, 0u};
+        v8 = song_idx;
+        v8.magic = SONG_MAGIC; v8.version = SONG_IDX_V; v8.cur = 7; v8.rsv[1] = 0;
+        v8.rows[4].count = 1; v8.rows[4].row[0] = (chain_row_t){2, 5};
+        v8.rows[7].count = 1; v8.rows[7].row[0] = (chain_row_t){3, 9};
+        ok = st_save(OBJ_SONGIDX, &v8, sizeof v8) == 0;
+        song_index_load();
+        ok &= song_cur == 0u && song_idx.cur == 0u && song_idx.rows[4].count == 1u &&   /* ((UMBRA OBSCURA) past project 4:
+                                                         * the first, song_main.c) */
+              song_idx.rows[4].row[0].bars == 5u && !song_idx.rsv[1];
+        memset(nor + FL_SAMPLES, 0xFF, FL_SAMPLES_SIZE);
+        ui.msg[0] = 0;
+        song_retired();                                 /* (none stored there: nothing said, checked) */
+        ok &= !ui.msg[0] && song_idx.rsv[1] == 1u;
+        song_idx.rsv[1] = 0;
+        memcpy(nor + FL_SAMPLES + 9u * ST_SECTOR, &h, sizeof h);   /* (song 8's section C, copy B) */
+        memcpy(keep, nor + FL_SAMPLES, sizeof keep);
+        song_retired();
+        ok &= str_eq(ui.msg, "SONGS 7-8 RETIRED") && ui.msg2[0] && song_idx.rsv[1] == 1u && song_idx_dirty;
+        ok &= song_index_save() == 0;                   /* (as song_poll writes it: the flag with it) */
+        ui.msg[0] = 0;
+        song_index_load();
+        song_retired();
+        ok &= !ui.msg[0] && song_idx.rsv[1] == 1u && !memcmp(keep, nor + FL_SAMPLES, sizeof keep);
+        bad += check("6 songs: an index on song 8 loads on song 6, songs 7-8 still stored said once, their flash kept", ok);
+        song_cur = 0; song_idx.cur = 0;
     }
     transport_req = 0;
     memset(&r, 0, sizeof r);
@@ -833,6 +847,26 @@ int main(void)
     bad += mig_test();
     bad += autosave_test();
     bad += songs_test();
+    bad += song_save_test();
+    bad += fit_storage_test();
+    bad += voice_user_test();
+    bad += split_storage_test();
+    {
+        static project_store_t follow_store;
+        song.playing = 0; transport_req = 0; chain.armed = chain.running = 0;
+        trk[0].p[P_M1SRC] = MS_T1 + NTRK - 1;
+        trk[0].p[P_M1DST] = MD_LEVEL;
+        trk[0].p[P_M1AMT] = -64;
+        project_capture(&proj_scratch);
+        ok = proj_pack(&follow_store, &proj_scratch) &&
+             proj_import(&proj_scratch, &follow_store, sizeof follow_store) &&
+             proj_scratch.t[0].p[P_M1SRC] == MS_T1 + NTRK - 1 &&
+             proj_scratch.t[0].p[P_M1DST] == MD_LEVEL && proj_scratch.t[0].p[P_M1AMT] == -64;
+        bad += check("new follower and LEVEL IDs round-trip in the existing project format", ok);
+    }
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");
     return bad != 0;
 }
+
+
+#endif

@@ -20,7 +20,7 @@ static void song_index_load(void)
     uint32_t k;
 #if FELUCCA_FLASH
     int n = st_load(OBJ_SONGIDX, &song_idx, sizeof song_idx);
-    if (song_idx.magic == SONG_MAGIC && song_idx.cur < NSONG &&
+    if (song_idx.magic == SONG_MAGIC && song_idx.cur < NSONG_IDX &&
         ((song_idx.version == SONG_IDX_V && n == (int)sizeof song_idx) ||
          (song_idx.version == 3u && n == (int)__builtin_offsetof(song_index_t, tvar)) ||
          (song_idx.version == 2u && n == (int)__builtin_offsetof(song_index_t, tsrc)) ||
@@ -32,7 +32,7 @@ static void song_index_load(void)
         if (song_idx.version < 4u)                  /* (add15-beta4: before VAR, no variations) */
             memset(song_idx.tvar, 0, sizeof song_idx.tvar);
         song_idx.version = SONG_IDX_V;
-        for (k = 0; k < NSONG; k++)
+        for (k = 0; k < NSONG_IDX; k++)
             song_rows_fix(&song_idx.rows[k]);
         if (song_idx.cur >= NSONG_USE)              /* ((UMBRA OBSCURA) projects 5..8 retired: the first instead) */
             song_idx.cur = 0;
@@ -43,11 +43,30 @@ static void song_index_load(void)
     memset(&song_idx, 0, sizeof song_idx);
     song_idx.magic = SONG_MAGIC;
     song_idx.version = SONG_IDX_V;
-    for (k = 0; k < NSONG; k++)
+    for (k = 0; k < NSONG_IDX; k++)
         chain_defaults(&song_idx.rows[k]);
     song_cur = 0;
     song_idx.rsv[0] = 1;                          /* (no index yet: song_index_boot takes section A's rows) */
 }
+#if FELUCCA_FLASH
+/* (V10.6p) power-on (autosave_boot), once: songs 7 and 8 retired (6 songs), their sections an older JIANT stored still
+ * in their flash (FL_SAMPLES, a commit record of one of their objects: OBJ_COUNT..+7): said; checked once (the index's
+ * rsv[1], written with it) */
+static __attribute__((noinline)) void song_retired(void)   /* (out of line: fm1_main's room is pinned) */
+{
+    uint32_t i, h[2];
+    if (song_idx.rsv[1])
+        return;
+    song_idx.rsv[1] = 1;
+    for (i = 0; i < FL_SAMPLES_SIZE / ST_SECTOR; i++)
+        if (!st_read(FL_SAMPLES + i * ST_SECTOR, h, sizeof h) && h[0] == ST_MAGIC && (uint16_t)(h[1] - OBJ_COUNT) < 8u) {
+            ui_message("SONGS 7-8 RETIRED");
+            str_cpy(ui.msg2, "6 SONGS NOW: SEE MANUAL", sizeof ui.msg2);
+            song_idx_touch();
+            return;
+        }
+}
+#endif
 /* persist_boot, after the slots: the current song's rows */
 static void song_index_boot(void)
 {
@@ -57,6 +76,7 @@ static void song_index_boot(void)
             song_idx.rows[0] = proj_scratch.chain;
     }
     chain_config = song_idx.rows[song_cur];
+    song_mode_restore();
 }
 /* the current song's name: its section A's, else SONG n (b: PROJ_NAME_LEN + 1 bytes) */
 static void song_name(char *b)
@@ -121,21 +141,27 @@ static void row_vary(step_t *st, uint32_t len, int kit, uint32_t v, uint32_t see
 
 /* section s (a project slot) into sec_stage for row `row` (SEC_LIVE: a live jump); 0 = staged. (add15) A song's row may
  * take tracks from other sections (ARRANGE 2: row_src): each of those is decoded in turn, its tracks (sound, steps, FM6
- * patch, automation; DRUM's kit with the DRUM track) taken from it; the row's own section last, with the rest */
+ * patch, automation; DRUM's kit with the DRUM track) taken from it; the row's own section last, with the rest.
+ * (V10.6s) clip_mix (CLIPS): the row's own is the music as it is (song_keep, 4), the tracks asked for (clip_go) from
+ * their parts, a track asked to stop muted; s the section the stage is said to be (SONG REC's row: its tracks' tsrc) */
 static int song_stage(uint32_t s, uint32_t row)
 {
     project_t *p = &proj_scratch;
-    uint32_t k, i, u, n = 0, on = 0, dx_from = s & 3u, use = 0, srcs[NTRK];
+    uint32_t own = clip_mix ? 4u : s & 3u, k, i, u, n = 0, on = 0, dx_from = own, use = 0, srcs[NTRK], src = 0;
     sec_stage.ready = 0;
     for (k = 0; k < NTRK; k++) {
-        srcs[k] = row < CHAIN_ROWS && !chain.loop ? row_src(row, k, s) : s & 3u;
+        uint32_t c = (uint32_t)(clip_go[k] ? clip_go[k] : clip_now[k]) - 1u;
+        srcs[k] = clip_mix ? ((uint32_t)clip_go[k] - 1u < 4u ? clip_go[k] - 1u : 4u) :
+                  row < CHAIN_ROWS && !chain.loop ? row_src(row, k, s) : s & 3u;
         use |= 1u << srcs[k];
+        if (clip_mix && c < 4u && c != (s & 3u))
+            src |= (c + 1u) << (3u * k);
     }
     for (u = 0; u < 5u; u++) {
-        uint32_t sec = u < 4u ? u : s & 3u;
-        if (u < 4u && (sec == (s & 3u) || !((use >> sec) & 1u)))
+        uint32_t sec = u < 4u ? u : own;
+        if (u < 4u && (sec == own || !((use >> sec) & 1u)))
             continue;                                 /* (the row's own goes last: its globals) */
-        if (!proj_import(p, &proj_slot[sec], sizeof(project_store_t)))
+        if (!proj_import(p, sec < 4u ? &proj_slot[sec] : &song_keep, sizeof(project_store_t)))
             return 1;
         for (k = 0; k < NTRK; k++) {
             sec_trk_t *d = &sec_stage.t[k];
@@ -143,6 +169,7 @@ static int song_stage(uint32_t s, uint32_t row)
             uint32_t e = eng_live(t->engine);
             if (srcs[k] != sec)
                 continue;
+            sec_stage_fit[k] = fit_valid(p->fit[k]);
             d->engine = (uint8_t)e;
             d->preset = (uint8_t)(ENGINES[e]->npresets ? (t->preset >= PROJ_DEF_KEEP ? 0u : t->preset) % ENGINES[e]->npresets
                                                        : 0u);
@@ -156,10 +183,12 @@ static int song_stage(uint32_t s, uint32_t row)
                          (song_cur + 1u) * 40503u ^ (row + 1u) * 104729u ^ (k + 1u) * 1299709u ^ v * 15485863u);
                 if (v == RV_MUTE) d->p[P_MUTE] = 1;
             }
+            if (clip_mix && clip_go[k] == CLIP_STOP)    /* (V10.6s) CLIPS' OCT-: the track stops */
+                d->p[P_MUTE] = 1;
             fm6_unpack(p->fm6[k], d->fm6);
             fm6_sanitize(d->fm6);
             on |= p->motion.on & (1u << k);
-            if (e == ENGI_DRUM && sec != (s & 3u))
+            if (e == ENGI_DRUM && sec != own)
                 dx_from = sec;
         }
         for (i = 0; i < p->motion.count && i < MOTION_MAX && n < MOTION_MAX; i++)
@@ -179,6 +208,7 @@ static int song_stage(uint32_t s, uint32_t row)
     sec_stage.pfx_ltgt = p->pfx_ltgt > 2u ? 0u : p->pfx_ltgt;
     sec_stage.row = (uint8_t)row;
     sec_stage.section = (uint8_t)(s & 3u);
+    sec_stage.src = src;
     RING_PUBLISH();
     sec_stage.ready = 1;
     return 0;
@@ -193,31 +223,46 @@ static uint32_t section_bars(uint32_t s)
         return 1;
     for (k = 0; k < NTRK; k++) {
         uint32_t len = (uint32_t)clamp(p->t[k].p[P_SLEN], 1, NSTEP);
-        uint32_t b = (len * div_samples((uint32_t)p->t[k].p[P_SDIV]) + bar - 1u) / bar;
+        uint32_t span = p->fit[k] & 128u ? fit_value_span(p->fit[k]) : len;
+        uint32_t b = (span * div_samples((uint32_t)p->t[k].p[P_SDIV]) + bar - 1u) / bar;
         bars = b > bars ? b : bars;
     }
     return bars > CHAIN_BARS ? CHAIN_BARS : bars;
 }
+/* (V10.6o) PARTS / TIMELINE: section s as proj_scratch holds it (just decoded: graph_project_used): its tracks that
+ * play (part_play) */
+static uint32_t part_scan(uint32_t s)
+{
+    const project_t *p = &proj_scratch;
+    uint32_t k, i, n, m = 0;
+    for (k = 0; k < NTRK; k++) {
+        n = (uint32_t)clamp(p->t[k].p[P_SLEN], 1, NSTEP);
+        for (i = 0; i < n && p->t[k].step[i].time != ST_NOTE; i++) {}
+        if (i < n && !p->t[k].p[P_MUTE])
+            m |= 1u << k;
+    }
+    return m;
+}
 
-/* Main loop only: PLAY a song. 0 = armed, 1 = no rows, 2 = busy, 3 + s = section s not saved */
-static uint32_t chain_prepare(void)
+/* Main loop only: PLAY a song (V10.6o: from row r0). 0 = armed, 1 = no rows, 2 = busy, 3 + s = section s not saved */
+static uint32_t chain_prepare_at(uint32_t r0)
 {
     uint32_t i;
     if (transport_busy())
         return 2;
-    if (!chain_valid(&chain_config) || !chain_config.count)
+    if (!chain_valid(&chain_config) || r0 >= chain_config.count)
         return 1;
     for (i = 0; i < chain_config.count; i++)
         if (!proj_import(&proj_scratch, &proj_slot[chain_config.row[i].slot], sizeof(project_store_t)))
             return 3u + chain_config.row[i].slot;
     project_capture(&proj_scratch);                   /* the music as it is: back when the song ends */
-    chain.kept = (uint8_t)proj_pack(&song_keep, &proj_scratch);
+    chain.kept = proj_pack(&song_keep, &proj_scratch) ? (uint8_t)(1u | ((uint32_t)(live.cur + 1) << 1)) : 0u;
     chain.config = chain_config;
     chain.loop = 0;
     chain.pass = 0;
     chain.ended = 0;
-    if (song_stage(chain.config.row[0].slot, 0))
-        return 3u + chain.config.row[0].slot;
+    if (song_stage(chain.config.row[r0].slot, r0))
+        return 3u + chain.config.row[r0].slot;
     RING_PUBLISH();
     chain.armed = 1;
     transport_req = 1;
@@ -239,9 +284,53 @@ static int section_load(uint32_t s)
     ui.song_row = row;
     proj_cur = (uint8_t)(s & 3u);
     live.cur = (int8_t)(s & 3u);
+    memset(clip_now, (int)(s & 3u) + 1, sizeof clip_now);   /* (V10.6s) CLIPS: every track that part's */
+    memset(clip_go, 0, sizeof clip_go);
+    sec_stage.src = 0;                                  /* (SONG REC's first row: the whole section) */
     return 0;
 }
 
+/* (V10.6o) what plays stops being a song or a quick chain (the music it brought plays on, the song's REC arming back);
+ * a live jump asked for forgotten */
+static void chain_cut(void)
+{
+    fm1_irq_off();                                    /* (the ISR may be applying one) */
+    if (chain.running && !chain.loop) {
+        song.rec = chain.rec;
+        scene_pfx = 0;
+    }
+    chain.running = 0;
+    chain.armed_bar = 0;
+    chain.hold = 0;
+    live.req = -1;
+    fm1_irq_on();
+}
+/* (V10.6o) the song from row r (PARTS' OCT-, TIMELINE's PLAY): playing, on the next bar; stopped, now. hold: that row
+ * round and round until PLAY lets it go (tl_play). 0 done */
+static int chain_goto(uint32_t r, uint32_t hold)
+{
+    if (!song.playing) {
+        uint32_t rc = transport_busy() ? 2u : chain_prepare_at(r);
+        if (rc) {
+            ui_message(rc == 1u ? "ADD A SONG ROW" : rc == 2u ? "STOP FIRST" : "SECTION EMPTY");
+            return 1;
+        }
+    } else {
+        if (r >= chain_config.count || !chain_valid(&chain_config)) { ui_message("ADD A SONG ROW"); return 1; }
+        chain_cut();
+        chain.config = chain_config;
+        chain.loop = 0;
+        chain.pass = 0;
+        chain.ended = 0;
+        chain.kept = 0;
+        chain.scn = 0;
+        if (song_stage(chain.config.row[r].slot, r)) { ui_message("SECTION EMPTY"); return 1; }
+        RING_PUBLISH();
+        chain.armed_bar = 1;                          /* (chain_tick: on the next bar) */
+    }
+    chain.hold = (uint8_t)hold;
+    return 0;
+}
 /* the song layer (ui_layer.c), main loop. Section s: in on the next bar (stopped: now). 0 done */
 static int section_jump(uint32_t s)
 {
@@ -262,17 +351,71 @@ static int section_jump(uint32_t s)
         ui_say("SECTION ", b);
         return 0;
     }
-    fm1_irq_off();                                    /* (the ISR may be applying one) */
-    chain.running = 0;                                /* (a single section ends a quick chain) */
-    chain.armed_bar = 0;
-    live.req = -1;
-    fm1_irq_on();
+    chain_cut();                                      /* (a single section ends a quick chain) */
     if (song_stage(s, SEC_LIVE))
         return 1;
     live.req = (int8_t)s;
     ui_say(b, " NEXT BAR");
     return 0;
 }
+/* (V10.6s) SAVE > CLIPS: track k's cell of part s in on the next bar (stopped: now, and PLAY): the other tracks play on
+ * as they are (the music now, song_keep, the stage's own: their sounds, steps, motion; the kit unless the DRUM track's
+ * cell goes in), what plays stops being a song. s 4: the track stops (muted on the bar); k NTRK: every track, the part
+ * (a live jump: section_jump). Cells asked for in one bar go in together. 0 done */
+static int clip_launch(uint32_t k, uint32_t s)
+{
+    uint32_t sec = live.cur >= 0 ? (uint32_t)live.cur : s & 3u, i;
+    if (s < 4u && !project_used(s)) {
+        ui_message("PART EMPTY");
+        return 1;
+    }
+    chain_cut();
+    live.mode = 0;
+    if (k >= NTRK) {
+        if (section_jump(s))
+            return 1;
+        if (song.playing)
+            memset(clip_go, (int)s + 1, sizeof clip_go);
+    } else {
+        project_capture(&proj_scratch);
+        if (!proj_pack(&song_keep, &proj_scratch)) {
+            ui_message("SECTION FULL");
+            return 1;
+        }
+        clip_go[k] = (uint8_t)(s + 1u);
+        clip_mix = 1;
+        i = (uint32_t)song_stage(sec, SEC_LIVE);
+        clip_mix = 0;
+        if (i) {
+            clip_go[k] = 0;
+            return 1;
+        }
+        if (song.playing) {
+            live.req = (int8_t)sec;
+            ui_message("NEXT BAR");
+        } else {
+            fm1_irq_off();                              /* (stopped: in now, as the ISR would) */
+            sec_apply();
+            fm1_irq_on();
+        }
+    }
+    if (!song.playing && !transport_busy())
+        transport_req = 1;
+    return 0;
+}
+/* (song_poll) what went in: each track's part (CLIPS' cells asked for, else the section) */
+static void clip_seen(void)
+{
+    uint32_t k, any = 0;
+    for (k = 0; k < NTRK; k++)
+        any |= clip_go[k];
+    for (k = 0; k < NTRK; k++) {
+        if (clip_go[k] || !any)
+            clip_now[k] = clip_go[k] ? clip_go[k] : (uint8_t)(((uint32_t)live.cur & 3u) + 1u);
+        clip_go[k] = 0;
+    }
+}
+
 /* the music now into section s: RAM at once (playing too), flash once stopped (song_poll) */
 static void section_store(uint32_t s)
 {
@@ -316,11 +459,7 @@ static void quick_chain(const uint8_t *s, uint32_t n)
             ui_say(b, " IS EMPTY");
             return;
         }
-    fm1_irq_off();
-    chain.running = 0;
-    chain.armed_bar = 0;
-    live.req = -1;
-    fm1_irq_on();
+    chain_cut();
     chain_defaults(&chain.config);
     chain.config.count = (uint8_t)n;
     for (i = 0; i < n; i++) {
@@ -362,6 +501,7 @@ static void song_rec_toggle(void)
 static int song_flush(void)
 {
     uint32_t k;
+    if (song_draft) return 0;
 #if FELUCCA_FLASH
     if (!flash_ok)
         return 0;
@@ -383,6 +523,7 @@ static void song_idx_touch(void)
 /* the index into flash (the songs' rows, the current song): 0 done (or no flash) */
 static int song_index_save(void)
 {
+    if (song_draft) return 0;
     song_idx.rows[song_cur] = chain_config;
     song_idx.cur = song_cur;
 #if FELUCCA_FLASH
@@ -392,6 +533,32 @@ static int song_index_save(void)
     song_idx_dirty = 0;
     return 0;
 }
+
+/* Commit the old project before borrowing its four RAM buffers. All later
+ * generations are drafts until an explicit SAVE; no new audio storage. */
+static int song_draft_begin(void)
+{
+    if (!bt_hw_seg()) { ui_message("UPDATE PACKAGE"); return 1; }
+    if (transport_busy()) { ui_message("STOP TO GENERATE"); return 1; }
+#if FELUCCA_FLASH
+    if (!flash_ok) { ui_message("NO FLASH"); return 1; }
+#endif
+    if (!song_draft) {
+        if (song_flush() || song_index_save()) { ui_message("SAVE ERROR"); return 1; }
+        song_save_target = song_cur;
+    }
+    song_draft = 1;
+    dice_secs = 0;
+    snd_held = snd_seen = 0;                          /* (V10.6z8: a throw, the sections' sounds) */
+    live.dirty = 0; live.cur = live.req = -1; sec_stage.ready = 0;
+    proj_cur = PROJ_NO_SLOT; proj_name[0] = 0;
+    memset(proj_slot, 0, sizeof proj_slot);
+    proj_wire_gen++;
+    return 0;
+}
+
+#include "song_save.c"
+
 /* song n (0..NSONG - 1) in, stopped only: the current one kept first, then n's sections and rows; load_a: its
  * section A becomes the music (an empty song: the music stays, a new song to store sections into); else (JIANT 0.6.12,
  * SAVE > PROJECT) the music stays as it is, to be stored into one of n's sections or replaced by one. 0 done */
@@ -399,17 +566,20 @@ static int song_switch(uint32_t n, int load_a)
 {
     char nm[PROJ_NAME_LEN + 1u];
     uint32_t k;
-    if (n >= NSONG_USE || n == song_cur)
+    if (n >= NSONG_USE || (n == song_cur && !song_draft))
         return 1;
     if (transport_busy()) {
         ui_message(load_a ? "STOP TO CHANGE SONG" : "STOP TO CHANGE PROJECT");
         return 1;
     }
-    if (song_flush()) {
-        ui_message("SAVE ERROR");
-        return 1;
+    if (song_draft) {
+        song_draft = 0; live.dirty = 0;
+        song_index_load();
+    } else {
+        if (song_flush()) { ui_message("SAVE ERROR"); return 1; }
+        song_idx.rows[song_cur] = chain_config;
     }
-    song_idx.rows[song_cur] = chain_config;           /* (the rows of the song left) */
+    /* The original index is restored before opening another saved project. */
     song_cur = (uint8_t)n;
     chain_config = song_idx.rows[n];
     if (song_index_save()) {                          /* (failed: written again by song_poll) */
@@ -432,6 +602,7 @@ static int song_switch(uint32_t n, int load_a)
         proj_cur = PROJ_NO_SLOT;
     ui.force = 1;
     if (load_a) {
+        song_mode_restore();
         song_name(nm);
         ui_say(nm, "");
     } else {                                          /* PROJECT n, then its section A's name */
@@ -452,13 +623,14 @@ static void song_poll(void)
     uint32_t k;
     if (chain.applied) {
         chain.applied = 0;
+        clip_seen();                                  /* (V10.6s) CLIPS: what sounds now */
         for (k = 0; k < NTRK; k++)
             fm6_adopt(k);                             /* (an FM6 track's SLOT: F n or OWN) */
         sync_reload = 1;
         ui.force = 1;
     }
     if (chain.running && !sec_stage.ready) {
-        uint32_t next = chain.row + 1u;
+        uint32_t next = chain.row + !chain.hold;      /* (V10.6o: held, the row again) */
         if (next >= chain.config.count && (chain.loop || SONG_END(&chain.config) == SONG_FOREVER ||
                                            (SONG_END(&chain.config) >= 2u && chain.pass + 1u < SONG_END(&chain.config))))
             next = 0;                                 /* (0.6.22: the song's END: round again) */
@@ -475,10 +647,11 @@ static void song_poll(void)
             chain_defaults(&chain_config);
             chain_config.count = (uint8_t)n;
             memset(song_idx.scene[song_cur], 0, sizeof song_idx.scene[song_cur]);
-            memset(song_idx.tsrc[song_cur], 0, sizeof song_idx.tsrc[song_cur]);   /* (SONG REC: whole sections) */
-            memset(song_idx.tvar[song_cur], 0, sizeof song_idx.tvar[song_cur]);
+            memset(song_idx.tsrc[song_cur], 0, sizeof song_idx.tsrc[song_cur]);   /* (SONG REC: whole sections; */
+            memset(song_idx.tvar[song_cur], 0, sizeof song_idx.tvar[song_cur]);   /* V10.6s: CLIPS' tracks FROM) */
             for (k = 0; k < n; k++) {
                 chain_config.row[k] = live.rec[k];
+                song_idx.tsrc[song_cur][k] = rec_src[k];
                 song_idx.scene[song_cur][k] = live.rec_scene[k];   /* (each row's scene, as it began) */
             }
             song_idx_touch();
@@ -492,14 +665,18 @@ static void song_poll(void)
         char name[PROJ_NAME_LEN + 1u];
         chain.ended = 0;
         str_cpy(name, proj_name, sizeof name);
-        if (chain.kept && proj_import(&proj_scratch, &song_keep, sizeof song_keep) &&
+        if (chain.kept && !snd_held && proj_import(&proj_scratch, &song_keep, sizeof song_keep) &&   /* (V10.6z8: sounds
+                                                         * the player changed: the music stays as the song left it) */
             !project_restore_runtime(&proj_scratch)) {
             proj_cur = cur;                           /* (the music before the song: its slot and name) */
+            live.cur = (int8_t)((int32_t)(chain.kept >> 1) - 1);
             str_cpy(proj_name, name, PROJ_NAME_LEN + 1u);
             ui_message("SONG END");
         }
     }
-    if (memcmp(&chain_config, &song_idx.rows[song_cur], sizeof chain_config)) {   /* the rows changed */
+    if (song_draft) return;
+    chain_config.rsv[2] = SONG_MODE_TAG | (live.mode ? 1u : 0u);
+    if (memcmp(&chain_config, &song_idx.rows[song_cur], sizeof chain_config)) {   /* the rows or PLAY mode changed */
         song_idx.rows[song_cur] = chain_config;
         song_idx_dirty = 1;
         song_idx_t = fm1_ms;
@@ -517,3 +694,4 @@ static void song_poll(void)
     song_idx_dirty = 0;
 #endif
 }
+

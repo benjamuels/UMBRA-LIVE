@@ -22,13 +22,13 @@ static void umw_show(uint32_t on)                       /* .. and saved once thi
 }
 static int umw_on(void)                                 /* WELCOME shown */
 {
-    return UMB_ON && home_bare() && !ui.hset[0] && !umw_gone() && !umt_shown() && !ui.confirm && !ui.layer;
+    return UMB_ON && home_bare() && !ui.hset[0] && !umw_hid() && !umt_shown() && !ui.confirm && !ui.layer;
 }
 /* each input pass, after the octave keys' taps (ui_input.c oct_taps: on release, none of a chord) */
 static void umw_input(uint32_t oct)
 {
     uint32_t dn = (fm1_in.buttons >> panel.btn[B_OCTDN]) & 1u, up = (fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u, el;
-    if (umw_gone() && !ui.hlv && !ui.hset[0])           /* (gone: HOME's first page the next one) */
+    if (umw_hid() && !ui.hlv && !ui.hset[0])            /* (gone, or no segment: HOME's first page the next one) */
         ui.hset[0] = 1;
     if (!dn || up || !umw_on())
         umw_t0 = 0;
@@ -56,19 +56,33 @@ static void umw_input(uint32_t oct)
 }
 /* the pages, a line each (a '\n' ends one; an empty one a gap); "\001KEY\001" a key of the FM-1, framed as its button.
  * The first is the greeting, drawn large */
-static const char *const UMW_TX[UMW_NP] = {
-    "Welcome!",
+/* ((UMBRA OBSCURA) on V10.7.6: in the Bluetooth segment, bt.c BTAPP_RO, as JIANT's own ABOUT texts: the app slot is
+ * full; read once it is this build's, bt_hw_seg) the pages one after the other, each ended by its '\0' */
+static const char UMW_TX[] BTAPP_RO =
+    "Welcome!"
+    "\0"
     "Umbra Obscura is\na custom firmware fork of Jiant.\n\nIt preserves the complete audio system\nand sound engine characters "
-    "from Jiant",
+    "from Jiant"
+    "\0"
     "This version removes the Jiant\nECO and \"beings\"\nand reduces the project save slots\nfrom 8 to 4.\n\nIn that space it "
-    "adds a\nlive visual performance system",
-    "ECO and BEING pages\nare replaced with\nUMBRA where you set\nlive performance controls.",
+    "adds a\nlive visual performance system"
+    "\0"
+    "ECO and BEING pages\nare replaced with\nUMBRA where you set\nlive performance controls."
+    "\0"
     "You still change pages\nwith the SELECT knob and\n\nActivate TOTALITY by tapping \001HOME\001\n(fullscreen live "
-    "performance mode)\n\nAnd exit by tapping \001HOME\001 again",
-    "Find more info in settings MENU\nLong press \001HOME\001\n\nDismiss welcome screen\nby long pressing \001Oct -\001"};
+    "performance mode)\n\nAnd exit by tapping \001HOME\001 again"
+    "\0"
+    "Find more info in settings MENU\nLong press \001HOME\001\n\nDismiss welcome screen\nby long pressing \001Oct -\001";
+BTAPP_FN static const char *umw_page(uint32_t n)   /* the n-th page */
+{
+    const char *s = UMW_TX;
+    while (n--)
+        s += str_len(s) + 1u;
+    return s;
+}
 #define UMW_LH 12                                       /* a line's height (AF_X 9, and 3: a key's frame clear of the next) */
 /* AF_X's glyphs sc times as large, in c (grow: each pixel that much larger: the outline under them) */
-static void umw_glyphs(int32_t x, int32_t y, const char *s, int32_t sc, uint16_t c, int32_t grow)
+BTAPP_FN static void umw_glyphs(int32_t x, int32_t y, const char *s, int32_t sc, uint16_t c, int32_t grow)
 {
     const aafont_t *f = &AF_X;
     int32_t pen = 0;
@@ -83,7 +97,7 @@ static void umw_glyphs(int32_t x, int32_t y, const char *s, int32_t sc, uint16_t
     }
 }
 /* a line's run from x, its caps' top at y (its keys framed); its width (draw 0: measured only) */
-static int32_t umw_run(int32_t x, int32_t y, const char *s, uint32_t n, int draw)
+BTAPP_FN static int32_t umw_run(int32_t x, int32_t y, const char *s, uint32_t n, int draw)
 {
     char b[48];
     uint32_t i = 0, key = 0;
@@ -114,7 +128,7 @@ static int32_t umw_run(int32_t x, int32_t y, const char *s, uint32_t n, int draw
     }
     return w;
 }
-static int32_t umw_line(int32_t cx, int32_t y, const char *s, uint32_t n, int draw)   /* .. centred on cx */
+BTAPP_FN static int32_t umw_line(int32_t cx, int32_t y, const char *s, uint32_t n, int draw)   /* .. centred on cx */
 {
     int32_t w = umw_run(0, y, s, n, 0);
     if (draw)
@@ -122,9 +136,9 @@ static int32_t umw_line(int32_t cx, int32_t y, const char *s, uint32_t n, int dr
     return w;
 }
 /* the page over the plate, between top and bot (the canvas's y), x0 the strip's place */
-static void umw_draw(int32_t x0, int32_t top, int32_t bot)
+BTAPP_FN static void umw_draw(int32_t x0, int32_t top, int32_t bot)
 {
-    const char *s = UMW_TX[umw_pg % UMW_NP], *e;
+    const char *s = umw_page(umw_pg % UMW_NP), *e;
     uint8_t ha = cv_halo;
     int32_t n = 1, y, k;
     cv_halo = 1;

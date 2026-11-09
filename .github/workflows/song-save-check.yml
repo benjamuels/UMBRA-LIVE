@@ -1,0 +1,66 @@
+name: Song save candidate
+on:
+  push:
+    branches: [codex/song-save-as]
+permissions:
+  contents: read
+concurrency:
+  group: song-save-candidate
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install Pillow==12.3.0 numpy==2.3.5 fonttools==4.61.1
+      - name: Generate headers
+        run: python3 -c "import sys;sys.path.insert(0,'tools');import build;build.generate()"
+      - name: Song persistence and UI
+        run: |
+          set -euo pipefail
+          mkdir -p build/song-check
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/persistence_test.c -lm -o build/song-check/persistence
+          build/song-check/persistence | tee build/song-check/persistence.log
+          cc -O1 -w -Wno-implicit-function-declaration -DSONG_SAVE_ONLY -Ibuild/gen -Ifirmware/src tests/ui_test.c -lm -o build/song-check/ui
+          build/song-check/ui | tee build/song-check/ui.log
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/project_test.c -lm -o build/song-check/project
+          build/song-check/project > build/song-check/project.log
+          python3 tests/uac_input_irq_test.py > build/song-check/usb-input.log
+      - name: JieLi toolchain cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.jieli
+            ~/fw-AC79_AIoT_SDK/cpu/wl82/tools
+          key: jieli-ac79-v1.2.1
+      - name: Toolchain and SDK
+        run: |
+          retry() { for d in 0 5 15 30; do sleep $d; "$@" && return 0; done; return 1; }
+          T=$HOME/fw-AC79_AIoT_SDK/cpu/wl82/tools
+          [ -e "$HOME/.jieli/toolchain" ] || retry sh tools/get_toolchain.sh "$HOME/.jieli"
+          if [ ! -s "$T/uboot.boot" ] || [ ! -s "$T/cfg_tool.bin" ] || [ ! -s "$T/cfg/eq_cfg_hw.bin" ]; then
+            retry git clone --filter=blob:none --no-checkout https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$HOME/fw-AC79_AIoT_SDK"
+            cd "$HOME/fw-AC79_AIoT_SDK"
+            git sparse-checkout set --no-cone /cpu/wl82/tools/uboot.boot /cpu/wl82/tools/cfg_tool.bin /cpu/wl82/tools/cfg/eq_cfg_hw.bin
+            retry git checkout d179b4484759423312073f5fbb232501aa491047
+          fi
+          test -s "$T/uboot.boot" && test -s "$T/cfg_tool.bin" && test -s "$T/cfg/eq_cfg_hw.bin"
+      - name: FM-1 package and target budgets
+        env:
+          AC79_SDK: /home/runner/fw-AC79_AIoT_SDK
+          JIELI_TOOLCHAIN: /home/runner/.jieli/toolchain
+        run: python3 tools/build.py > build/song-check/target.log 2>&1 || { cat build/song-check/target.log; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: song-save-candidate
+          path: |
+            build/song-check/*.log
+            build/felucca.fwsc
+            build/felucca.bin
+            build/bt.bin
+            build/layout.ld
+            build/felucca.map

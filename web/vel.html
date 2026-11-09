@@ -1,0 +1,291 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Juan Ignacio Antonucci (Juan Jiant) -->
+<!-- (V10.6z5) JIANT velocity diagnostic: turns the FM-1's key sensing on (editor protocol command 81 VEL,
+     EDITOR_PROTOCOL.md; firmware/src/vel_diag.c), reads every press and capture over USB-MIDI and keeps them as text
+     to save or copy. The sensing follows Velo (Charles Vestal, github.com/charlesvestal/fm1-velocity, GPL-3.0).
+     (V10.6z6, protocol 1.2) "En vivo": VEL op 4, each note's velocity and each key's calibration and pressure as the
+     firmware has them (firmware/src/vel.c); op 5 the calibration back to its seeds.
+     Chrome / Edge on a computer, Chrome on Android (Web MIDI with SysEx). docs/VELOCITY_DIAG.es.md -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JIANT Velocity Check</title>
+<style>
+  :root { --bg: #fff; --fg: #000; --dim: #777; --line: #ccc; --hi: #e8f0ff; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #000; --fg: #fff; --dim: #888; --line: #444; --hi: #13233d; }
+  }
+  :root[data-theme="dark"] { --bg: #000; --fg: #fff; --dim: #888; --line: #444; --hi: #13233d; }
+  html { color-scheme: light dark; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+         font-variant-numeric: tabular-nums; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 18px 0 6px; border-bottom: 1px solid var(--fg); padding-bottom: 2px; }
+  p { margin: 4px 0; }
+  .dim { color: var(--dim); }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+  button { font: inherit; background: var(--fg); color: var(--bg); border: 0; padding: 6px 14px; cursor: pointer; }
+  button:disabled { opacity: .3; cursor: default; }
+  select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); padding: 4px; }
+  #last { font: 600 28px/1.2 ui-monospace, Menlo, Consolas, monospace; min-height: 1.3em; margin: 8px 0; }
+  #status { min-height: 1.4em; }
+  .tbl { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: right; padding: 2px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  tr.key td { background: var(--hi); }
+  .vb { display: inline-block; height: 10px; background: var(--fg); vertical-align: middle; }
+  .vbt { display: inline-block; width: 128px; background: var(--line); vertical-align: middle; }
+  #lv { font: 600 28px/1.2 ui-monospace, Menlo, Consolas, monospace; min-height: 1.3em; margin: 8px 0; }
+  #log { width: 100%; box-sizing: border-box; height: 260px; font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace;
+         color: var(--fg); background: var(--bg); border: 1px solid var(--line); padding: 6px; white-space: pre; }
+</style>
+</head>
+<body>
+<main>
+  <h1>JIANT · velocidad de las teclas</h1>
+  <p class="dim">Mide la presión de cada tecla (F3 a C5) para ver si tu FM-1 puede dar velocidad. No cambia el sonido.
+     Instrucciones: <a href="https://github.com/juanjiant-bit/JIANT/blob/main/docs/VELOCITY_DIAG.es.md">VELOCITY_DIAG.es.md</a>.</p>
+  <div class="bar">
+    <button id="connect">1. Conectar el FM-1</button>
+    <label>Drive <select id="drive">
+      <option value="0">0 (sin drive)</option><option value="1">1</option><option value="2" selected>2 (normal)</option>
+      <option value="3">3</option><option value="4">4</option></select></label>
+    <button id="on" disabled>2. Activar la medición</button>
+    <button id="off" disabled>Desactivar</button>
+  </div>
+  <div class="bar"><span class="dim">Marcar en el registro lo que vas a tocar:</span>
+    <button class="mark" data-m="suave">suave</button><button class="mark" data-m="normal">normal</button>
+    <button class="mark" data-m="fuerte">fuerte</button><button class="mark" data-m="otras">otras</button>
+  </div>
+  <div id="status" class="dim">Cerrá el editor web y cualquier otro programa MIDI antes de conectar.</div>
+  <div id="last"></div>
+
+  <h2>Por tecla</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>tecla</th><th>toques</th><th>D mín</th><th>D media</th><th>D máx</th><th>P última</th><th>ms última</th></tr></thead>
+    <tbody id="keys"></tbody>
+  </table></div>
+  <p class="dim">D: la lectura más baja con la fila empujada (más bajo = más fuerte). P: la más baja con pull-up.
+     ms: del primer contacto a la tecla asentada.</p>
+
+  <h2>En vivo: la velocidad de cada nota (JIANT V10.6z6 o posterior)</h2>
+  <div class="bar">
+    <button id="live" disabled>Ver en vivo</button>
+    <button id="reset" disabled>Volver a la calibración de fábrica</button>
+    <span id="lvset" class="dim"></span>
+  </div>
+  <div id="lv"></div>
+  <div class="tbl"><table>
+    <thead><tr><th>tecla</th><th>velocidad</th><th></th><th>lectura</th><th>FUERTE</th><th>NORMAL</th><th>SUAVE</th><th>presión</th></tr></thead>
+    <tbody id="lvkeys"></tbody>
+  </table></div>
+  <p class="dim">Cada nota toma su velocidad (1..127) de la lectura más baja al golpe: más baja = más fuerte. Cada tecla
+     tiene su calibración (sus golpes FUERTE, NORMAL y SUAVE), que se va ajustando sola mientras tocás (MENU &gt; CONTROL
+     &gt; VEL LEARN). Las teclas de arriba (C#5 a G5) no se pueden medir: tocan el promedio de las últimas. Presión: lo
+     que apretás de más con la tecla abajo (aftertouch, MENU &gt; CONTROL &gt; AFTERTOUCH).</p>
+
+  <h2>Registro</h2>
+  <div class="bar">
+    <button id="save" disabled>Guardar .txt</button>
+    <button id="copy" disabled>Copiar todo</button>
+    <button id="clear">Borrar</button>
+    <span id="count" class="dim"></span>
+  </div>
+  <textarea id="log" readonly spellcheck="false"></textarea>
+  <p class="dim">JIANT FM by Juan Jiant, GPL-3.0. La lectura de las teclas sigue a Velo, de Charles Vestal
+     (github.com/charlesvestal/fm1-velocity, GPL-3.0). M-VAVE y FM-1 son marcas de sus dueños.</p>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const HDR = [0xF0, 0x7D, 0x46, 0x4C], INFO = 1, VEL = 81, NK = 20;
+const NAMES = ["F", "F#", "G", "G#", "A", "A#", "B", "C", "C#", "D", "D#", "E"];
+const keyName = (k) => NAMES[k % 12] + (3 + Math.floor((k + 5) / 12));
+const v14 = (b, i) => (b[i] | b[i + 1] << 7) - 8192;
+let midi = null, out = null, inp = null, waiting = null, polling = false, presses = 0, lines = [], chain = Promise.resolve();
+let living = false, lvSeen = -1;
+const stats = Array.from({ length: NK }, () => ({ n: 0, lo: 0, hi: 0, sum: 0, p: null, ms: null }));
+
+function status(t) { $("status").textContent = t; }
+function log(t) {
+  lines.push(t);
+  const el = $("log");
+  el.value += t + "\n";
+  el.scrollTop = el.scrollHeight;
+  $("count").textContent = presses + " toques";
+  $("save").disabled = $("copy").disabled = false;
+}
+function table() {
+  const rows = [];
+  for (let k = 0; k < NK; k++) {
+    const s = stats[k];
+    if (!s.n && s.p === null) continue;
+    const mark = k === 0 || k === 7 || k === 14 ? ' class="key"' : "";
+    rows.push(`<tr${mark}><td>${keyName(k)}</td><td>${s.n}</td><td>${s.n ? s.lo : "-"}</td>` +
+      `<td>${s.n ? Math.round(s.sum / s.n) : "-"}</td><td>${s.n ? s.hi : "-"}</td><td>${s.p ?? "-"}</td><td>${s.ms ?? "-"}</td></tr>`);
+  }
+  $("keys").innerHTML = rows.join("");
+}
+
+/* one request, its reply (the same command), or null after a timeout; one at a time (the two loops share the port) */
+function request(cmd, args, ms = 400) {
+  const p = chain.then(() => request1(cmd, args, ms));
+  chain = p;
+  return p;
+}
+function request1(cmd, args, ms) {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => { waiting = null; resolve(null); }, ms);
+    waiting = { cmd, done: (d) => { clearTimeout(t); waiting = null; resolve(d); } };
+    out.send([...HDR, cmd, ...args, 0xF7]);
+  });
+}
+function receive(e) {
+  const d = e.data;
+  if (d.length < 6 || d[0] !== 0xF0 || d[1] !== 0x7D || d[2] !== 0x46 || d[3] !== 0x4C) return;
+  if (waiting && d[4] === waiting.cmd) waiting.done(d.subarray(5, d.length - 1));
+}
+
+async function connect() {
+  try {
+    midi = await navigator.requestMIDIAccess({ sysex: true });
+  } catch (e) {
+    status("Sin acceso MIDI: usá Chrome o Edge y permití 'dispositivos MIDI' (SysEx).");
+    return;
+  }
+  const live = (m) => [...m.values()].filter((p) => p.state !== "disconnected");
+  const known = (p) => /jiant|felucca|fm[ _-]*1|m[ _-]*vave|composite|usb[ _-]*midi|usb audio/i.test(p.name || "");
+  let ins = live(midi.inputs).filter(known), outs = live(midi.outputs).filter(known);
+  if (!ins.length || !outs.length) { ins = live(midi.inputs); outs = live(midi.outputs); }
+  for (const i of ins) for (const o of outs) {
+    inp = i; out = o;
+    inp.onmidimessage = receive;
+    const r = await request(INFO, [], 800);
+    if (!r) { inp.onmidimessage = null; continue; }
+    let s = ""; for (let k = 0; k < r.length && r[k]; k++) s += String.fromCharCode(r[k]);
+    if (!/^JIANT/i.test(s)) { inp.onmidimessage = null; continue; }
+    const v = await request(VEL, [0]);
+    if (!v) { status(`${s}: este firmware no tiene el diagnóstico de velocidad (hace falta V10.6z5 o posterior).`); return; }
+    status(`Conectado: ${s} (${i.name}). Ahora tocá "Activar la medición" o "Ver en vivo".`);
+    $("on").disabled = false; $("off").disabled = false; $("connect").disabled = true;
+    $("live").disabled = false; $("reset").disabled = false;
+    log(`# ${s}  ${new Date().toISOString()}  ${navigator.userAgent}`);
+    return;
+  }
+  status("No encontré el FM-1. ¿Está conectado por USB, con JIANT, y el editor web cerrado?");
+}
+
+async function poll() {
+  if (polling) return;
+  polling = true;
+  while (polling) {
+    const r = await request(VEL, [3]);
+    if (!r) { status("Sin respuesta del FM-1 (¿se desconectó?)."); await new Promise((f) => setTimeout(f, 500)); continue; }
+    const lost = v14(r, 3), timeouts = v14(r, 5), master = v14(r, 7), kind = r[9];
+    if (kind === 1) {
+      const key = r[10], dt = v14(r, 11), p = v14(r, 13), d = v14(r, 15), s = stats[key];
+      const ms = dt < 0 ? "GRAZE" : (dt / 10).toFixed(1) + "MS";
+      presses++;
+      if (d >= 0) { s.lo = s.n ? Math.min(s.lo, d) : d; s.hi = s.n ? Math.max(s.hi, d) : d; s.sum += d; s.n++; }
+      s.p = p < 0 ? "-" : p; s.ms = dt < 0 ? "roce" : (dt / 10).toFixed(1);
+      const t = `${keyName(key)} D${d < 0 ? "-" : d} P${p < 0 ? "-" : p} ${ms}`;
+      $("last").textContent = t;
+      log(`vel ${presses} ${t}`);
+      table();
+    } else if (kind === 2) {
+      const key = r[10], n = r[11], v = [];
+      for (let k = 0; k < n; k++) { const x = v14(r, 12 + 2 * k); v.push((x & 1024 ? "d" : "") + (x & 1023)); }
+      log(`vel ${keyName(key)} pre ${v.slice(0, 8).join(" ")}`);
+      log(`vel ${keyName(key)} post ${v.slice(8).join(" ")}`);
+    } else {
+      status(`Midiendo (drive ${r[2]}). Perdidos: ${lost}. ADC: ${timeouts}. MASTER: ${master}.`);
+      await new Promise((f) => setTimeout(f, 40));
+    }
+  }
+}
+
+/* (V10.6z6) VEL op 4: the keys' velocity, calibration and pressure */
+const CURVE = ["OFF", "SOFT", "NORMAL", "HARD"], ATN = ["OFF", "LOW", "MID", "HIGH"];
+const bar = (v, max) => `<span class="vbt"><span class="vb" style="width:${Math.round(128 * Math.max(0, v) / max)}px"></span></span>`;
+function liveShow(r) {
+  if (r.length < 9 + 7 + 10 * NK) { $("lv").textContent = "Este FM-1 no tiene el segmento Bluetooth instalado: instalalo con el instalador web."; return false; }
+  const b = 9, curve = r[b], min = r[b + 1], at = r[b + 2], learn = r[b + 3], mean = r[b + 4], n = r[b + 5], last = r[b + 6];
+  $("lvset").textContent = `VELOCITY ${CURVE[curve & 3]} · VEL MIN ${min} · AFTERTOUCH ${ATN[at & 3]} · VEL LEARN ${learn ? "ON" : "OFF"} · arriba: ${mean}`;
+  const rows = [];
+  for (let k = 0; k < NK; k++) {
+    const o = b + 7 + 10 * k, vel = r[o], rd = v14(r, o + 1), h = v14(r, o + 3), nn = v14(r, o + 5), sf = v14(r, o + 7), pr = r[o + 9];
+    rows.push(`<tr${k === last && lvSeen >= 0 ? ' class="key"' : ""}><td>${keyName(k)}</td><td>${vel || "-"}</td><td>${bar(vel, 127)}</td>` +
+      `<td>${rd > 0 ? rd : "-"}</td><td>${h}</td><td>${nn}</td><td>${sf}</td><td>${bar(pr, 127)} ${pr || ""}</td></tr>`);
+  }
+  $("lvkeys").innerHTML = rows.join("");
+  if (n !== lvSeen) {
+    if (lvSeen >= 0) {
+      const o = b + 7 + 10 * last, vel = r[o], rd = v14(r, o + 1);
+      $("lv").textContent = `${keyName(last)}  velocidad ${vel}  (lectura ${rd})`;
+      log(`live ${keyName(last)} V${vel} D${rd}`);
+    }
+    lvSeen = n;
+  }
+  return true;
+}
+async function live() {
+  while (living) {
+    const r = await request(VEL, [4]);
+    if (!r) { $("lv").textContent = "Sin respuesta (hace falta JIANT V10.6z6 o posterior)."; living = false; break; }
+    if (!liveShow(r)) { living = false; break; }
+    await new Promise((f) => setTimeout(f, 60));
+  }
+  $("live").textContent = "Ver en vivo";
+}
+$("live").onclick = () => {
+  living = !living;
+  $("live").textContent = living ? "Dejar de ver" : "Ver en vivo";
+  if (living) { lvSeen = -1; live(); }
+};
+$("reset").onclick = async () => {
+  if (!confirm("¿Volver a la calibración de fábrica? Se pierde lo que el FM-1 aprendió de tu forma de tocar.")) return;
+  const r = await request(VEL, [5]);
+  if (r) { liveShow(r); log("# calibración: de fábrica"); status("Calibración de fábrica. Se vuelve a ajustar sola mientras tocás."); }
+};
+
+$("connect").onclick = connect;
+for (const b of document.querySelectorAll(".mark"))
+  b.onclick = () => { log(`# marca ${b.dataset.m}`); status(`Marcado: ${b.dataset.m}. Tocá ahora.`); };
+$("on").onclick = async () => {
+  const d = +$("drive").value;
+  const r = await request(VEL, [1, d]);
+  if (!r) { status("El FM-1 no contestó."); return; }
+  log(`# vel on, drive ${d}`);
+  poll();
+};
+$("off").onclick = async () => {
+  polling = false;
+  await new Promise((f) => setTimeout(f, 60));
+  await request(VEL, [2]);
+  log("# vel off");
+  status("Medición desactivada.");
+};
+$("clear").onclick = () => { lines = []; $("log").value = ""; presses = 0; stats.forEach((s) => Object.assign(s, { n: 0, lo: 0, hi: 0, sum: 0, p: null, ms: null })); table(); $("count").textContent = ""; };
+$("save").onclick = () => {
+  const summary = ["", "# por tecla: tecla toques Dmin Dmedia Dmax"].concat(stats.map((s, k) => s.n ? `# ${keyName(k)} ${s.n} ${s.lo} ${Math.round(s.sum / s.n)} ${s.hi}` : "").filter(Boolean));
+  const blob = new Blob([lines.concat(summary).join("\n") + "\n"], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "jiant-velocidad-" + new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-") + ".txt";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("log").value); status("Copiado. Pegalo en un mensaje o un archivo."); }
+  catch (e) { $("log").select(); document.execCommand("copy"); status("Copiado."); }
+};
+window.addEventListener("pagehide", () => { if (out) try { out.send([...HDR, VEL, 2, 0xF7]); } catch (e) {} });
+if (!navigator.requestMIDIAccess) status("Este navegador no tiene Web MIDI: usá Chrome o Edge (en Android, Chrome).");
+</script>
+</body>
+</html>

@@ -37,7 +37,7 @@
  * and the engines read t->p as before. An engine reads its parameters in note_on (events_block) unmodulated.
  * Nothing active (every slot with SRC, DST or AMT at 0): no work, and the sound is bit-identical. */
 enum { MS_OFF, MS_LFO, MS_ENV, MS_VEL, MS_KEY, MS_RAND, MS_MODW, MS_AT, MS_EXPR, MS_M1, MS_STEP = MS_M1 + 4, MS_NOISE, MS_PROX, MS_ENV2,
-       MS_FOLLOW, MS_N };   /* (V10.54) FOLLOW: the audio input's envelope */   /* (V10.22) ENV2: ENV > ENV 2, per voice */
+       MS_FOLLOW, MS_T1, MS_N = MS_T1 + NTRK };   /* (V10.54) FOLLOW: the audio input's envelope */   /* (V10.22) ENV2: ENV > ENV 2, per voice */
 static volatile int16_t mod_prox;   /* (V10.14) PROX, the Bluetooth proximity: 0..32767 (bt.c bt_prox_step, the main loop; 0
                                      * with Bluetooth off or no central connected) */
 static uint32_t div_samples(uint32_t div);   /* fx.c */
@@ -48,7 +48,8 @@ static uint32_t clk_n;                          /* (JIANT) .. the 1/16 steps sin
 static uint32_t ms_clock;        /* (JIANT) samples since PLAY on the transport's grid (fx.c mix_block; seq.c seq_start:
                                   * 0): MS_STEP's place */
 enum { MD_OFF, MD_PITCH, MD_CUT, MD_SHP, MD_AMP, MD_PAN, MD_DIST, MD_CHO, MD_DLY, MD_REV, MD_RATE, MD_VIB, MD_E1,
-       MD_CLIP = MD_E1 + 8, MD_PNCH, MD_DTIME, MD_DFDBK, MD_DCOL, MD_DMIX, MD_RSIZE, MD_RDAMP, MD_CRATE, MD_CDEPTH, MD_N };
+       MD_CLIP = MD_E1 + 8, MD_PNCH, MD_DTIME, MD_DFDBK, MD_DCOL, MD_DMIX, MD_RSIZE, MD_RDAMP, MD_CRATE, MD_CDEPTH, MD_MASTER_END,
+       MD_FCUT = MD_MASTER_END, MD_LEVEL, MD_N };
 /* (0.7.0) the FX buses' globals as destinations (a mod sequence on the delay time ..): once an audio block
  * macro_master sums every track's slots on them and fx.c reads the stored value plus that offset through GFX(k) in
  * place of song.g[] (no slot on a bus: the stored value, live for the UI's graphs and the host tests of a bus alone) */
@@ -63,18 +64,37 @@ static inline int32_t gfx_val(uint32_t k)
 #define GFX(k) gfx_val(k)
 static uint8_t macro_v[4];       /* (JIANT) the macros M1..M4, 0..127: the project's (project.c), LFO held turns them */
 _Static_assert(NELEM(N_MSRC) == MS_N && NELEM(N_MDST) == MD_N, "N_MSRC / N_MDST == MS_* / MD_*");
+_Static_assert(PS_LFO == MS_LFO && PS_ENV2 == MS_ENV2 && PS_NOISE == MS_NOISE && PS_MODW == MS_MODW && PS_RAND == MS_RAND &&
+               PD_VIB == MD_VIB && PD_E1 == MD_E1 && PD_FCUT == MD_FCUT && PD_LEVEL == MD_LEVEL && PD_REV == MD_REV,
+               "core.h PS_* / PD_* (a preset's MOD slots) == MS_* / MD_*");
+_Static_assert(LW_DRIFT == 5, "core.h LW_*: params.c N_LWAVE6");
 _Static_assert(P_M2SRC == P_M1SRC + 3 && P_M4AMT == P_M1SRC + 11 && P_M4AMT + 1 == P_FM1_ATK, "matrix slots: 3 ids each");
 #define NMSLOT 4u
 #define MS_VMASK ((1u << MS_ENV) | (1u << MS_VEL) | (1u << MS_KEY) | (1u << MS_RAND) | (1u << MS_ENV2))
 #define MS_VOICE(s) ((MS_VMASK >> ((s) & 31u)) & 1u)   /* a value per voice: ENV VEL KEY RAND, (V10.22) ENV2 */
 #define MS_BIPOLAR(s) ((s) == MS_LFO || (s) == MS_KEY || (s) == MS_RAND || (s) == MS_NOISE)
 
+_Static_assert(MS_N <= 32 && MD_N <= 32, "matrix UI bitsets hold all IDs");
+
 /* the track parameter of a per-block destination */
 static uint32_t mod_param(uint32_t d)
 {
     static const uint8_t ID[MD_E1] = {[MD_PAN] = P_PAN, [MD_DIST] = P_DIST, [MD_CHO] = P_CHOR, [MD_DLY] = P_DLY,
                                       [MD_REV] = P_REV, [MD_RATE] = P_LRATE, [MD_VIB] = P_LD_PIT};
+    if (d == MD_FCUT) return P_FCUT;
+    if (d == MD_LEVEL) return P_LEVEL;
     return d >= MD_E1 ? P_E0 + d - MD_E1 : ID[d];
+}
+
+/* The mode's parameter range, not its engine's generic fallback descriptor. */
+static const param_desc_t *mod_track_desc(const track_t *t, uint32_t id)
+{
+    if (id >= P_E0) {
+        const engine_t *e = ENGINES[eng_idx(t->engine)];
+        const param_desc_t *d = e->desc ? e->desc(t, id - P_E0) : 0;
+        return d ? d : &e->edit[id - P_E0];
+    }
+    return &TP[id];
 }
 
 typedef struct {                 /* the part in mix_part (one at a time) */
@@ -119,6 +139,16 @@ static uint32_t mns_clk;         /* (0.7.8) NOISE's clock: audio blocks (macro_m
 /* (V10.54) FOLLOW: the audio input's envelope (eng_input.c uin_l / uin_r, both inputs), 0..32767: its peak each block,
  * up at once (half the way a block), down in ~50 ms; x2 (an input rarely peaks at full scale). ain_pk: each input's peak
  * for the INPUT page's meters */
+/* Each renderer publishes one peak. macro_master consumes it after the previous
+ * job's join/csync and keeps the envelope immutable throughout the next block.
+ * Shared-cache hardware: one writer per track; no UI meter or audio buffer. */
+static int16_t track_env[NTRK];
+static volatile int16_t track_pk[NTRK];
+static uint8_t track_follow_mask;
+static int32_t follow_step(int32_t env, int32_t peak)
+{
+    return env + (peak > env ? (peak - env + 1) >> 1 : -((env - peak + 31) >> 5));
+}
 static int32_t mod_follow, ain_fol;
 static int16_t ain_pk[2];
 static __attribute__((noinline)) void ain_follow(void)
@@ -132,15 +162,17 @@ static __attribute__((noinline)) void ain_follow(void)
             if (b > pr) pr = b;
         }
     pk = pl > pr ? pl : pr;
-    ain_fol += pk > ain_fol ? (pk - ain_fol + 1) >> 1 : -((ain_fol - pk + 31) >> 5);
+    ain_fol = follow_step(ain_fol, pk);
     mod_follow = clamp(ain_fol * 2, 0, 32767);
-    ain_pk[0] = (int16_t)(pl > ain_pk[0] ? clamp(pl, 0, 32767) : ain_pk[0] - (ain_pk[0] >> 5));
-    ain_pk[1] = (int16_t)(pr > ain_pk[1] ? clamp(pr, 0, 32767) : ain_pk[1] - (ain_pk[1] >> 5));
+    ain_pk[0] = (int16_t)(pl > ain_pk[0] ? clamp(pl, 0, 32767) : ain_pk[0] - ((ain_pk[0] + 31) >> 5));
+    ain_pk[1] = (int16_t)(pr > ain_pk[1] ? clamp(pr, 0, 32767) : ain_pk[1] - ((ain_pk[1] + 31) >> 5));
 }
 
 /* source s of the track: the per-track ones, the per-voice ones of the latest note-on */
 static int32_t mod_tsrc(const track_t *t, uint32_t s, int32_t lfo)
 {
+    if (s >= MS_T1 && s < MS_N) return track_env[s - MS_T1];
+    if ((s == MS_ENV || s == MS_ENV2) && (t->m_vi >= NVOICE || !t->v[t->m_vi].active)) return 0;
     switch (s) {
     case MS_LFO:
         return lfo;
@@ -231,8 +263,11 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     for (; k < NMSLOT; k++) {
         uint32_t s = (uint32_t)p[P_M1SRC + 3u * k], d = (uint32_t)p[P_M1DST + 3u * k];
         int32_t a = p[P_M1AMT + 3u * k], x;
-        if (!s || !d || !a || s >= MS_N || d >= MD_CLIP)   /* (the master's: macro_master) */
+        if (!s || !d || !a || s >= MS_N || d >= MD_N || (d >= MD_CLIP && d < MD_MASTER_END))   /* (the master's: macro_master) */
             continue;
+        /* These engines have no voice-level CUT consumer: use their track filter. */
+        if (d == MD_CUT && (t->engine == ENGI_WHEEL || t->engine == ENGI_DRUM ||
+                            t->engine == ENGI_STRING || t->engine == ENGI_INPUT)) d = MD_FCUT;
         if (d <= MD_AMP) {                              /* per voice */
             mp->amp |= d == MD_AMP;
             if (MS_VOICE(s)) {
@@ -245,8 +280,8 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
             continue;
         }
         {                                               /* per block: AMT 64 = the whole range */
-            uint32_t id = mod_param(d);
-            const param_desc_t *pd = id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
+            uint32_t id = d == MD_FCUT && t->engine == ENGI_ANALOG ? P_E4 : mod_param(d);
+            const param_desc_t *pd = mod_track_desc(t, id);
             x = mod_tsrc(t, s, lfo);
             for (j = 0; j < mp->nk && mp->kid[j] != id; j++)
                 ;
@@ -262,7 +297,7 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     }
     for (j = 0; j < mp->nk; j++) {
         uint32_t id = mp->kid[j];
-        const param_desc_t *pd = id >= P_E0 ? &ENGINES[t->engine]->edit[id - P_E0] : &TP[id];
+        const param_desc_t *pd = mod_track_desc(t, id);
         int32_t lo = pd->min, hi = pd->max;
         if (id == P_LRATE)                              /* (0.6.51) the LFO's RATE moved within its kind: free / in time */
             lo = mp->keep[j] < 0 ? lo : 0, hi = mp->keep[j] < 0 ? -1 : hi;
@@ -273,20 +308,32 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
 
 /* (JIANT) once an audio block, before the parts (fx.c): CLIP and PUNCH as the master plays them, the stored
  * values plus every track's slots on them (per-voice sources: the latest note-on's value; LFO: the block before) */
+static void (*const volatile DLY_REV_SET)(void);         /* (fx.c: REVERSE's grains, set from flash) */
 static __attribute__((noinline)) void macro_master(void)
 {
-    int32_t off[MD_N - MD_CLIP] = {0};
-    uint32_t i, k, any = 0;
+    int32_t off[MD_MASTER_END - MD_CLIP] = {0};
+    uint32_t i, k, any = 0, sw1 = 0;
     mns_clk++;
+    DLY_REV_SET();
+    if (ain_sw)                                         /* (SWARM: a track's SOURCE; its own block, a USB input too) */
+        AIN_SWARM(CTL);
     ain_follow();
     for (i = 0; i < NTRK; i++) {
+        track_env[i] = (int16_t)follow_step(track_env[i], track_pk[i]);
+        track_pk[i] = 0;
+    }
+    track_follow_mask = 0;
+    for (i = 0; i < trk_live; i++) {
         const track_t *t = &trk[i];
+        if (t->engine == ENGI_INPUT && t->p[P_E0] == AIN_SW && !sw1)
+            ain_tr = (uint8_t)i, sw1 = 1;               /* (SWARM: the first SWARM track's knobs and scale) */
         any |= t->engine == ENGI_INPUT;
         for (k = 0; k < NMSLOT; k++) {
             uint32_t s = (uint32_t)t->p[P_M1SRC + 3u * k], d = (uint32_t)t->p[P_M1DST + 3u * k];
             int32_t a = t->p[P_M1AMT + 3u * k], v;
-            if (!s || !a || s >= MS_N || d < MD_CLIP || d >= MD_N)
-                continue;
+            if (!s || !a || s >= MS_N || !d || d >= MD_N) continue;
+            if (s >= MS_T1) track_follow_mask |= (uint8_t)(1u << (s - MS_T1));
+            if (d < MD_CLIP || d >= MD_MASTER_END) continue;
             v = (mod_tsrc(t, s, mulq15(t->lfo_val, t->lfo_fade)) * a) >> 6;   /* Q15: AMT 64 at a full source = the range */
             if (d <= MD_PNCH)
                 off[d - MD_CLIP] += (v * 100) >> 15;
@@ -299,6 +346,7 @@ static __attribute__((noinline)) void macro_master(void)
         }
     }
     ain_any = (uint8_t)any;
+    ain_sw = (uint8_t)sw1;
     clip_eff = (int16_t)clamp(song.g[G_CLIP] + off[0], 0, 100);
     pnch_eff = (int16_t)clamp(song.g[G_PUNCH] + off[1], 0, 100);
     for (k = 0; k < 8u; k++)
@@ -328,7 +376,7 @@ static __attribute__((noinline)) void mod_voice(track_t *t, voice_t *v, vmod_t *
         t->m_env2 = m->env2q15;                         /* (V10.22) and its ENV 2 */
     }
     {
-        int32_t xv[MS_N];                               /* (V10.22) the per-voice sources by number, read in the loop */
+        int32_t xv[MS_ENV2 + 1];                               /* (V10.22) the per-voice sources by number, read in the loop */
         xv[MS_ENV] = env;
         xv[MS_VEL] = v->mvel * 258;
         xv[MS_KEY] = mod_key(v->note);
@@ -376,15 +424,91 @@ static __attribute__((noinline)) void mod_midi(track_t *t, uint32_t st, uint32_t
     }
 }
 
-/* the name of destination value v for track t (UI, <= 5 characters): E1..E8 by the engine's labels (of the
- * engine the UI shows), "E5" for a parameter the engine does not use */
-static const char *mod_dst_name(const track_t *t, int32_t v)
+/* Selection policy only: stored IDs and DSP semantics never change here. */
+BTAPP_FN static int mod_dst_ok(const track_t *t, uint32_t d)
 {
+    uint32_t e = eng_idx(t->eng_req), k;
+    if (d >= MD_N) return 0;
+    if (d == MD_CUT) {
+        if (e == ENGI_ADD || (e == ENGI_VOICE && t->p[P_VLANG])) return 0;
+        if (e == ENGI_ANIMAL) return t->p[P_E0] == AN_PULSE || t->p[P_E0] >= AN_WING;
+    }
+    if (d == MD_SHP && (e == ENGI_DRUM || e == ENGI_ANIMAL || e == ENGI_INPUT)) return 0;
+    if (d == MD_PITCH && e == ENGI_DRUM) return 0;
+    if (e == ENGI_INPUT && !t->p[P_E3] && (d == MD_PITCH || d == MD_AMP || d == MD_VIB)) return 0;
+    if (d >= MD_E1 && d < MD_CLIP) {
+        const param_desc_t *pd = track_desc(t, P_E0 + (k = d - MD_E1));
+        if (!pd->label || !pd->label[0] || pd->label[0] == '-' || pd->max - pd->min <= 1) return 0;
+        if (e == ENGI_FM6 && (k == 7u || k == 3u || k == 5u)) return 0;  /* SLOT requires a bank load, not a parameter offset. */
+        if (e == ENGI_STRING && k == 3u && t->p[P_E0] != SX_FDBK) return 0; /* POS is excitation-only. */
+        if (e == ENGI_INPUT && (k == 3u || (k == 5u && !t->p[P_E3]) || (k == 4u && (t->p[P_E0] != AIN_ST || t->p[P_E3])))) return 0;
+    }
+    return 1;
+}
+
+/* Hide exact aliases and composite legacy controls from new routes. */
+BTAPP_FN static int mod_dst_offer_bt(const track_t *t, uint32_t d)
+{
+    uint32_t e = eng_idx(t->eng_req);
+    if (!mod_dst_ok(t, d)) return 0;
+    if (d == MD_CUT && (e == ENGI_WHEEL || e == ENGI_DRUM || e == ENGI_STRING || e == ENGI_INPUT || e == ENGI_ANIMAL)) return 0;
+    if (d == MD_SHP && (e == ENGI_PHASE || e == ENGI_FM6 || (e == ENGI_STRING && t->p[P_E0] == SX_FDBK))) return 0;
+    return d != MD_FCUT || e != ENGI_ANALOG; /* ANALOG already offers its actual CUT parameter. */
+}
+
+/* UI policy lives in the existing checked cold-code bank. Incomplete old
+ * packages retain the generic selector; never call an unmatched segment. */
+static int mod_dst_offer(const track_t *t, uint32_t d)
+{
+    return bt_hw_seg() ? mod_dst_offer_bt(t, d) : d < MD_N;
+}
+
+/* Bounded, clamped navigation. An old unavailable route survives until edited. */
+static int32_t mod_dst_turn(const track_t *t, int32_t d, int32_t steps)
+{
+    int32_t dir = steps > 0 ? 1 : -1, v, n;
+    d = clamp(d, 0, MD_N - 1); steps = clamp(steps, -MD_N, MD_N);
+    n = steps > 0 ? steps : -steps;
+    while (n-- > 0) {
+        for (v = d + dir; v > 0 && v < MD_N - 1 && !mod_dst_offer(t, (uint32_t)v); v += dir) ;
+        if (v < 0 || v >= MD_N || !mod_dst_offer(t, (uint32_t)v)) break;
+        d = v;
+    }
+    return d;
+}
+
+static char mod_dst_scope(const track_t *t, uint32_t d)
+{
+    uint32_t e = eng_idx(t->eng_req);
+    if (d >= MD_CLIP && d < MD_MASTER_END) return 'M';
+    if (d && d <= MD_AMP && !(d == MD_CUT && (e == ENGI_WHEEL || e == ENGI_DRUM || e == ENGI_STRING || e == ENGI_INPUT))) return 'V';
+    return 'T';
+}
+
+BTAPP_FN static const char *mod_dst_name_bt(const track_t *t, int32_t v)
+{
+    uint32_t e = eng_idx(t->eng_req), k;
     v = clamp(v, 0, MD_N - 1);
-    if (v >= MD_E1 && v < MD_CLIP) {
-        const char *l = track_desc(t, P_E0 + (uint32_t)(v - MD_E1))->label;
-        if (l && l[0] && l[0] != '-')
-            return l;
+    if (!mod_dst_ok(t, (uint32_t)v)) return "N/A";
+    if (v >= MD_E1 && v < MD_CLIP) return track_desc(t, P_E0 + (uint32_t)v - MD_E1)->label;
+    if (v == MD_CUT) {
+        static const uint8_t CUT_ID[NENGINES] = {P_E4, P_FCUT, P_E2, P_FCUT, P_FCUT, P_E0, P_FCUT, P_FCUT,
+                                                P_FCUT, P_FCUT, P_FCUT, P_E2, P_E2, P_FCUT, P_FCUT, P_FCUT};
+        if (e == ENGI_WHEEL || e == ENGI_DRUM || e == ENGI_STRING || e == ENGI_INPUT) return N_MDST[MD_FCUT];
+        return track_desc(t, CUT_ID[e])->label;
+    }
+    if (v == MD_SHP) {
+        static const uint8_t SHP_ID[NENGINES] = {P_MORPH, P_MORPH, P_E2, P_MORPH, P_MORPH, P_E4, P_MORPH, P_E6,
+                                                P_E2, P_MORPH, P_MORPH, P_E1, P_MORPH, P_E5, P_MORPH, P_MORPH};
+        if (e == ENGI_FM6) return "FB+MOD";
+        if (e == ENGI_STRING && t->p[P_E0] == SX_FDBK) return "BR+SIZE";
+        k = e == ENGI_LOFI && t->p[P_E1] >= RW_BYTE ? P_E3 : SHP_ID[e];
+        return track_desc(t, k)->label;
     }
     return N_MDST[v];
+}
+
+static const char *mod_dst_name(const track_t *t, int32_t v)
+{
+    return bt_hw_seg() ? mod_dst_name_bt(t, v) : N_MDST[clamp(v, 0, MD_N - 1)];
 }

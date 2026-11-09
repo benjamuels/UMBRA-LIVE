@@ -66,6 +66,10 @@ static void bs_rssi(const volatile uint16_t *r, uint32_t b)
     bs_rw++;
 }
 #define BLE_HW_RX_RSSI(r, b) bs_rssi(r, b)
+/* (SWARM) every advertisement heard while AIR scans, to the app's INPUT engine (src/eng_input.c bt_air_tap, the RX
+ * interrupt: a copy into a table, no more): its PDU, its RSSI word as PROX reads it, its channel */
+void bt_air_tap(const uint8_t *p, uint32_t n, uint32_t w, uint32_t ch);
+#define BLE_HW_ADV_TAP(p, n, r, b, ch) bt_air_tap(p, n, (r)[2u + ((b) & 1u)], ch)
 #include "ble/ble_stack.c"
 
 /* the segment's header, first in it (app.ld .bt_head): magic, payload length, CRC-32 of the payload (zlib), filled by

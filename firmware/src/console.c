@@ -5,6 +5,9 @@
  * The baud rate is ignored. Nothing here writes memory or flash; `uboot`
  * does what the SysEx soft key does. */
 #define CON_LINE 64u
+#ifndef FELUCCA_CONSOLE_VERBOSE
+#define FELUCCA_CONSOLE_VERBOSE 1
+#endif
 
 static struct {
     char line[CON_LINE];
@@ -68,6 +71,7 @@ static void con_kx(const char *k, uint32_t v)
     con_puts("\r\n");
 }
 
+#if FELUCCA_CONSOLE_VERBOSE
 static uint32_t con_num(const char **p, int *ok)        /* decimal or 0x hex */
 {
     const char *s = *p;
@@ -93,6 +97,7 @@ static uint32_t con_num(const char **p, int *ok)        /* decimal or 0x hex */
     return v;
 }
 
+#endif
 static int con_word(const char **p, const char *w)       /* match a whole word */
 {
     const char *s = *p;
@@ -106,6 +111,7 @@ static int con_word(const char **p, const char *w)       /* match a whole word *
     return 1;
 }
 
+#if FELUCCA_CONSOLE_VERBOSE
 static void con_memr(const char *p)
 {
     int ok, ok2;
@@ -167,6 +173,7 @@ static void con_flr(const char *p)                  /* flash read over SPI (no X
 }
 #endif
 
+#endif /* verbose console */
 #if FELUCCA_UAC
 static void con_uac(void)                              /* USB audio input: stream state and glitches */
 {
@@ -272,6 +279,7 @@ static void con_dbg(void)
 /* input scan (hal/fm1_input.h fm1_in_stat) since the last `inp`, then cleared: tick gaps (= LED
  * on-time of a column), per-column LED share in 1/1000, the tick cost, the dim pulse (its average width and the
  * bits of the 595 shift it spans), encoder transitions */
+#if FELUCCA_CONSOLE_VERBOSE
 static void con_inp(void)
 {
     static uint32_t t_last;
@@ -332,6 +340,7 @@ static void con_inp(void)
     }
 }
 
+#endif
 static void con_crash(void)
 {
     char b[CRASH_LOG_N + 1u];
@@ -355,6 +364,7 @@ static void con_crash(void)
     con_kv("early", (int32_t)fm1_crash.early);
 }
 
+#if FELUCCA_CONSOLE_VERBOSE
 static void con_params(void)
 {
     uint32_t i;
@@ -366,16 +376,88 @@ static void con_params(void)
     }
 }
 
+#endif
+/* (V10.6z5) the velocity diagnostic (vel_diag.c): `vel on [DRIVE 0..4] | off`; while on and the console open, each
+ * press ("vel C4 D412 P188 2.2MS") and each capture ("vel C4 pre ..", "vel C4 post ..", d: a driven reading) */
+static void con_vel_ev(const vd_ev_t *e)
+{
+    char b[24];
+    vd_line(b, e);
+    con_puts("vel ");
+    con_puts(b);
+    con_puts("\r\n");
+}
+static void con_vel_cap(const vd_cap_t *c)
+{
+    uint32_t i;
+    char b[4];
+    vd_key_name(b, c->key);
+    for (i = 0; i < VD_CAP; i++) {
+        if (i == 0u || i == VD_PRE) {
+            con_puts(i ? "\r\nvel " : "vel ");
+            con_puts(b);
+            con_puts(i ? " post" : " pre");
+        }
+        con_putc(' ');
+        if (c->v[i] & VD_DRIVEN)
+            con_putc('d');
+        con_dec(c->v[i] & 0x3FFu);
+    }
+    con_puts("\r\n");
+}
+static void con_vel_drain(void)                         /* (cdc_task) */
+{
+    static vd_cap_t c;
+    vd_ev_t e;
+    uint32_t k;
+    if (!cdc.dtr)
+        return;
+    while ((k = vd_next(&c, &e)) != 0u) {
+        con.stalled = 0;
+        if (k == 2u)
+            con_vel_cap(&c);
+        else
+            con_vel_ev(&e);
+    }
+}
+static void con_vel(const char *p)
+{
+    if (con_word(&p, "on")) {
+        while (*p == ' ')
+            p++;
+        vd_set(1, *p >= '0' && *p <= '4' ? (uint32_t)(*p - '0') : 2u);
+    } else if (con_word(&p, "off")) {
+        vd_set(0, 0);
+    }
+    con_puts(fm1_an.want ? "vel on, drive " : "vel off");
+    if (fm1_an.want)
+        con_dec(fm1_an.drive);
+    con_puts("  lost ");
+    con_dec(vd_lost);
+    con_puts("  adc_timeouts ");
+    con_dec(fm1_an.timeouts);
+    con_puts("  master ");
+    con_dec(fm1_an.master);
+    con_puts("\r\n");
+}
+
 static void con_exec(const char *p)
 {
     if (con_word(&p, "help") || con_word(&p, "?"))
-        con_puts("status  dbg  inp  crash  params  memr ADDR [LEN]  flr OFF [LEN]  uboot yes\r\n");
+        con_puts("status  dbg  crash  vel on|off  uboot yes\r\n"
+#if FELUCCA_CONSOLE_VERBOSE
+                 "inp  params  memr ADDR [LEN]  flr OFF [LEN]\r\n"
+#endif
+        );
     else if (con_word(&p, "status"))
         con_status();
     else if (con_word(&p, "dbg"))
         con_dbg();
     else if (con_word(&p, "crash"))
         con_crash();
+    else if (con_word(&p, "vel"))
+        con_vel(p);
+#if FELUCCA_CONSOLE_VERBOSE
     else if (con_word(&p, "inp"))
         con_inp();
     else if (con_word(&p, "params"))
@@ -386,6 +468,7 @@ static void con_exec(const char *p)
     else if (con_word(&p, "flr"))
         con_flr(p);
 #endif
+#endif /* verbose console */
     else if (con_word(&p, "uboot")) {
         if (con_word(&p, "yes")) {
             con_puts("entering UBOOT\r\n");
@@ -399,6 +482,7 @@ static void con_exec(const char *p)
 
 static void cdc_task(void)                              /* main loop */
 {
+    con_vel_drain();                                   /* (V10.6z5) the velocity diagnostic, when on */
     if (cdc.dtr && !con.dtr_seen) {
         con_puts("\r\nJIANT ");
         con_puts(FELUCCA_VERSION);
@@ -431,3 +515,4 @@ static void cdc_task(void)                              /* main loop */
         }
     }
 }
+

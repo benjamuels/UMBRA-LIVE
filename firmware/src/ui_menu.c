@@ -43,8 +43,9 @@ static void draw_about_qr(int32_t x, int32_t y)
 #ifndef UMBRA_NAME
 #define UMBRA_NAME "FIRST CONTACT"
 #endif
-/* (UMBRA OBSCURA) what UMBRA is, beside JIANT, in the slot (always there: not the segment's), as ABOUT_PROJECT's lines */
-static const char ABOUT_UMBRA[] =
+/* (UMBRA OBSCURA) what UMBRA is, beside JIANT, as ABOUT_PROJECT's lines (on V10.7.6 in the Bluetooth segment as they are:
+ * the app slot is full) */
+static const char ABOUT_UMBRA[] BTAPP_RO =
     "\001A live-visuals fork of JIANT FM for AV sets: all of JIANT's instrument (its sound engines, sequencer, effects, songs) "
     "as it is, with generative visuals played by the notes in place of HOME's ecosystem.\0"
     "\005ADDED\0"
@@ -64,6 +65,7 @@ static const char ABOUT_UMBRA[] =
     "\001UMBRA's reports are its own: please never send them to JIANT's author.\0"
     "\005JIANT FM\0"
     "\001Everything else here is Juan Jiant's: his project, its credits and its licences follow.\0";
+#ifdef ABOUT_NOTICE_TEXT
 static const char ABOUT_PROJECT[] BTAPP_RO =
     "\002THE PROJECT\0"
     "\001Made in Argentina by Juan Jiant, visual artist and musician, a dad of two: an independent project, free for everyone.\0"
@@ -118,6 +120,16 @@ static const char ABOUT_CREDITS[] BTAPP_RO =
     "\001NO WARRANTY\0"
     "\007Full notices in source:\0"
     "\003github.com/juanjiant-bit/JIANT\0";
+#endif
+#include "about_notices.h"
+
+/* Generation proves acyclic pairs, depth <=12 and the document size. */
+static char *about_byte(char *d,char *end,uint32_t c)
+{
+    if(c<128u) {if(d<end) *d++=(char)c;}
+    else {d=about_byte(d,end,ABOUT_PAIRS[c-128u][0]);d=about_byte(d,end,ABOUT_PAIRS[c-128u][1]);}
+    return d;
+}
 
 static int32_t menu_text(const char *s, int32_t y, uint16_t col, int draw)
 {
@@ -129,7 +141,7 @@ static int32_t menu_text(const char *s, int32_t y, uint16_t col, int draw)
             uint32_t c = (uint8_t)s[n];
             line[n] = s[n];
             line[n + 1u] = 0;
-            pen += (prev ? kern(&AF_S, prev, c) : 0) + AF_S.gh[glyph(&AF_S, c) >> AF_S.psh].adv;
+            pen += (prev ? kern(&AF_S, prev, c) : 0) + font_advance(&AF_S,glyph(&AF_S,c));
             prev = c;
             if (pen >= 227 * 16 - 8)                     /* (pen + 8) >> 4 > 226; (0.9.9-snd4) 2 phases of S made this
                                                             function 2 B longer and its hole before the sound has none */
@@ -150,10 +162,15 @@ static int32_t menu_text(const char *s, int32_t y, uint16_t col, int draw)
     return y;
 }
 
-static int32_t menu_lines(const char *s, int32_t y, int draw)   /* (V10.13) ABOUT_PROJECT, ABOUT_CREDITS */
+static int32_t menu_lines(const uint8_t *packed, int32_t y, int draw)
 {
+    char text[ABOUT_MAX],*d=text;
     if (!bt_hw_seg())
         return y;
+    uint32_t n=packed[0]|(uint32_t)packed[1]<<8;
+    for(uint32_t i=0;i<n;i++) d=about_byte(d,text+sizeof text-1u,packed[2u+i]);
+    *d=0;
+    const char *s=text;
     for (; *s; s += str_len(s) + 1u) {
         uint32_t k = (uint8_t)*s - 1u, c = k % 3u;
         y = menu_text(s + 1, y + 4 * (int32_t)(k / 3u), c == 1u ? T_THEME : c == 2u ? T_MID : T_TEXT, draw);
@@ -212,14 +229,14 @@ static __attribute__((noinline)) int32_t about_cpu(int32_t y, int draw)
  * segment (bt.c BTAPP_FN): without it ABOUT goes on with the CPU lines */
 BTAPP_FN static int32_t about_load(int32_t y, int draw)
 {
-    char b[40], n[12];
+    char b[40];
     y = menu_text("AUDIO LOAD", y, T_THEME, draw);
-    str_cpy(b, "NOW ", sizeof b); fmt_int(n, (int32_t)((song.cpu_q8 * 100u) >> 8)); str_cpy(b + str_len(b), n, 8);
-    str_cpy(b + str_len(b), "%  PEAK ", 10); fmt_int(n, (int32_t)load_diag.peak); str_cpy(b + str_len(b), n, 8);
+    str_cpy(b, "NOW ", sizeof b); fmt_int(b + str_len(b), (int32_t)((song.cpu_q8 * 100u) >> 8));
+    str_cpy(b + str_len(b), "%  PEAK ", 10); fmt_int(b + str_len(b), (int32_t)load_diag.peak);
     str_cpy(b + str_len(b), "%", 2);
     y = menu_text(b, y, T_TEXT, draw);
-    str_cpy(b, "LATE ", sizeof b); fmt_int(n, (int32_t)load_diag.late); str_cpy(b + str_len(b), n, 12);
-    str_cpy(b + str_len(b), "  SHED ", 8); fmt_int(n, (int32_t)load_diag.shed); str_cpy(b + str_len(b), n, 12);
+    str_cpy(b, "LATE ", sizeof b); fmt_int(b + str_len(b), (int32_t)load_diag.late);
+    str_cpy(b + str_len(b), "  SHED ", 8); fmt_int(b + str_len(b), (int32_t)load_diag.shed);
     y = menu_text(b, y, T_TEXT, draw);
     y = menu_text(cpu_status(), y, T_TEXT, draw);   /* (the second core: fx.c; p1: MENU > CPU CORES, cpu_safe.c) */
     /* Existing per-block scheduler timings, read while main is running:
@@ -228,29 +245,29 @@ BTAPP_FN static int32_t about_load(int32_t y, int draw)
     {
         uint32_t k;
         char d[96];
-        str_cpy(d, "VOICES ", sizeof d); fmt_int(n, voices_busy()); str_cpy(d+str_len(d), n, 12);
-        str_cpy(d+str_len(d), " CAP ", 6); fmt_int(n, voice_cap()); str_cpy(d+str_len(d), n, 12);
+        str_cpy(d, "VOICES ", sizeof d); fmt_int(d + str_len(d), voices_busy());
+        str_cpy(d+str_len(d), " CAP ", 6); fmt_int(d + str_len(d), voice_cap());
         y = menu_text(d, y, T_TEXT, draw);
-        str_cpy(d, "ALLOC CUT ", sizeof d); fmt_int(n, voice_kills-voice_trims-shed_count); str_cpy(d+str_len(d), n, 12);
-        str_cpy(d+str_len(d), " TRIM ", 7); fmt_int(n, voice_trims); str_cpy(d+str_len(d), n, 12);
+        str_cpy(d, "ALLOC CUT ", sizeof d); fmt_int(d + str_len(d), voice_kills-voice_trims-shed_count);
+        str_cpy(d+str_len(d), " TRIM ", 7); fmt_int(d + str_len(d), voice_trims);
         y = menu_text(d, y, T_TEXT, draw);
-        str_cpy(d, "FX ", sizeof d); fmt_int(n, mc_fx_tk/24u); str_cpy(d+str_len(d), n, 12);
+        str_cpy(d, "FX ", sizeof d); fmt_int(d + str_len(d), mc_fx_tk/24u);
         str_cpy(d+str_len(d), " us/block", 10);
         y = menu_text(d, y, T_TEXT, draw);
         for (k=0; k<trk_live && k<NTRK; k++) {
             uint32_t v, live=0;
             for (v=0; v<NVOICE; v++) live += trk[k].v[v].active;
-            str_cpy(d, "T", sizeof d); fmt_int(n, k+1); str_cpy(d+str_len(d), n, 12);
+            str_cpy(d, "T", sizeof d); fmt_int(d + str_len(d), k+1);
             str_cpy(d+str_len(d), " ", 2); str_cpy(d+str_len(d), ENGINES[trk[k].engine]->name, 20);
-            str_cpy(d+str_len(d), " V", 3); fmt_int(n, live); str_cpy(d+str_len(d), n, 12);
-            str_cpy(d+str_len(d), " ", 2); fmt_int(n, mc_tk[k]/24u); str_cpy(d+str_len(d), n, 12);
+            str_cpy(d+str_len(d), " V", 3); fmt_int(d + str_len(d), live);
+            str_cpy(d+str_len(d), " ", 2); fmt_int(d + str_len(d), mc_tk[k]/24u);
             str_cpy(d+str_len(d), " us", 4);
             y = menu_text(d, y, T_TEXT, draw);
         }
     }
     return y;
 }
-static int32_t umb_about(int32_t y, int draw)           /* (UMBRA OBSCURA) ABOUT_UMBRA's lines (menu_lines' kinds) */
+BTAPP_FN static int32_t umb_about(int32_t y, int draw)           /* (UMBRA OBSCURA) ABOUT_UMBRA's lines (menu_lines' kinds) */
 {
     const char *s;
     for (s = ABOUT_UMBRA; *s; s += str_len(s) + 1u) {
@@ -267,7 +284,7 @@ static int32_t menu_document(int32_t y, int draw)
         cv_text(6, y + 46, &AF_S, "Built on JIANT FM " FELUCCA_VERSION, T_TEXT);
         cv_text(6, y + 64, &AF_S, "Built " __DATE__, T_MID);
     }
-    y = umb_about(y + 86, draw) + 12;
+    y = (bt_hw_seg() ? umb_about(y + 86, draw) : y + 86) + 12;   /* (V10.7.6: in the segment, as THE PROJECT) */
     if (draw) {
         cv_text(6, y + 2, &AF_L, "JIANT FM", T_THEME);
         cv_text(6, y + 38, &AF_S, "Firmware for the MVAVE FM-1", T_TEXT);
@@ -281,11 +298,11 @@ static int32_t menu_document(int32_t y, int draw)
         cv_text(6, y + 174, &AF_S, "/JIANT", T_MID);
         draw_about_qr(158, y + 122);
     }
-    y = menu_lines(ABOUT_PROJECT, y + 216, draw);
+    y = menu_lines(ABOUT_PROJECT_PACK, y + 216, draw);
     if (bt_hw_seg())                                    /* (V10.13: in the segment) */
         y = about_load(y, draw);
     y = about_cpu(y, draw);                             /* (p1: out of line, menu_document's room is pinned) */
-    y = menu_lines(ABOUT_CREDITS, y + 8, draw);
+    y = menu_lines(ABOUT_CREDITS_PACK, y + 8, draw);
     return y + 4;
 }
 static int32_t menu_scroll_max(void)
@@ -317,7 +334,8 @@ static const char *menu_short(uint32_t row)          /* a card's label: the row'
 {
     static const struct { uint8_t row; char s[9]; } SH[] = {
         {MI_SCROFF, "SCR OFF"}, {MI_ACCEL, "ACCEL"}, {MI_SCLLED, "SCL LEDS"}, {MI_LOWCUT, "SPK EQ"}, {MI_USB, "USB LVL"},
-        {MI_CLKLVL, "CLICK LV"}, {MI_RESTORE, "RESTORE"}, {MI_CPU, "CORES"}, {MI_CLOCK, "CPU MHZ"}, {MI_BT, "BT"}, {MI_PANEL, "CALIBR"}, {MI_INIT, "INIT SYS"}};
+        {MI_CLKLVL, "CLICK LV"}, {MI_RESTORE, "RESTORE"}, {MI_CPU, "CORES"}, {MI_CLOCK, "CPU MHZ"}, {MI_BT, "BT"}, {MI_PANEL, "CALIBR"}, {MI_INIT, "INIT SYS"},
+        {MI_AT, "AFTERT"}, {MI_VLEARN, "V.LEARN"}};
     uint32_t k;
     for (k = 0; k < NELEM(SH); k++)
         if (SH[k].row == row)
@@ -350,7 +368,7 @@ static void menu_cards(void)
                     (int32_t)menu_get(r) * 1000 / (int32_t)(menu_n(r) - 1u) : -1);
     }
 }
-static void menu_panel(void)
+static __attribute__((noinline)) void menu_panel(void)
 {
     uint32_t t = menu_tab(), f = mtab_first(t), n = mtab_rows(t), k, r;
     char v[16];
@@ -380,15 +398,19 @@ static void menu_panel(void)
         cv_text_r(228, 6 - AF_X_CAP_Y, &AF_X, "SELECT: TAB \xB7 ALGO: ROW", T_DIM, T_SURF);
         for (r = 0; r < n; r++) {               /* (0.8.9: seven rows fit, 17 apart; 0.9.7: eight, 15) */
             uint32_t row = f + r, in = r / 4u == menu_set();
-            int32_t y = 14 + (int32_t)r * (n > 8u ? 14 : n > 7u ? 15 : n > 6u ? 17 : 20), h = n > 8u ? 13 : n > 7u ? 14 : n > 6u ? 16 : 18;
+            int32_t y = 14 + (int32_t)r * (n > 9u ? 10 : n > 8u ? 14 : n > 7u ? 15 : n > 6u ? 17 : 20), h = n > 9u ? 10 : n > 8u ? 13 : n > 7u ? 14 : n > 6u ? 16 : 18;
             uint16_t bg = in ? T_TINT : T_RAISE;
             cv_rect(8, y, 224, h, bg);
             if (row == ui.menu_sel)
                 cv_rect(8, y, 3, h, T_ACCENT);
             GFX_HOOK_ALIGN(0, y, 0, y + h, AL_V, "menu row name centred up/down");
-            cv_text_on(16, y + CAP_IN(S, h), &AF_S, MI_NAME[row], in ? T_TEXT : T_MID, bg);
-            menu_val(row, v);
-            cv_text_r(in ? 218 : 226, y + CAP_IN(S, h), &AF_S, v, in ? T_TEXT : T_MID, bg);
+            {   /* (V10.6z6) more than eight rows (CONTROL's twelve): 10 apart, the small font */
+                const aafont_t *fo = n > 8u ? &AF_X : &AF_S;
+                int32_t ty = n > 8u ? y + CAP_IN(X, h) : y + CAP_IN(S, h);
+                cv_text_on(16, ty, fo, MI_NAME[row], in ? T_TEXT : T_MID, bg);
+                menu_val(row, v);
+                cv_text_r(in ? 218 : 226, ty, fo, v, in ? T_TEXT : T_MID, bg);
+            }
             if (in) {
                 char kn[2] = {(char)('1' + r % 4u), 0};
                 cv_text(221, y + 2 - AF_X_CAP_Y, &AF_X, kn, T_THEME);
@@ -432,6 +454,9 @@ static void menu_panel(void)
  * code in the segment (bt.c BTAPP_*; it opens only with the radio running: the segment checked). A meter of PROX, the
  * level and the last RSSI word (hex), the two points; OCT- stores FAR (the hand away), OCT+ NEAR (the hand on the back
  * over the antenna, top left); SELECT or ALGORITHM back to the rows, HOME closes the menu (saved there, menu_close) */
+#define BPC_MS 2500u
+static struct { uint32_t t0, ts; uint8_t on, n, v[64]; } bpc __attribute__((section(".bss.bpc")));   /* (V10.6z8) a point
+                                                         * being taken (bt_cal_tick): 1 FAR 2 NEAR, its samples */
 static const char BP_S[][28] BTAPP_RO = {"BLUETOOTH \xB7 PROX", "SELECT: BACK", "NOT CONNECTED", "NOT CALIBRATED",
                                           "OCT-  FAR: PHONE AWAY", "OCT+  NEAR: PHONE ON THE", "FM-1, TOP LEFT (ANTENNA)",
                                           "PROX FAR SET", "PROX NEAR SET", "LEVEL ", "   RAW ", "FAR ", "   NEAR ", "%",
@@ -475,7 +500,11 @@ BTAPP_FN static void bt_prox_panel(const aafont_t *fx, const aafont_t *fm, const
         b[4] = b[9] = b[14] = ' '; b[19] = 0;
         cv_text_r(228, 44 - AF_X_CAP_Y, fx, b, T_DIM, T_SURF);
     }
-    if (BT_CAL[0] != BT_CAL[1]) {
+    if (bpc.on) {                                       /* (V10.6z8) a point being taken: how far */
+        str_cpy(b, bpc.on > 1u ? "HOLD STILL: NEAR " : "HOLD STILL: FAR ", sizeof b);
+        fmt_int(b + str_len(b), (int32_t)((fm1_ms - bpc.t0) * 100u / BPC_MS));
+        str_cpy(b + str_len(b), BP_S[13], 2);
+    } else if (BT_CAL[0] != BT_CAL[1]) {
         str_cpy(b, BP_S[11], sizeof b);
         fmt_fix(b + str_len(b), BT_CAL[0] * 5, 1);
         str_cpy(b + str_len(b), BP_S[12], 10);
@@ -493,7 +522,7 @@ BTAPP_FN static void bt_prox_panel(const aafont_t *fx, const aafont_t *fm, const
     fmt_int(b + str_len(b), (int32_t)BT_SPEED() + 1);
     cv_text(10, 136 - AF_S_CAP_Y, fs, b, T_TEXT);
 }
-BTAPP_FN static void bt_prox_input(uint32_t up, uint32_t dn)
+static __attribute__((noinline)) void bt_prox_input(uint32_t up, uint32_t dn)   /* (V10.6z8: out of the full segment) */
 {
     int32_t z = 0, v = 0, w = 0;
     if (panel_enc(EN_SELECT) || panel_enc(EN_ALGO)) {
@@ -510,18 +539,52 @@ BTAPP_FN static void bt_prox_input(uint32_t up, uint32_t dn)
             ui_message(BP_S[2]);
             return;
         }
-        BT_CAL[up] = (uint8_t)clamp((bp.lvl + 64) >> 7, 0, 252);
-        if (BT_CAL[0] && BT_CAL[1] && (BT_CAL[0] > BT_CAL[1] ? BT_CAL[0] - BT_CAL[1] : BT_CAL[1] - BT_CAL[0]) < 8u) {
-            ui_message("FAR AND NEAR TOO CLOSE");       /* (V10.20) under 4 levels apart: noise, not distance */
-            return;
-        }
-        ui_message(BP_S[7u + up]);
+        bpc.on = (uint8_t)(up + 1u);                    /* (V10.6z8: ~2.5 s of it, bt_cal_tick) */
+        bpc.n = 0;
+        bpc.t0 = bpc.ts = fm1_ms;
+        ui_message("HOLD STILL...");
+        ui.force = 1;
     }
 }
-static uint32_t bt_prox_sig(void) { return ui.menu == 3 ? (uint32_t)mod_prox * 31u + bp.raw * 977u + bp.w4[0] * 13u + bp.w4[1] * 17u + bp.w4[2] * 19u + bp.w4[3] * 23u + bp.src * 29u + bp.have * 37u + bp.seen * 41u + (bt_hw_rxdiag() >> 4) * 43u + bp.conn * 5u + BT_CAL[0] * 3u + BT_CAL[1] * 7u + BT_TUNE[0] * 11u + BT_TUNE[1] * 53u + BT_TUNE[2] * 59u : 0u; }
+/* (V10.6z8, a Discord user: "near / far jump chaotically") a point stored is the median of BPC_MS of the level (a
+ * sample every 40 ms: an advertisement's RSSI is noisy, one reading was a lottery), not the reading of the press.
+ * menu_input runs it each frame while PROX's page is up (away longer: dropped) */
+static void bt_cal_tick(void)
+{
+    uint32_t i, j, n, k = bpc.on - 1u;
+    uint8_t x;
+    if (!bpc.on)
+        return;
+    if (fm1_ms - bpc.t0 >= BPC_MS + 1000u) {
+        bpc.on = 0;
+        return;
+    }
+    if (bp.conn && bp.have && fm1_ms - bpc.ts >= 40u && bpc.n < sizeof bpc.v) {
+        bpc.ts = fm1_ms;
+        bpc.v[bpc.n++] = (uint8_t)clamp((bp.lvl + 64) >> 7, 0, 252);
+    }
+    if (fm1_ms - bpc.t0 < BPC_MS)
+        return;
+    bpc.on = 0;
+    ui.force = 1;
+    if (!(n = bpc.n)) {
+        ui_message(BP_S[2]);
+        return;
+    }
+    for (i = 1; i < n; i++)                             /* (sorted: its middle) */
+        for (j = i; j && bpc.v[j - 1u] > bpc.v[j]; j--)
+            x = bpc.v[j], bpc.v[j] = bpc.v[j - 1u], bpc.v[j - 1u] = x;
+    BT_CAL[k] = bpc.v[n / 2u];
+    if (BT_CAL[0] && BT_CAL[1] && (BT_CAL[0] > BT_CAL[1] ? BT_CAL[0] - BT_CAL[1] : BT_CAL[1] - BT_CAL[0]) < 8u) {
+        ui_message("FAR AND NEAR TOO CLOSE");           /* (V10.20) under 4 levels apart: noise, not distance */
+        return;
+    }
+    ui_message(BP_S[7u + k]);
+}
+static uint32_t bt_prox_sig(void) { return ui.menu == 3 ? (bpc.on ? (fm1_ms - bpc.t0) / 100u * 67u : 0u) + (uint32_t)mod_prox * 31u + bp.raw * 977u + bp.w4[0] * 13u + bp.w4[1] * 17u + bp.w4[2] * 19u + bp.w4[3] * 23u + bp.src * 29u + bp.have * 37u + bp.seen * 41u + (bt_hw_rxdiag() >> 4) * 43u + bp.conn * 5u + BT_CAL[0] * 3u + BT_CAL[1] * 7u + BT_TUNE[0] * 11u + BT_TUNE[1] * 53u + BT_TUNE[2] * 59u : 0u; }
 
 static void confirm_open(uint32_t kind, uint32_t trk);   /* (0.6.58) INIT SYSTEM: ui_input.c */
-static void draw_menu(void)
+static __attribute__((noinline)) void draw_menu(void)
 {
     uint32_t sig;
     sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u + settings_hold * 3511u +
@@ -613,9 +676,10 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
     int32_t s;
     uint32_t k, up = (oct >> 1) & 1u, dn = oct & 1u;
     if (ui.menu == 3) {                                /* (V10.14) PROX's page (only opened with the radio running) */
-        if (bt_up == BT_RUN)
+        if (bt_up == BT_RUN) {
             bt_prox_input(up, dn);
-        else
+            bt_cal_tick();
+        } else
             ui.menu = 1;
         enc_drop();
         return;
@@ -673,4 +737,5 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
     }
     enc_drop();                                        /* swallow the rest while the menu is up */
 }
+
 

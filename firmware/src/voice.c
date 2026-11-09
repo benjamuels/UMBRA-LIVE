@@ -986,7 +986,7 @@ static void voice_begin(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
     v->pn_dbend = t->dbend;
     v->pn_dbt = t->dbt;
     v->pn_tch = (uint8_t)(dx_in_tch ? dx_in_tch : t->dtch);
-    if (e == &ENG_DRUM && drum_lane(note) == DV_KICK)
+    if (e == &ENG_DRUM && drum_note_lane(t, note) == DV_KICK)
         duck_hit = 1;                                   /* (DUCK: the kick's, as drum_note_on tells it; this block's) */
     v->active = 1;
     v->gate = 1;
@@ -1132,7 +1132,7 @@ static void mono_remove(track_t *t, uint32_t note)
 
 static int pfx_note(track_t *t, uint32_t note, uint32_t vel);   /* pfx.c (in fx.c) */
 static uint8_t trk_hush;
-static uint8_t trk_live = 4;
+/* trk_live is shared with the matrix; declared in core.h. */
 static volatile uint8_t asleep_hit;                     /* (0.6.28) a note went to a track asleep (ui_input: the hint) */                            /* (JIANT 0.6.18) MENU > TRACKS: the tracks that play (4 LOW CPU, the
                                                          * default; 6 HIGH): the ones past it get no notes and stop,
                                                          * their sounds and steps kept (fx.c mix_part) */                                /* (0.6.15) bit k: track k muted by GLO's solo / the FX layer's
@@ -1159,7 +1159,7 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
         return;
     }
     if (t->p[P_MUTE] || ((trk_hush >> ((uint32_t)(t - trk) % NTRK)) & 1u) ||
-        (t->engine == ENGI_DRUM && drum_muted(note)))   /* (DRUM: its group mutes) */
+        (t->engine == ENGI_DRUM && drum_muted_t(t, note)))   /* (DRUM: its group mutes) */
         return;
     UMB_NOTE(t, note, vel);                             /* (UMBRA OBSCURA) an audible note sparks KILN */
     if (pfx_note(t, note, vel))                         /* the punch-in effects (pfx.c): a repeat holds the track */
@@ -1490,7 +1490,7 @@ static __attribute__((noinline)) int32_t drum_env(track_t *t)
         uint32_t w;
         if (!v->active || (int16_t)((uint16_t)v->age - seen) <= 0)
             continue;
-        w = drum_lane(v->note) <= DV_CLAP ? v->vel : v->vel * 5u / 8u;
+        w = drum_note_lane(t, v->note) <= DV_CLAP ? v->vel : v->vel * 5u / 8u;
         if (w > pk) pk = w;
         if ((int16_t)((uint16_t)v->age - top) > 0) top = (uint16_t)v->age;
     }
@@ -1628,6 +1628,7 @@ static uint32_t voice_block(track_t *t, const engine_t *e, voice_t *v, int32_t *
 /* render one block of a part into out (cleared here); returns the voices rendered */
 /* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
 static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
+static int32_t kx_q8[NTRK] __attribute__((section(".bss.kx")));                             /* (V10.6z4) OCT- / OCT+ held on a note: seq.c kx_block */
 static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
 {
     const engine_t *e = ENGINES[t->engine];
@@ -1646,7 +1647,7 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         /* ~6 ms smoothing, with an exact landing (no permanent small offset); (ctl64: a quarter a block of 32, a half of 64) */
         midi_bend_q8[ti] += d > 0 ? (d < 4 ? d : (d + 3) / (128 / (int32_t)CTL)) : (d > -4 ? d : (d - 3) / (128 / (int32_t)CTL));
     }
-    bend = midi_bend_q8[ti];
+    bend = midi_bend_q8[ti] + kx_q8[ti];
     bend16 = bend >= 0 ? bend / 16 : -((-bend + 15) / 16);
     bend_fine = (bend - bend16 * 16) * 2367 / 2560;
     uint32_t nr = 0, fade = t->xf_on && t->xf, snap = fade && xf_snap_t == ti;
@@ -1744,4 +1745,5 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         xf_snap_t = 0xFFu;                              /* (faded out: the snapshot done with) */
     return nr;
 }
+
 

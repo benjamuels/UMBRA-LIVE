@@ -5,6 +5,8 @@
  * it briefly under ASan / UBSan with a fixed seed.   fuzz_ed [ITERATIONS [SEED]] */
 #define EDITOR_TEST_NO_MAIN 1
 #include "editor_test.c"                                /* hostsim, the stubs, RAM flash, reset() */
+static void excite_turn(track_t *t, const int16_t *vp, int32_t old) { (void)t; (void)vp; (void)old; }   /* (editor_test.c
+                                                         * leaves it to us, V10.7.2: ui_input.c is not built here) */
 static uint32_t rs = 0x9E3779B9u;
 static uint32_t rnd(void) { rs ^= rs << 13; rs ^= rs >> 17; rs ^= rs << 5; return rs; }
 static void fz_feed(const uint8_t *p, uint32_t n)

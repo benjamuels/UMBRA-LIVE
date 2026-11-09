@@ -9,11 +9,13 @@
  * (JIANT) Id 10 is the song index (song_chain.c: every song's rows and scenes), ids 40..71 every song's sections
  * (40 + 4 x song + section: the current song's from RAM, the others read from flash as they are asked for, into the
  * storage driver's own buffer: no RAM of their own). Ids 2..5 stay the current song's sections, as before.
+ * (V10.6p) 6 songs: ids 40..63 (35 objects; 43 with 8 songs before): an older archive's 64..71 are refused at begin
+ * (rc 1, nothing written: fm1backup.js skips them and says so); the index (10) keeps its 8 songs' room.
  */
 #define ED_BK_SONG 40u                /* (JIANT) the first song section's id */
 static const uint8_t ED_BK_IDS[11 + NSONG * 4u] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-    40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71};
-_Static_assert(NSONG == 8u && sizeof(song_index_t) <= sizeof proj_wire_u.raw, "the songs' ids, the index staged");
+    40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63};
+_Static_assert(NSONG == 6u && sizeof(song_index_t) <= sizeof proj_wire_u.raw, "the songs' ids, the index staged");
 static int proj_store_len(uint32_t len);
 /* the flash object of song s's section k (storage.c: song 1 the four project slots) */
 static uint32_t ed_bk_song_obj(uint32_t s, uint32_t k) { return s ? OBJ_SONG1 + (s - 1u) * 4u + k : OBJ_PROJECT0 + k; }
@@ -115,7 +117,7 @@ static int ed_bk_panel_valid(const panel_t *p)
     }
     return 1;
 }
-static uint32_t ed_bk_commit(void)
+static __attribute__((noinline)) uint32_t ed_bk_commit(void)
 {
     uint8_t *raw = ED_BK_RAW;
     uint32_t obj;
@@ -143,12 +145,8 @@ static uint32_t ed_bk_commit(void)
             p->rsize != sizeof(up_rec_t) || p->nslot != UP_PER_BANK)) return 2;
         /* Unknown record versions remain inert bytes, preserving future/older bank data. */
         obj = OBJ_UPRESET0 + ed_bk_id - 6u;
-    } else if (ed_bk_id == 8u) {                    /* an older archive's FM6 bank: into the restored user presets */
-        if (!ed_bk_len) return 0;
-        if (ed_bk_len != sizeof(fm6_bank_t) || !fm6_bank_valid((const fm6_bank_t *)raw)) return 2;
-        upf_migrate((const fm6_bank_t *)raw);
-        sync_reload = 1; ui.force = 1;
-        return upf_save() == 2 ? 4u : 0u;
+    } else if (ed_bk_id == 8u) {                    /* an older archive's FM6 bank (retired, V10.6s): ignored */
+        return 0;
     } else if (ed_bk_id == 9u) {                    /* the user presets' FM6 patches (0: none) */
         const upf_t *u = (const upf_t *)raw;
         if (ed_bk_len && (ed_bk_len != sizeof *u || !upf_valid(u) || (u->used >> (UP_SLOTS - 1u) >> 1))) return 2;
@@ -232,7 +230,7 @@ static int proj_store_len(uint32_t len)
     return len == sizeof(project_store_t) || len == PROJ_STORE_VA || len == PROJ_STORE_V9 || len == PROJ_STORE_V8 ||
            len == PROJ_STORE_V7;
 }
-static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
+static __attribute__((noinline)) uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
 {
     /* the arguments first: a malformed request never stops the transport */
     if (n < 2u || a[0] > 3u || (a[1] > 10u && (a[1] < ED_BK_SONG || a[1] >= ED_BK_SONG + NSONG * 4u))) return 1;

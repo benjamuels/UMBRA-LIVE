@@ -240,20 +240,33 @@ static void noise_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     v->ph[2] = (uint32_t)drift;
 }
 
-/* {MODE, COLR, FREQ, RES, TRK, DENS, DRFT, CRSH / CLK} */
+/* {MODE, COLR, FREQ, RES, TRK, DENS, DRFT, CRSH / CLK}. (V10.6i, reworked in place: the stored numbers kept, GEN's
+ * textures too: 4..7) the textures to play moving by themselves (gusts, waves, the tape's colour; the track's CUT moves
+ * FREQ, SHP the COLOR), RAIN and ARCADE the experiments, INIT NOISE bare white noise (browsed in NOISE_ORDER) */
 static const preset_t NOISE_PRESETS[] = {
-    {"WIND", {NZ_ANLG, 64, 70, 100, 127, 0, 70, 0}, {90, 90, 110, 90}, 0, TAG(FX), FX(0, 30, 20, 80), PAT(5)},
-    {"RAIN", {NZ_DUST, 30, 88, 80, 64, 105, 40, 0}, {10, 90, 127, 70}, 0, TAG(FX), FX(0, 0, 20, 70), PAT(5)},
+    {"WIND", {NZ_ANLG, 64, 70, 100, 127, 0, 70, 0}, {90, 90, 110, 90}, 0, TAG(FX), FX(0, 30, 20, 80), PAT(5),
+     MODS(MMOD(1, PS_MODW, PD_E(3), 30))},                                   /* MODW: it howls */
+    {"RAIN", {NZ_DUST, 30, 88, 80, 64, 105, 40, 0}, {10, 90, 127, 70}, 0, TAG(FX), FX(0, 0, 20, 70), PAT(5),
+     MODS(MMOD(1, PS_RAND, PD_CUT, 30), MMOD(2, PS_RAND, PD_PAN, 40))},       /* each note its drops' pitch and place */
     /* a 7-bit register (127 steps) clocked 84 semitones (7 octaves) above the key: one period per key period,
-     * a pitched chip-style buzz */
-    {"ARCADE", {NZ_LFSR, 0, 127, 0, 127, 112, 0, 84}, {0, 80, 0, 50}, 0, TAG(FX), FX(0, 0, 10, 20), PAT(3)},
-    {"METAL", {NZ_META, 0, 100, 40, 100, 32, 0, 0}, {0, 75, 40, 60}, 10, TAG(FX), FX(0, 20, 30, 45), PAT(7)},
-    /* (0.7.0) textures for the generator: the sea, a hiss pad, vinyl crackle, tape air */
-    {"SEA", {NZ_ANLG, 40, 50, 60, 40, 0, 90, 0}, {100, 90, 120, 110}, 0, TAG(FX), FX(0, 20, 20, 80), PAT(5)},
-    {"HISS PAD", {NZ_ANLG, 90, 95, 110, 127, 0, 20, 0}, {80, 90, 115, 100}, 0, TAG(PAD), FX(0, 40, 30, 85), PAT(5), BREATHE(24, 0, 1)},
-    {"CRACKLE", {NZ_DUST, 60, 100, 40, 64, 60, 20, 0}, {5, 90, 127, 60}, 0, TAG(FX), FX(0, 0, 20, 50), PAT(5)},
-    {"TAPE AIR", {NZ_ANLG, 75, 60, 20, 64, 0, 50, 10}, {90, 90, 120, 110}, 0, TAG(FX), FX(0, 30, 25, 70), PAT(5)},
+     * a pitched chip-style buzz; (V10.6i) a zap: ENV 2 drops it an octave into the note, RAND its register */
+    {"ARCADE", {NZ_LFSR, 0, 127, 0, 127, 112, 0, 84}, {0, 80, 0, 50}, 0, TAG(FX), FX(0, 0, 10, 20), PAT(3),
+     MODS(MENV2(0, 40, 0, 30), MMOD(1, PS_ENV2, PD_PITCH, 63), MMOD(2, PS_RAND, PD_E(5), 20))},
+    {"METAL", {NZ_META, 0, 100, 40, 100, 32, 0, 0}, {0, 75, 40, 60}, 10, TAG(FX), FX(0, 20, 30, 45), PAT(7),
+     MODS(MMOD(1, PS_VEL, PD_CUT, 20))},
+    /* (0.7.0) textures for the generator: the sea (its waves), a hiss pad, (V10.6i: INIT NOISE, was CRACKLE), tape air */
+    {"SEA", {NZ_ANLG, 40, 50, 60, 40, 0, 90, 0}, {100, 90, 120, 110}, 0, TAG(FX), FX(0, 20, 20, 80), PAT(5),
+     MODS(P_LRATE, 10, P_LD_FLT, 20, P_LD_AMP, 30)},
+    {"HISS PAD", {NZ_ANLG, 90, 95, 110, 127, 0, 20, 0}, {80, 90, 115, 100}, 0, TAG(PAD), FX(0, 40, 30, 85), PAT(5), BREATHE(24, 0, 1),
+     MODS(MMOD(1, PS_AT, PD_E(3), 30))},
+    {"INIT NOISE", {NZ_ANLG, 0, 127, 0, 0, 0, 0, 0}, {0, 64, 57, 20}, 0, TAG(FX), FX(0, 0, 0, 0)},
+    {"TAPE AIR", {NZ_ANLG, 75, 60, 20, 64, 0, 50, 10}, {90, 90, 120, 110}, 0, TAG(FX), FX(0, 30, 25, 70), PAT(5),
+     MODS(P_LWAVE, LW_DRIFT, P_LRATE, -1, P_LD_SHP, 10)},
 };
+static const uint8_t NOISE_ORDER[] = {5, 7, 4, 0, 3,   /* to play */
+                                      1, 2,            /* experiments */
+                                      6};              /* INIT */
+_Static_assert(sizeof NOISE_ORDER == NELEM(NOISE_PRESETS), "NOISE's browsing order: every preset once");
 
 static const engine_t ENG_NOISE = {
     .name = "NOISE",

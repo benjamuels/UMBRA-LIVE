@@ -42,6 +42,9 @@ static void pattern(uint32_t engine, uint32_t mode)
         else { s->n = 1; s->note[0] = (uint8_t)(48 + 3 * i); }
         ST_MICRO_SET(s, MIC[i]);
     }
+    #ifdef TIMING_FIT
+    t->seq_fit = 128u | 8u;  /* 12 steps inside 8 reference steps */
+    #endif
     song.g[G_BPM] = 128;
     for (i = 0; i < 200u; i++) { int32_t o[2 * CTL]; mix_block(o, CTL); }   /* (the sound load settled) */
 }
@@ -131,3 +134,4 @@ int main(int argc, char **argv)
     printf(bad ? "ctl64 timing: %d FAILED\n" : "ctl64 timing: all passed\n", bad);
     return bad != 0;
 }
+

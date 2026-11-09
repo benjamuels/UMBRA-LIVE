@@ -24,7 +24,7 @@ static void ed_fm6_name(const uint8_t *pk)       /* the record's name, trailing 
     ed_str(s, 10);
 }
 
-static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
+static __attribute__((noinline)) int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
 {
     uint8_t pk[FM6_PACKED];
     uint32_t i, rc;

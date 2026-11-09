@@ -18,9 +18,19 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_TRACK_PARAM, ED_TRACK_CHANGED, ED_SONG,
        ED_UI_STATE, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET,
        ED_LYRIC,                                                                /* (JIANT 0.8.5) VOICE's lyric */
+       ED_TRANSPORT, ED_PUNCH, ED_MUTATE,                                       /* (1.0) pushes: WATCH bits 2..4 */
        ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT };                              /* v6: song chain */
+/* (V10.6z3) the protocol's version, INFO's tag 43 02 major minor: 1.0 the stability contract (web/EDITOR_PROTOCOL.md
+ * "Stability contract"): from it on only additive changes; a minor for each addition, a major never (a break) */
+#define ED_PROTO_MAJOR 1u
+#define ED_PROTO_MINOR 2u   /* (V10.6z5) 1.1: VEL (81); (V10.6z6) 1.2: VEL ops 4, 5 (the keys' velocity) */
 enum { ED_VM_READ = 80 };   /* (V10.10) read-only: 256 B of the stock VM (0xE7000 + 256 x a[0], a[0] < 48: the radio's
                               * RF trims and BT address, web/btcheck.html); reply: a[0], then 256 x (hi nibble, lo nibble) */
+/* (V10.6z5, 1.1) the velocity diagnostic (vel_diag.c, web/vel.html): op 0 status, 1 on (drive 0..4), 2 off, 3 the next
+ * press or capture; the reply: op, on, drive, lost, ADC timeouts, MASTER (v14 each), then for op 3 kind (0 nothing,
+ * 1 a press: key, touch -> press 1/10 ms, lowest pulled-up, lowest driven; 2 a capture: key, count, count x the
+ * readings | 1024 driven), v14 each, -1 none */
+enum { ED_VEL = 81 };
 
 static uint8_t ed_out[600];
 static uint32_t ed_n;
@@ -45,6 +55,20 @@ static void ed_v(int32_t v)
     ed_b(u);
     ed_b(u >> 7);
 }
+#ifdef VD_NK
+/* (V10.6z6, 1.2) VEL ops 4 / 5's tail: the keys' velocity settings, the strikes, each key's last strike, calibration and
+ * pressure (web/EDITOR_PROTOCOL.md) */
+static void ed_vel_live(void)
+{
+    uint32_t i;
+    ed_b(vs.curve); ed_b(vs.min); ed_b(vs.atr); ed_b(vs.learn); ed_b(vk_mean ? vk_mean : 100u);
+    ed_b(vs.rn); ed_b(vs.last);
+    for (i = 0; i < VK_NK; i++) {
+        ed_b(vk[i].vel); ed_v(vs.vd[i]); ed_v(vs.ref[i][0] >> 4); ed_v(vs.ref[i][1] >> 4);
+        ed_v(vs.ref[i][2] >> 4); ed_b(vk[i].at);
+    }
+}
+#endif
 static void ed_str(const char *s, uint32_t max)   /* ASCII, 0-terminated */
 {
     uint32_t i;
@@ -91,6 +115,10 @@ static const uint8_t ED_TIDS[3] = {P_LEVEL, P_PAN, P_MUTE};
 static struct {
     uint8_t on, eng, preset, sel;
     uint8_t v4;                                          /* WATCH bit 1: TRACK_CHANGED pushes too */
+    uint8_t ext;                                         /* (1.0) WATCH bits 2..4: TRANSPORT, PUNCH, MUTATE pushes */
+    uint8_t tp_play, tp_beat, ptgt;                      /* .. what they last said */
+    uint32_t punch;
+    uint8_t mut[NTRK];
     uint32_t pos, last_ms, run_ms, resets;
     int16_t v[ED_NV];                                    /* TSEL->p[], then song.g[] */
     uint16_t t[ED_NV];                                   /* ms (low 16 bits) of the last push */
@@ -157,6 +185,50 @@ static void ed_known(uint32_t k, uint32_t id)            /* the editor's own cha
             ed_w.tv[k * 3u + j] = trk[k].p[id];
 }
 
+/* (1.0) WATCH bits 2..4: the transport (on PLAY / STOP and each beat while playing), the punch-in effects running (held,
+ * latched, a scene's, the lane's) and each EUCLID MUTATE. 0: no room in the SysEx ring (the rest waits) */
+static __attribute__((noinline)) int ed_perf(uint32_t *n)
+{
+    uint32_t i, play = song.playing != 0, m = perf_kill ? 0u : (perf_held | perf_latched | scene_pfx | pfx_lnow) & (PF_BIT(PF_N) - 1u);
+    if ((ed_w.ext & 1u) && (play != ed_w.tp_play || (play && beat_n != ed_w.tp_beat))) {
+        if (!ed_room())
+            return 0;
+        ed_w.tp_play = (uint8_t)play;
+        ed_w.tp_beat = (uint8_t)beat_n;
+        ed_begin(ED_TRANSPORT);
+        ed_b(play);
+        ed_b(beat_n);
+        ed_b(bar_n);
+        ed_b(bar_n >> 7);
+        ed_send();
+        (*n)++;
+    }
+    if ((ed_w.ext & 2u) && (m != ed_w.punch || pfx_tgt != ed_w.ptgt)) {
+        if (!ed_room())
+            return 0;
+        ed_w.punch = m;
+        ed_w.ptgt = pfx_tgt;
+        ed_begin(ED_PUNCH);
+        for (i = 0; i < 4u; i++)
+            ed_b(m >> (7u * i));
+        ed_b(pfx_tgt);
+        ed_send();
+        (*n)++;
+    }
+    for (i = 0; (ed_w.ext & 4u) && i < NTRK; i++)
+        if (mut_n[i] != ed_w.mut[i]) {
+            if (!ed_room())
+                return 0;
+            ed_w.mut[i] = mut_n[i];
+            ed_begin(ED_MUTATE);
+            ed_b(i);
+            ed_b(mut_n[i]);
+            ed_send();
+            (*n)++;
+        }
+    return 1;
+}
+
 static void ed_sync(void)                                /* main loop */
 {
     uint32_t i, n = 0, now = fm1_ms;
@@ -178,6 +250,8 @@ static void ed_sync(void)                                /* main loop */
         ed_send();
         return;
     }
+    if (ed_w.ext && !ed_perf(&n))
+        return;
     for (i = 0; i < NSTEP && n < ED_PUSH_MAX; i++) {
         uint32_t h = ed_step_sig(&seq_steps(TSEL)[i]);
         if (h == ed_w.st[i])
@@ -333,7 +407,7 @@ static int ed_lm_ok(const uint8_t *a)                  /* (0.8.5) eight lane mod
         if (a[i] >= LM_N) return 0;
     return 1;
 }
-static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
+static __attribute__((noinline)) int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
 {
     switch (cmd) {
     case ED_INFO: case ED_DUMP: case ED_PING:
@@ -436,6 +510,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x56); ed_b(1); ed_b(FM6_NBANK);   /* (JIANT 0.6.11, Felucca 1.4.1) FM6's voice bank: cmds 74..77, SLOT 9..40 */
         ed_b(0x4A); ed_b(1); ed_b(1);   /* (JIANT 0.6.62) 'J': this is JIANT (the web installer writes over it, web/index_pkg.html) */
         ed_b(0x4F); ed_b(1); ed_b(LM_N);   /* (0.8.5) 'O': the DRUM-X octaves, a step's lane modes 0..6 after its ratchet */
+        ed_b(0x43); ed_b(2); ed_b(ED_PROTO_MAJOR); ed_b(ED_PROTO_MINOR);   /* (V10.6z3) 'C': the protocol's version (the
+                                                         * stability contract); before 'Y', which the web editor reads last */
         ed_b(0x59); ed_b(1); ed_b(LYR_LEN - 1u);   /* (JIANT 0.8.5) 'Y': LYRIC (cmd 39), a track's lyric, at most 63 bytes */
         break;
     case ED_GET:
@@ -488,8 +564,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_str(d->label, 8);
         ed_str(d->unit, 8);
         if (d->fmt == F_ENUM && d->names)                  /* up to 32 (0.7.0: the matrix DST has 30; was 24) */
-            for (i = 0; i <= (uint32_t)(d->max - d->min) && i < 32u; i++)
-                ed_str(d->names[i], 8);
+            for (i = 0; i <= (uint32_t)(d->max - d->min) && i < 32u; i++) {
+                int dst = d->names == N_MDST, show = dst && (mod_dst_offer(TSEL, i) || i == (uint32_t)*vp);
+                if (show && i) { ed_b(mod_dst_scope(TSEL, i)); ed_b(':'); }
+                ed_str(dst ? (show ? mod_dst_name(TSEL, (int32_t)i) : N_MDST[0]) : d->names[d->min + (int32_t)i], show && i ? 6u : 8u);
+            }
         break;
     case ED_STEP_GET:
     case ED_STEP_SET: {
@@ -659,13 +738,21 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         keep = ed_w.on && ed_w.resets == usb.resets && (a[0] & 1u);   /* already watching: the changes not yet */
         ed_w.on = a[0] & 1u;                                          /* pushed stay pending (INFO 53 01 bit 0) */
         ed_w.v4 = (uint8_t)(ed_w.on && (a[0] & 2u));     /* v4: also TRACK_CHANGED; the reply says it is known */
+        i = ed_w.on ? (a[0] >> 2) & 7u : 0u;             /* (1.0) bits 2..4: TRANSPORT, PUNCH, MUTATE */
+        if (i & ~(keep ? ed_w.ext : 0u)) {               /* newly asked for: the state as it is goes out first; MUTATEs
+                                                          * from now on */
+            ed_w.tp_play = ed_w.ptgt = 0xFF;
+            ed_w.punch = ~0u;
+            memcpy(ed_w.mut, mut_n, sizeof ed_w.mut);
+        }
+        ed_w.ext = (uint8_t)i;
         ed_w.resets = usb.resets;
         if (ed_w.on && !keep)
             ed_shadow();
         else if (keep && ed_w.v4 && !v4was)
             for (i = 0; i < ED_NT; i++)                    /* TRACK_CHANGED newly asked for: from the mix as it is */
                 ed_w.tv[i] = trk[i / 3u].p[ED_TIDS[i % 3u]];
-        ed_b(ed_w.on | ed_w.v4 << 1);
+        ed_b(ed_w.on | ed_w.v4 << 1 | ed_w.ext << 2);
         break;
     }
     case ED_PING:
@@ -803,6 +890,37 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         for (i = 0; i < 256u; i++) { ed_b(b[i] >> 4); ed_b(b[i] & 15u); }
         break;
     }
+#ifdef VD_NK
+    case ED_VEL: {
+        static vd_cap_t c;
+        vd_ev_t e;
+        uint32_t k = 0;
+        if (!na || a[0] > 5u)
+            return;
+        if (a[0] == 1u || a[0] == 2u)
+            vd_set(a[0] == 1u, na > 1u ? a[1] : 2u);
+        if (a[0] == 5u)
+            vk_cal = 2;                             /* (1.2) the calibration's seeds back (vel.c vel_poll) */
+        ed_b(a[0]); ed_b(vs.diag); ed_b(fm1_an.drive);
+        ed_v(vd_lost); ed_v(fm1_an.timeouts); ed_v(fm1_an.master);
+        if (a[0] >= 4u) {                           /* (1.2) the keys' velocity (in the Bluetooth segment: cold) */
+            if (bt_hw_seg())
+                ed_vel_live();
+            break;
+        }
+        if (a[0] != 3u)
+            break;
+        ed_b(k = vd_next(&c, &e));
+        if (k == 1u) {
+            ed_b(e.key); ed_v((int16_t)e.dt); ed_v((int16_t)e.pmin); ed_v((int16_t)e.dmin);   /* (VD_NONE: -1) */
+        } else if (k == 2u) {
+            ed_b(c.key); ed_b(VD_CAP);
+            for (i = 0; i < VD_CAP; i++)
+                ed_v(c.v[i]);
+        }
+        break;
+    }
+#endif
     default:
         return;
     }
@@ -832,3 +950,4 @@ static void ed_service(void)
         ed_handle(f, k);
     }
 }
+

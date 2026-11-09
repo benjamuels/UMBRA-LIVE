@@ -223,6 +223,7 @@ uint32_t _pool_start[1], _pool_end[1], _rt_start[1], _rt_end[1], _rt_load[1];
 #define _hot_start _hot_end
 #define _low_start _low_end
 uint32_t _hot_end[1], _hot_load[1], _low_end[1];
+char _etext[1];                                   /* (V10.6z5: main.c unpacks the RAM code from there; nothing here) */
 static uint32_t web_master_adc = 700;   /* MASTER, 0..1023 as the ADC reads it */
 enum { FM1_ADC_BATT = 3, FM1_ADC_MASTER = 4 };
 static int32_t fm1_adc_read(uint32_t ch) { return ch == FM1_ADC_MASTER ? (int32_t)web_master_adc : 620; }

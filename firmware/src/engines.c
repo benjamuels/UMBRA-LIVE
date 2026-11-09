@@ -21,6 +21,17 @@ static int32_t uin_l[CTL], uin_r[CTL];                  /* (UMBRA OBSCURA: no US
 static const uint8_t uin_on = 0;                        /* these is dead code, left out by the compiler) */
 static uint8_t ain_any;
 static int16_t ain_gg[NTRK];
+/* ((UMBRA OBSCURA) V10.7.6's SWARM is a source of this engine (EXT): without it no SWARM either; what mod.c, bt.c, ui.c
+ * and ui_dx.c ask of it, never true) */
+enum { AIN_IN1, AIN_IN2, AIN_SUM, AIN_ST, AIN_SW, AIN_N };
+enum { SWS_N = 0 };
+static uint8_t ain_tr, ain_sw;
+#define AIN_SWARM(n) ((void)(n))
+static volatile int16_t sw_pxv, sw_pxf, sw_pxn;
+static volatile uint8_t sw_pxon;
+static struct { int32_t mq; uint8_t src; } sm;
+static int32_t sw_sv(const track_t *t, uint32_t s, uint32_t k) { (void)t; (void)s; (void)k; return 0; }
+static void sw_sv_put(track_t *t, uint32_t s, uint32_t k, int32_t v) { (void)t; (void)s; (void)k; (void)v; }
 #endif
 #include "fm4_convert.c"        /* DIGITAL's tables, and its sounds -> FM6 */
 #if FELUCCA_FM4
@@ -31,8 +42,8 @@ static int16_t ain_gg[NTRK];
  * SLICE (13): retired in JIANT (core.h eng_gone). The numbers stay reserved, as DIGITAL's: the stores name engines by
  * index and the table is append-only. ENG_GONE below has no presets and is never offered (eng_ok); a sound of theirs
  * that arrives anyway -- a project, a user preset, the editor's PRESET / SET G_ENGSEL, a backup -- plays as ANALOG's
- * first preset (eng_live; project.c proj_phys_gone, ui.c set_engine_of, ui_input.c). A PHYS DRUM of before 1.0 and a
- * SAMPLE PERC still load as DRUM first (core.h drum_from_phys, drum_from_perc) */
+ * first preset (eng_live; project.c proj_phys_gone, ui.c set_engine_of, ui_input.c). A SAMPLE PERC user preset still
+ * loads as DRUM first (core.h drum_from_perc) */
 static void phys_gone_note_on(struct track *t, voice_t *v) { (void)t; (void)v; }
 static void phys_gone_render(struct track *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
@@ -85,17 +96,18 @@ static inline uint32_t eng_idx(uint32_t e) { return e < NENGINES ? e : 0u; }
 
 /* the order the engines are shown in (PRESETS browsing and its ENG knob, the EDIT layer's keys, the editor's list):
  * engine indices, never DIGITAL's reserved 1 (with FELUCCA_FM4 it comes last). The indices stay as they are (the
- * stores and the protocol hold them); only this table orders them. (0.9.9) DRUM-X, VOICE, ANIMAL first, as the parts
- * at power-on (TRK_DEF: T1..T6 are its first six), then PHASE WHEEL NOISE; was ANALOG FM6 PHASE LOFI VOICE WHEEL
- * NOISE DRUM ANIMAL, which PROGRAM CHANGE keeps (ENGINE_PC_ORDER) */
+ * stores and the protocol hold them); only this table orders them. The parts at power-on first (TRK_DEF: T1..T6 are
+ * its first six; V10.6d: DRUM-X ANALOG PHASE FM6 VOICE ANIMAL, then MATH WHEEL NOISE ..; 0.9.9: DRUM-X VOICE ANIMAL
+ * LOFI ANALOG FM6); 0.9.8's ANALOG FM6 PHASE LOFI VOICE WHEEL NOISE DRUM ANIMAL is what PROGRAM CHANGE keeps
+ * (ENGINE_PC_ORDER) */
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     ENGI_DRUM,                   /* DRUM (DRUM-X) */
+    ENGI_ANALOG,                 /* ANALOG */
+    ENGI_PHASE,                  /* PHASE */
+    ENGI_FM6,                    /* FM6 */
     ENGI_VOICE,                  /* VOICE */
     ENGI_ANIMAL,                 /* ANIMAL */
-    ENGI_LOFI,                   /* LOFI */
-    ENGI_ANALOG,                 /* ANALOG */
-    ENGI_FM6,                    /* FM6 */
-    ENGI_PHASE, ENGI_WHEEL,      /* PHASE WHEEL */
+    ENGI_LOFI, ENGI_WHEEL,       /* MATH (was LOFI) WHEEL */
     ENGI_NOISE,                  /* NOISE */
     ENGI_STRING, ENGI_ADD,       /* (0.9.9-snd5) STRING ADD */
 #if FELUCCA_USB_IN
@@ -189,17 +201,23 @@ static const struct {
 #define NPATTERNS (sizeof PATTERNS / sizeof PATTERNS[0])
 
 /* (0.9.9) the parts at power-on, INIT SYSTEM and NEW PROJECT (engine, preset, PATTERNS[n - 1] in the sequencer,
- * 0 = empty: all are), in the display order's first six: T1 DRUM-X's kit, T2 VOICE singing words, T3 ANIMAL's bird,
- * T4 LOFI's bytebeat organism, T5 ANALOG's bass, T6 FM6's electric piano. Each its preset's sound, dry (ui.c
- * power_sound_of: no DIST CHOR DLY REV send, the effects are the player's to add) */
-#define TRK_PR_VOICE 9u          /* SINGER EN (eng_formant.c FORMANT_PRESETS) */
+ * 0 = empty: all are), in the display order's first six. (V10.6d, the user: a synth that does not startle a
+ * conservative player) a band in tune: T1 DRUM-X's soft ACOUSTIC kit, T2 ANALOG's bass, T3 PHASE's pad, T4 FM6's
+ * electric piano, T5 VOICE's vowels (no words), T6 ANIMAL's WHISTLE (C3 is C3). Each its preset's sound, dry (ui.c
+ * power_sound_of: no DIST CHOR DLY REV send, the effects are the player's to add); was DRUM-X SINGER EN CMOS BIRD
+ * BYTEBEAT FAT BASS TINE EP */
+#define TRK_PR_DRUM 5u           /* ACOUSTIC (eng_drum.c DRUM_PRESETS) */
 #define TRK_PR_ANALOG 14u        /* FAT BASS (eng_analog.c) */
-static const uint8_t TRK_DEF[NPART][3] = {{ENGI_DRUM, 0, 0}, {ENGI_VOICE, TRK_PR_VOICE, 0}, {ENGI_ANIMAL, 0, 0},
-                                          {ENGI_LOFI, 0, 0}, {ENGI_ANALOG, TRK_PR_ANALOG, 0}, {ENGI_FM6, 0, 0}};
-/* DRUM-X (DRUM's first, the factory kit), SINGER EN, CMOS BIRD, BYTEBEAT, FAT BASS, TINE EP */
+#define TRK_PR_PHASE 9u          /* GLASS PAD (eng_phase.c) */
+#define TRK_PR_ANIMAL 24u        /* WHISTLE (eng_animal.c) */
+static const uint8_t TRK_DEF[NPART][3] = {{ENGI_DRUM, TRK_PR_DRUM, 0}, {ENGI_ANALOG, TRK_PR_ANALOG, 0},
+                                          {ENGI_PHASE, TRK_PR_PHASE, 0}, {ENGI_FM6, 0, 0}, {ENGI_VOICE, 0, 0},
+                                          {ENGI_ANIMAL, TRK_PR_ANIMAL, 0}};
+/* ACOUSTIC, FAT BASS, GLASS PAD, TINE EP, CHOIR AAH, WHISTLE */
 /* the parts at power-on through 0.9.8 (the same columns): what an old project's tracks it had no room for load as
  * (project.c proj_new_tracks, PROJ_DEF_SOUND: format 1's tracks 2..4, a 4-track format's T5 / T6): never change it.
  * ANALOG ACID, FM6 PAD (was DIGITAL PAD), LOFI PULSE LD (3: BYTE first), DRUM KIT; (JIANT 0.6) PHASE's first, WHEEL's first */
-static const uint8_t TRK_OLD[NPART][3] = {{0, 4, 0}, {ENGI_FM6, 4, 0}, {3, 3, 0}, {ENGI_DRUM, 0, 0}, {2, 0, 0}, {7, 0, 0}};
+static const uint8_t TRK_OLD[NPART][3] = {{0, 4, 0}, {ENGI_FM6, 4, 0}, {0, 24, 0}, {ENGI_DRUM, 0, 0}, {2, 0, 0}, {7, 0, 0}};
+/* (V10.6h) LOFI PULSE LD (a chip sound, retired with MATH) as ANALOG ORGAN SQR: its square, one oscillator */
 static uint32_t trk_old_engine(uint32_t i) { return TRK_OLD[i % NPART][0]; }
 static uint32_t trk_def_engine(uint32_t i) { return TRK_DEF[i % NPART][0]; }

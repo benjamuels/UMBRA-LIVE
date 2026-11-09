@@ -2,7 +2,8 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the user preset record (firmware/src/upreset.c, -DUP_HOST part):
  * UP_PUT parsing, a bank round trip through storage.c on a simulated NOR,
- * bank / record version checks, map-by-count, pattern <-> steps, PHYS MODEL DRUM records -> the DRUM engine,
+ * bank / record version checks, map-by-count, pattern <-> steps, PHYS MODEL DRUM records kept as stored (V10.6s: no
+ * longer the DRUM engine; PHYS plays as ANALOG),
  * drum grid records (version 3: UP_PUT's kind 1 and its high bits, a round trip). */
 #include <stdint.h>
 #include <stdio.h>
@@ -10,6 +11,8 @@
 #define __attribute__(x)
 #define UP_HOST 1
 #include "../firmware/src/core.h"
+static inline int32_t clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }   /* (dsp.c's: upreset.c
+                                                     * keeps a converted chip sound's FILTER, V10.6h) */
 
 static uint8_t nor[0x100000];
 static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
@@ -179,7 +182,8 @@ int main(void)
         bad += check("a grid record: bank round trip", up_used(20) && !memcmp(up_rec(20), &got, sizeof got));
     }
 
-    /* PHYS MODEL DRUM (before 1.0) -> the DRUM engine: from flash (a record of an older layout too), by UP_PUT */
+    /* PHYS MODEL DRUM (before 1.0): (V10.6s) no longer the DRUM engine: from flash (a record of an older layout too)
+     * and by UP_PUT the record as stored (PHYS, retired, plays as ANALOG: ui.c set_engine_of), nothing lost */
     {
         static const int16_t OLD[8] = {4, 70, 80, 60, 50, 110, 100, 70}, NEW[8] = {64, 70, 80, 60, 64, 0, 0, 0};   /* (E5: ACC then, FM now, off) */
         up_rec_t d = r, m = r, o = r;
@@ -199,22 +203,23 @@ int main(void)
         st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
         memset(up_bank, 0, sizeof up_bank);
         up_bank_check(1, st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]));
-        ok = up_used(16) && up_rec(16)->engine == ENGI_DRUM && up_used(17) && up_rec(17)->engine == ENGI_PHYS &&
-             !memcmp(up_rec(17)->p, m.p, sizeof m.p) && up_used(18) && up_rec(18)->engine == ENGI_DRUM &&
+        ok = up_used(16) && up_rec(16)->engine == ENGI_PHYS && up_used(17) && up_rec(17)->engine == ENGI_PHYS &&
+             !memcmp(up_rec(17)->p, m.p, sizeof m.p) && up_used(18) && up_rec(18)->engine == ENGI_PHYS &&
              up_rec(16)->ver == UP_VER;
         for (k = 0; k < 8u; k++)
-            ok &= up_value(up_rec(16), P_E0 + k) == NEW[k] && up_value(up_rec(18), o.np - 8u + k) == NEW[k];
-        bad += check("bank load: PHYS DRUM -> DRUM engine, MEMB kept", ok);
+            ok &= up_value(up_rec(16), P_E0 + k) == OLD[k] && up_value(up_rec(18), o.np - 8u + k) == OLD[k];
+        bad += check("bank load: PHYS DRUM (retired) kept as stored, MEMB kept", ok);
+        (void)NEW;
         n = put_frame(a, 3, ENGI_PHYS, "Old kit", 0);
         for (k = 0; k < 8u; k++) {                          /* E0..E7 of the frame: OLD */
             uint32_t at = 3u + 7u + 1u + 2u * (P_E0 + k), u = (uint32_t)(OLD[k] + 8192);
             a[at - 1u] = u & 127u;
             a[at] = (u >> 7) & 127u;
         }
-        ok = up_parse(a, n, &got, &slot) == 0 && got.engine == ENGI_DRUM;
+        ok = up_parse(a, n, &got, &slot) == 0 && got.engine == ENGI_PHYS;
         for (k = 0; k < 8u; k++)
-            ok &= up_value(&got, P_E0 + k) == NEW[k];
-        bad += check("UP_PUT of PHYS DRUM -> DRUM engine", ok);
+            ok &= up_value(&got, P_E0 + k) == OLD[k];
+        bad += check("UP_PUT of PHYS DRUM (retired): taken as sent", ok);
     }
 
     /* (JIANT 0.3) a DRUM record stored before FM (E5 ACC, no mark): FM 0 when its bank loads, marked; one stored
@@ -239,8 +244,10 @@ int main(void)
     /* (JIANT 0.4) a LOFI record of 0.3 (no 0.4 mark): its TONE (E7) its CUT (E4), BEND MASK 0; an ANALOG one's KTR
      * (E7) INT 0; marked records as they are */
     {
-        up_rec_t lo = r, an = r, lo4 = r;
-        lo.engine = lo4.engine = 3; an.engine = 0;
+        up_rec_t lo = r, an = r, lo4 = r, ch = r;
+        lo.engine = lo4.engine = ch.engine = 3; an.engine = 0;
+        up_set_value(&lo, P_E1, 5); up_set_value(&lo4, P_E1, 5);   /* (V10.6d: BYTE; MATH keeps it) */
+        up_set_value(&ch, P_E1, 1); ch.packed[UP_FM_AT] = UP_V04_MARK;   /* (a chip TRI: ANALOG's TRI now) */
         up_set_value(&lo, P_E4, 30); up_set_value(&lo, P_E6, 2); up_set_value(&lo, P_E7, 90);
         up_set_value(&lo4, P_E4, 30); up_set_value(&lo4, P_E6, 2); up_set_value(&lo4, P_E7, 90);
         up_set_value(&an, P_E7, 64);
@@ -248,6 +255,7 @@ int main(void)
         *up_rec(16) = lo;
         *up_rec(17) = an;
         *up_rec(18) = lo4;
+        *up_rec(19) = ch;
         st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
         memset(up_bank, 0, sizeof up_bank);
         up_bank_check(1, st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]));
@@ -255,6 +263,9 @@ int main(void)
              up_value(up_rec(17), P_E7) == 0 && up_value(up_rec(18), P_E4) == 30 && up_value(up_rec(18), P_E7) == 90 &&
              up_rec(16)->packed[UP_FM_AT] == UP_V04_MARK;
         bad += check("0.3 records: LOFI TONE -> CUT, BEND MASK 0; ANALOG KTR -> INT 0; marked ones kept", ok);
+        bad += check("V10.6d: a LOFI chip record (TRI) -> ANALOG TRI, one oscillator, CUT its FILTER's (V10.6h); BYTE ones stay MATH",
+                     up_rec(19)->engine == 0u && up_value(up_rec(19), P_E0) == 2 && up_value(up_rec(19), P_E2) == 0 &&
+                     up_value(up_rec(19), P_E4) == (ch.np == P_COUNT ? clamp(up_value(&ch, P_FCUT), 0, 127) : 110) && up_rec(16)->engine == 3u && up_value(up_rec(16), P_E1) == 5);
     }
 
     /* SAMPLE SET 4 (PERC, the GM kit, retired after 1.0.2) -> the DRUM engine with its default kit: from flash (an

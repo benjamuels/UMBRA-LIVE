@@ -96,6 +96,9 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
     host_tracks_init();
     for (k = 0; k < NPART; k++)
         host_preset(&trk[k], k ? 0u : e, k ? 0u : pi);
+    for (k = 0; k < 12u; k++)                        /* (V10.6i: a factory preset may fill MOD slots; the tests start from
+                                                      * none, as before) */
+        trk[0].p[P_M1SRC + k] = 0;
     song.sel = 0;
     hash = 0xCBF29CE484222325ull;
 }
@@ -336,7 +339,7 @@ static void test_math(void)
     mod_end(t);
     check("the engine parameters restored", t->p[P_E0 + k_pw] == 100 && t->p[P_E0 + 1] == 0);
     check("DST names: E1..E8 by the engine's labels", str_eq(mod_dst_name(t, MD_E1 + (int32_t)k_pw), "DRIVE") &&
-                                                          str_eq(mod_dst_name(t, MD_CUT), "CUT"));
+                                                          str_eq(mod_dst_name(t, MD_CUT), "F.CUT"));
 
     /* per-voice sources on a per-block destination: the latest note-on */
     fresh(0, 0);
@@ -564,9 +567,10 @@ static int demos(const char *dir)
         fclose(f);
         n++;
     }
-    /* MODW -> VIB: LOFI WAVE LEAD, the mod wheel (CC1) rises over 4 s: vibrato from none to deep */
-    e = eng_by_name("LOFI");
-    fresh(e, preset_by_name(e, "WAVE LEAD"));
+    /* MODW -> VIB: ANALOG SAW LEAD (V10.6d: was LOFI WAVE LEAD, gone with its chips), the mod wheel (CC1) rises over
+     * 4 s: vibrato from none to deep */
+    e = eng_by_name("ANALOG");
+    fresh(e, preset_by_name(e, "SAW LEAD"));
     t->p[P_LRATE] = 70;
     t->p[P_LD_PIT] = 0;
     t->p[P_LFADE] = 0;
@@ -666,7 +670,7 @@ static void test_jiant_078(void)
     fresh(ea, 0);
     trk[0].p[P_M1SRC] = MS_NOISE; trk[0].p[P_M1DST] = MD_CUT; trk[0].p[P_M1AMT] = 40;
     h = phrase();
-    check("0.7.8: the NOISE source moves the filter (its own sound)", h != a0 && MS_NOISE == 14 && MS_N == 17);
+    check("0.7.8: the NOISE source moves the filter (its own sound)", h != a0 && MS_NOISE == 14 && MS_N > MS_NOISE);
     fresh(ea, 0);
     trk[0].p[P_M1SRC] = MS_PROX; trk[0].p[P_M1DST] = MD_CUT; trk[0].p[P_M1AMT] = 40;
     mod_prox = 0;
@@ -688,7 +692,7 @@ static void test_jiant_078(void)
         trk[0].p[P_M1SRC] = MS_ENV2; trk[0].p[P_M1DST] = MD_CUT; trk[0].p[P_M1AMT] = 60;
         trk[0].p[P_E2ATK] = 100; trk[0].p[P_E2DEC] = 60; trk[0].p[P_E2SUS] = 30; trk[0].p[P_E2REL] = 40;
         hs = phrase();
-        check("V10.22: ENV2 on CUT sounds its own, its ATK shapes it", hf != a0 && hs != hf && MS_ENV2 == 16 && MS_N == 17);
+        check("V10.22: ENV2 on CUT sounds its own, its ATK shapes it", hf != a0 && hs != hf && MS_ENV2 == 16 && MS_N > MS_ENV2);
         fresh(ea, 0);
         trk[0].p[P_M1SRC] = MS_ENV2; trk[0].p[P_M1DST] = MD_CUT; trk[0].p[P_M1AMT] = 60;
         trk[0].p[P_E2ATK] = 40; trk[0].p[P_E2DEC] = 60; trk[0].p[P_E2SUS] = 64; trk[0].p[P_E2REL] = 40;
@@ -1072,10 +1076,10 @@ static double lo_render(int16_t wave, int16_t cut, int16_t bend, int16_t mask, i
 static void test_lofi_tone(void)
 {
     static int32_t a[FS / 4], c[FS / 4];
-    double open = lo_render(0, 127, 0, 0, a, FS / 4u), shut = lo_render(0, 40, 0, 0, c, FS / 4u), db = 0, dm = 0, dbb = 0;
+    double open = lo_render(5, 127, 0, 0, a, FS / 4u), shut = lo_render(5, 40, 0, 0, c, FS / 4u), db = 0, dm = 0, dbb = 0;
     uint32_t i, w;
     for (w = 0; w < 2u; w++) {
-        int16_t wave = w ? 5 : 0;
+        int16_t wave = w ? 5 : 6;                       /* (V10.6d MATH: FLOAT and BYTE; MASK's slot is BYTE's LOOP) */
         lo_render(wave, 127, 0, 0, a, FS / 4u);
         lo_render(wave, 127, 90, 0, c, FS / 4u);
         for (i = 0; i < FS / 4u; i++) *(w ? &dbb : &db) += fabs((double)c[i] - a[i]);
@@ -1084,8 +1088,8 @@ static void test_lofi_tone(void)
             for (i = 0; i < FS / 4u; i++) dm += fabs((double)c[i] - a[i]);
         }
     }
-    printf("mod:   (LOFI slope open %.3g, CUT 40 %.3g; BEND on PLS %.3g, on BYTE %.3g; MASK on BYTE %.3g)\n", open, shut, db, dbb, dm);
-    check("LOFI CUT darkens (less slope); BEND changes a pulse and BYTE; MASK changes BYTE",
+    printf("mod:   (MATH slope open %.3g, CUT 40 %.3g; BEND on FLOAT %.3g, on BYTE %.3g; LOOP on BYTE %.3g)\n", open, shut, db, dbb, dm);
+    check("MATH CUT darkens (less slope); BEND changes FLOAT and BYTE; LOOP changes BYTE",
           shut < open * 0.5 && db > 1e6 && dbb > 1e6 && dm > 1e6);
     {
         uint32_t c0, c1;
@@ -1293,3 +1297,4 @@ int main(int argc, char **argv)
     printf("%s\n", bad ? "MOD MATRIX TEST FAILED" : "mod matrix test passed");
     return bad != 0;
 }
+

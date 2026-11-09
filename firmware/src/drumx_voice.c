@@ -34,7 +34,6 @@ typedef struct {                                         /* a hit */
     int32_t ic1, ic2, rng;                               /* the noise filter's state, the noise */
     int32_t mo;                                          /* WARP: the modulator's last output (its feedback) */
     uint32_t ph3;                                        /* (JIANT 0.4) the SINE pitch modulation's phase */
-    int32_t lp;                                          /* (JIANT 0.5) the output's one-pole low-pass state */
     int32_t hl;                                          /* (0.6.17) the last half-rate sample (dx_run's upsampling) */
     int32_t b1, b2;                                      /* (0.6.36) TONE's band-pass state */
     uint32_t ph4;                                        /* (0.6.49) LAYER's oscillator phase */
@@ -45,11 +44,14 @@ typedef struct {                                         /* a hit */
                                                           * hands come in so far (Q12, over the hit's own), this hit's dice */
 } dx_voice_t;
 
+/* (V10.6q) the SINE's drive: 1 / tanh(its gain), Q12, every 8 COLOR (0..128): the driven sine's peak back to the sine's */
+static const uint16_t DX_NRM[17] = {16724, 11014, 8422, 6987, 6105, 5526, 5131, 4854, 4655, 4511, 4406, 4328, 4270, 4249, 4249,
+                                    4249, 4249};
 /* the oscillator's modulator ratios (Q12), by wave */
 static const uint16_t DX_RATIO[4] = {4096, 4096, 6021, 11305};
 
 /* 2^(x / 4096), 0 <= x < 16 * 4096, Q16 (a cubic for the fraction: within 0.01 %) */
-static uint32_t dv_exp2(uint32_t x)
+static __attribute__((noinline)) uint32_t dv_exp2(uint32_t x)
 {
     uint32_t f = x & 4095u, m;
     m = 65536u + ((f * (45594u + ((f * (14851u + ((f * 5092u) >> 12))) >> 12))) >> 12);
@@ -63,33 +65,27 @@ static uint32_t dv_exp2(uint32_t x)
  * and fed back the mean of the last two
  * outputs (the DX7's: the period-2 hunting of a one-sample loop gone: clean, no fizz) */
 static const uint16_t DX_FB_CURVE[16] = {0, 712, 2013, 3699, 5697, 7961, 10465, 13188, 16113, 19230, 22521, 25981, 29600,
-                                         33377, 45891, 62582};
+                                         33377, 37300, 41370};   /* (V10.6q: the curve on to 15, 1.98 rad; its 2.2 and 3.0 rad,
+                                                          * noise and 8 % DC, gone) */
 /* FM ENV (DRUM's E5, 0..127) -> the FM index the hit strikes with (dx_run's ix: 1 = 0.0245 rad): 3.26 (2^(6 x) - 1)
  * up to 114 (x = FM ENV / 127: 0.56 rad at 64, ~3.3 at 114: a beater, a click, a metal edge), then a line to the old
  * top (381, 9.3 rad: the noise) at 127; was 3 x FM ENV (4.7 rad at 64: a crunch) */
+/* (V10.6q) x^2 (x + 0.5) up to 114 (0.84 rad at 64, 2.3 at 96, 3.7 at 114: half the knob heard, it was ~0 up to ~100),
+ * then the line to the top */
 static __attribute__((noinline)) int32_t dx_fm_env(int32_t fm)
 {
-    int32_t e;
     fm = clamp(fm, 0, 127);
-    if (fm > 114)
-        return 133 + (fm - 114) * (381 - 133) / 13;
-    e = (int32_t)dv_exp2((uint32_t)(fm * 6 * 4096 / 127));
-    return (int32_t)(((uint32_t)(e - 65536) * 209u) >> 22);
+    return fm > 114 ? 150 + (fm - 114) * (381 - 150) / 13 : fm * fm * (fm + 64) / 15422;
 }
 /* .. and kept under the half rate's Nyquist (11 kHz): the hit's highest sideband (fc + (I + 1) fm, the carrier fc,
- * the modulator fm = fc ratio / 4096) at ~10 kHz at most, softly (e lim / (e + lim): the low and middle hits as they
- * are, the high ones not folded into hiss) */
+ * the modulator fm = fc ratio / 4096) at 10.5 kHz at most. (V10.6q) A ceiling, on COLOR's index too (it was FM ENV's
+ * alone, and soft, e lim / (e + lim), which took ~40 % off a rim far under it): below it every index as asked, above
+ * it no sideband folded back (the hats' FM was 77 % aliasing) */
 static __attribute__((noinline)) int32_t dx_fm_lim(int32_t e, uint32_t inc, uint32_t ratio)
 {
     int32_t fc = (int32_t)(((inc >> 16) * 44100u) >> 16), fmh = (int32_t)(((uint32_t)fc * ratio) >> 12), lim;
-    if (e <= 0)
-        return 0;
-    if (fc >= 10000)
-        return 0;
-    lim = (10000 - fc) * 41 / (fmh > 0 ? fmh : 1) - 41;
-    if (lim <= 0)
-        return 0;
-    return lim > 4096 ? e : e * lim / (e + lim);
+    lim = fc >= 10500 ? 0 : (10500 - fc) * 41 / (fmh > 0 ? fmh : 1) - 41;
+    return e < lim ? e : lim > 0 ? lim : 0;
 }
 /* tau (us) -> per-block decay, Q16: e^(-CTL / (tau fs)), to the fourth order (2^16 CTL / FS us) */
 static uint32_t dv_kb(uint32_t us)
@@ -117,6 +113,9 @@ static inline int32_t dx_tri(uint32_t ph)
     return s < 65536 ? s - 32768 : 98303 - s;
 }
 
+/* (V10.6q) the cowbell's square: a triangle clipped (its edge k, Q8: ~2 samples) */
+static __attribute__((noinline)) int32_t dx_sq(uint32_t ph, int32_t k) { return clamp((dx_tri(ph) * k) >> 8, -32767, 32767); }
+
 /* (0.6.49) the oscillator's loop with LAYER (dx_run's FM ENV / FEEDBK loop and a triangle at sqrt 2 of it, frequency
  * modulated by it, its index up as LAYER's square; up to ~70 % of the mix): a function of its own (dx_run's loops as
  * they were) */
@@ -126,27 +125,19 @@ static __attribute__((noinline)) void dx_layer(dx_voice_t *v, int32_t *y, uint32
 {
     uint32_t i, ph = *php, ph2 = *ph2p, ph4 = v->ph4;
     int32_t o = *op, o1 = *o1p, lx = lay * lay * 600, lm = lay * 3, fh = fbk >> 1;   /* (snd1: FEEDBK's mean of two) */
-    if (ix || dix)
-        for (i = 0; i < n; i++, inc += dinc, ga += dga, ix += dix) {
-            int32_t o2, f = o + o1;
-            o1 = o;
-            o = sine_i(ph + (uint32_t)(sine_i(ph2) * ix) * 512u + (uint32_t)(f * fh));
-            o2 = dx_tri(ph4 + (uint32_t)(o * lx));
-            y[i] = mulq15(o + (((o2 - o) * lm) >> 6), ga >> 8);
-            ph += (uint32_t)inc << 4;
-            ph2 += ((uint32_t)inc >> 8) * ratio;
-            ph4 += ((uint32_t)inc >> 6) * 1448u;         /* (x 22.6: x 16 the step, sqrt 2) */
-        }
-    else                                                 /* (no FM on it: the modulator not run) */
-        for (i = 0; i < n; i++, inc += dinc, ga += dga) {
-            int32_t o2, f = o + o1;
-            o1 = o;
-            o = sine_i(ph + (uint32_t)(f * fh));
-            o2 = dx_tri(ph4 + (uint32_t)(o * lx));
-            y[i] = mulq15(o + (((o2 - o) * lm) >> 6), ga >> 8);
-            ph += (uint32_t)inc << 4;
-            ph4 += ((uint32_t)inc >> 6) * 1448u;
-        }
+    uint32_t st4 = lay ? 1448u : 0u;                     /* (LAYER 0: its phase kept) */
+    if (!ix && !dix)                                     /* (no FM on it: the modulator stands still, its phase kept) */
+        ratio = 0;
+    for (i = 0; i < n; i++, inc += dinc, ga += dga, ix += dix) {
+        int32_t o2, f = o + o1;
+        o1 = o;
+        o = sine_i(ph + (uint32_t)(sine_i(ph2) * ix) * 512u + (uint32_t)(f * fh));
+        o2 = dx_tri(ph4 + (uint32_t)(o * lx));
+        y[i] = mulq15(o + (((o2 - o) * lm) >> 6), ga >> 8);
+        ph += (uint32_t)inc << 4;
+        ph2 += ((uint32_t)inc >> 8) * ratio;
+        ph4 += ((uint32_t)inc >> 6) * st4;               /* (x 22.6: x 16 the step, sqrt 2) */
+    }
     *php = ph;
     *ph2p = ph2;
     *op = o;
@@ -171,13 +162,14 @@ static uint8_t dx_tone;
  * at a moment of its own (~3 .. 45 ms after it, the dice thrown again each hit: no tempo in it) and at a level of its
  * own, then dying as the hit does: a few people clapping, then a crowd. 0: the clap as it was */
 static uint8_t dx_hands;
-static dx_lane_t dx_kit[8];                              /* (defined below with the factory kit: the BP knows its lanes) */
+static dx_lane_t dx_kit[8] __attribute__((section(".data.dx_kit")));                              /* (the music's kit: DX_KITS below; V10.6o: no initializer, the
+                                                          * power-on and a project set it) */
 /* (JIANT 0.6.49) EDIT > LAYER, each sound's (the kit's: project.c keeps it, FUNC's 'D' 'L' block; 0 before it): low
  * nibble LAYER, a second oscillator (a triangle) at sqrt 2 of the pitch (the most out of tune with it there is) frequency-modulated
  * by the first, more as it goes up (1..15: a metal edge .. a clang with no note: the sound melts into the rhythm and
  * stays out of the harmony); high nibble FEEDBK, the sound's own oscillator fed back (on top of TONE's, the kit's) */
-#define DX_LAY_INIT {0, 6, 0, 9, 9, 0, 0, 11}            /* (the factory kit's: DX_LAY_DEF) */
-static uint8_t dx_lay[8] = DX_LAY_INIT;
+static uint8_t dx_lay[8] __attribute__((section(".data.dx_lay")));                                /* (V10.6o: no initializer; the power-on and a project set it: the
+                                                          * factory kit's, DX_LAY_DEF) */
 #define DX_LAY_L(x) ((uint32_t)(x) & 15u)
 #define DX_LAY_FB(x) ((uint32_t)(x) >> 4)
 #define DX_TONE_BP(t) ((uint32_t)(t) & 15u)
@@ -188,8 +180,16 @@ static uint8_t dx_lay[8] = DX_LAY_INIT;
  * envelope times its level over where that envelope was when it struck, so one sum carries them all (v->hsum, Q12) */
 static __attribute__((noinline)) int32_t dx_hands_step(dx_voice_t *v, uint32_t n, int32_t gn, int32_t *g1, int32_t en1)
 {
-    uint32_t k, nh = 1u + (uint32_t)dx_hands * 5u / 15u, span = 60u + (uint32_t)dx_hands * 60u, p0 = v->hpos;
-    int32_t s0 = v->hsum, s = s0, w = 8 + dx_hands;      /* (the hands louder as there are more of them) */
+    uint32_t k, nh = dx_hands ? 1u + (uint32_t)dx_hands * 5u / 15u : 0u, span = 60u + (uint32_t)dx_hands * 60u, p0 = v->hpos;
+    int32_t s0 = v->hsum, s = s0, w = 2 * 23 / (int32_t)(2u * nh + 1u);   /* (V10.6q: the more hands the softer each: the
+                                                          * crowd about as loud as a few, was +10.6 dB at 15) */
+    if (p0 < 768u) {                                     /* (V10.6q) the 808's: three claps 11.6 ms apart, each a falling
+                                                          * saw (squared) on the noise, then the tail */
+        int32_t a = 256 - (int32_t)(p0 & 255u), b = 255 - (int32_t)((p0 + n - 1u) & 255u);
+        gn = (gn >> 16) * a * a;
+        if (p0 + n < 768u)
+            *g1 = (*g1 >> 16) * b * b;
+    }
     for (k = 0; k < nh && p0 < 1200u; k++) {             /* (all in by ~54 ms: then the sum alone) */
         uint32_t h = ((uint32_t)v->hseed + k * 0x9E37u) * 2654435761u, on = 66u + (h >> 8) % span;
         if (on >= p0 && on < p0 + n) {
@@ -204,15 +204,15 @@ static __attribute__((noinline)) int32_t dx_hands_step(dx_voice_t *v, uint32_t n
     *g1 = (int32_t)(mul64(*g1, 4096 + s) >> 12);
     return (int32_t)(mul64(gn, 4096 + s0) >> 12);
 }
-static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, int32_t morph, int32_t tune16,
+static __attribute__((noinline)) void dx_run_fx(const dx_lane_t *L, dx_voice_t *v, int32_t morph, int32_t tune16,
                                              int32_t dofs, int32_t cofs, int32_t nofs, int32_t warp, int32_t fm, int32_t *y,
-                                             uint32_t n)
+                                             uint32_t n, uint32_t feedback)
 {
-    int32_t q[DXP_N], p16, depth, ea1, en1, ep1, og, ng, ga, dga, gn, dgn, kd, inc, dinc;
+    int32_t q[DXP_N], p16, depth, ea0, ea1, en1, ep1, og, ng, ga, dga, gn, dgn, kd, inc, dinc, mt, cw, cx;
     uint32_t i, k, wave = L->mode & 3u, flt = (L->mode >> 2) & 3u, ta, tn, tp, kb, inc1;
     tsvf_t c;
     uint32_t nf = n, ln = L >= dx_kit && L < dx_kit + 8 ? (uint32_t)(L - dx_kit) : 0u;
-    int32_t lay = (int32_t)DX_LAY_L(dx_lay[ln]), lfb = (int32_t)DX_TONE_FB(dx_tone) + (int32_t)DX_LAY_FB(dx_lay[ln]);
+    int32_t lay = (int32_t)DX_LAY_L(dx_lay[ln]), lfb = (int32_t)DX_TONE_FB(dx_tone) + (int32_t)DX_LAY_FB(dx_lay[ln]) + (int32_t)feedback;
     if (!v->live && !v->trig) {
         for (i = 0; i < n; i++)
             y[i] = 0;
@@ -223,38 +223,58 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
         y[0] = v->hl;
         return;
     }
-    n >>= 1;                                             /* (0.6.17) at half rate (22 kHz): the hit is low-passed
-                                                          * at ~8 kHz below anyway; the block back to full rate at
-                                                          * the end, linearly (half the work of the heaviest lanes) */
+    n >>= 1;                                             /* (0.6.17) at half rate (22 kHz); the block back to full rate
+                                                          * at the end, linearly (half the work of the heaviest lanes).
+                                                          * (V10.6q) no one-pole after it: at 22 kHz its "8 kHz" was a
+                                                          * 1.8 dB shelf, 12 % of a hit's work */
     morph = clamp(morph, 0, 127);
     for (k = 0; k < DXP_N; k++)
         q[k] = L->a[k] + ((L->b[k] - L->a[k]) * morph) / 127;
     q[DXP_DECAY] = clamp(q[DXP_DECAY] + dofs, 0, 127);
-    q[DXP_COLOR] = clamp(q[DXP_COLOR] + cofs, 0, 127);
-    q[DXP_NOISE] = clamp(q[DXP_NOISE] + nofs, 0, 127);
+    for (k = 0; k < 2u; k++) {                           /* (V10.6q) COLOR, NOISE: the offset as it is where it fits, scaled
+                                                          * to the room where it would clip (was clipped: half a knob dead
+                                                          * on a sound near an end); DECAY stays in octaves (SHORT: half) */
+        int32_t o = clamp(k ? nofs : cofs, -64, 63), *x = &q[k ? DXP_NOISE : DXP_COLOR];
+        *x += o > 0 ? o * (127 - *x < 63 ? 127 - *x : 63) / 63 : o * (*x < 64 ? *x : 64) / 64;
+    }
+    if (!ln)                                             /* (V10.6z8, the owner: "the kick sounds like a snare") the
+                                                          * KICK's NOISE on a cube: the kit's 40 (V10.6q) or 4..24 (before)
+                                                          * as good as none, the body whole; the knob up to 127 still there
+                                                          * (64: an eighth, 100: a half) */
+        q[DXP_NOISE] = (q[DXP_NOISE] * q[DXP_NOISE] * q[DXP_NOISE]) >> 14;
     ta = dx_tau((uint32_t)q[DXP_DECAY]);
-    tn = (L->mode >> 4) & 1u ? ta >> 2 : ta;
+    tn = (L->mode >> 4) & 1u ? (ta >> 2 < 8000u ? ta >> 2 : 8000u) : ta;   /* SNAP: a quarter, 8 ms at most (V10.6q: a click) */
     tp = ((L->mode >> 5) & 3u) == DXM_LONG ? (uint32_t)clamp((int32_t)(ta / 2u), 4000, 250000)
-                                           : (uint32_t)clamp((int32_t)(ta / 6u), 1000, 40000);
+                                           : (uint32_t)clamp((int32_t)(ta / (ln ? 8u : 6u)), 1000, ln ? 25000 : 40000);
+                                                         /* (V10.6q: / 12, 15 ms: thin; / 8, 25 ms: the click and the
+                                                          * body; V10.6z8: the KICK's / 6, 40 ms again, as before V10.6q:
+                                                          * the big sweep the owner asked back) */
     p16 = 384 + q[DXP_PITCH] * 12 + tune16;
     depth = q[DXP_PMOD] * 6;
+    ea0 = v->live ? v->ea : 1 << 30;                     /* (V10.6q) the block's start: a hit struck again while it rings
+                                                          * rises from where it was over the block, its phases and
+                                                          * filters as they were (a jump to 0 clicked: x35 a step) */
     if (v->trig) {                                       /* the hit: from the top */
+        if (!v->live) {
+            v->ph = v->ph2 = v->ph4 = 0;
+            v->ic1 = v->ic2 = 0;
+            v->b1 = v->b2 = 0;
+            v->mo = 0;
+            v->mo1 = 0;
+        }
         v->trig = 0;
         v->live = 1;
         v->ea = v->en = 1 << 30;
         v->ep = 32767;
-        v->ph = v->ph2 = v->ph4 = 0;
-        v->ic1 = v->ic2 = 0;
-        v->b1 = v->b2 = 0;
-        v->mo = 0;
-        v->mo1 = 0;
         if (!v->rng)
             v->rng = 0x2545F491;
         v->hpos = v->hsum = 0;
         v->hseed = (uint16_t)(((uint32_t)v->rng * 2654435761u) >> 16);   /* (not drawn from the noise: OFF as it was) */
         v->inc = pitch_inc((uint32_t)clamp(p16 + depth, 0, 2047));
     }
-    kb = v->choke ? dv_kb(1500u) : dv_kb(ta);            /* (a choked hit: gone in ~5 ms) */
+    k = 11890000u / ((pitch_inc((uint32_t)clamp(p16, 0, 2047)) >> 12) | 1u);   /* (V10.6q) half its period (us): no shorter */
+    kb = v->choke ? dv_kb(1500u) : dv_kb(ta > k ? ta : k);   /* (a choked hit: gone in ~5 ms; a blip shorter than its own
+                                                          * half wave was all DC) */
     ea1 = mulq16(v->ea, kb);
     en1 = mulq16(v->en, v->choke ? kb : dv_kb(tn));
     ep1 = (int32_t)(((uint32_t)v->ep * dv_kb(tp)) >> 16);
@@ -266,7 +286,7 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
             off = (off * ((int32_t)noise32(&r) >> 17)) >> 14;
             v->rng = r;
         } else if (pm == DXM_SINE) {                    /* .. a sine at 1/8 of the pitch */
-            v->ph3 += v->inc << 2;
+            v->ph3 += v->inc << 3;                      /* (V10.6q: << 3, 1/8 at CTL 64; was 1/16) */
             off = (off * sine_i(v->ph3)) >> 15;
         }
         inc1 = pitch_inc((uint32_t)clamp(p16 + off, 0, 2047));
@@ -274,12 +294,23 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
     ng = q[DXP_NOISE] * 258;
     og = ((32767 - ng) * 11) >> 4;                       /* (x 11 / 16: about the DRUM kits' level) */
     ng = (ng * 11) >> 4;
-    ga = mulq15(og, v->ea >> 15) << 8;                   /* the oscillator's gain, Q23, stepped */
-    dga = ((mulq15(og, ea1 >> 15) << 8) - ga) / (int32_t)n;
-    gn = mulq15(ng, v->en >> 15) << 8;                   /* the noise's */
+    cw = wave == DXW_METAL && ln == DV_BELL;             /* (V10.6q) the cowbell: the CMOS one (below), its band on its
+                                                          * pitch, between its two squares (its COLOR the timbre) */
+    cx = cw ? clamp(((p16 - 360) * 19 >> 8) + 4, 0, 113) : q[DXP_COLOR] + (!ln << 5);   /* (the filter's cutoff, as a
+                                                          * COLOR; V10.6z8: the KICK's 2 1/4 octaves up, its noise turned
+                                                          * up a knock, a beater: not a rumble under the body) */
+    if (flt < DXF_HP && cx < 96)                         /* (V10.6q) LP, BP: the band's power goes with its cutoff, the
+                                                          * gain back as 1 / sqrt(fc) to COLOR 96's (x8 at most): a dark
+                                                          * snare or clap as loud as a bright one (were up to 18 dB under) */
+        ng = (ng * (int32_t)(dv_exp2((uint32_t)(cx < 12 ? 84 : 96 - cx) * 146u) >> 4)) >> 12;
+    ga = mulq15(og, cw ? (ea0 >> 16) + (v->en >> 16) : ea0 >> 15) << 8;   /* the oscillator's gain, Q23, stepped (the
+                                                          * cowbell's in two stages: half on the noise's SNAP, a click,
+                                                          * half on the decay, the tail) */
+    dga = ((mulq15(og, cw ? (ea1 >> 16) + (en1 >> 16) : ea1 >> 15) << 8) - ga) / (int32_t)n;
+    gn = mulq15(ng >> 3, v->en >> 15) << 11;             /* the noise's (ng up to x8: >> 3) */
     {
-        int32_t g1 = mulq15(ng, en1 >> 15) << 8;
-        if (ln == DV_CLAP && dx_hands && (v->hpos < 1200u || v->hsum))   /* (0.7.9) HANDS: more hands in the noise */
+        int32_t g1 = mulq15(ng >> 3, en1 >> 15) << 11;
+        if (ln == DV_CLAP && (v->hpos < 1200u || v->hsum))   /* (V10.6q) the 808's claps; (0.7.9) HANDS: more hands */
             gn = dx_hands_step(v, n, gn, &g1, en1);
         dgn = (g1 - gn) / (int32_t)n;
     }
@@ -290,117 +321,123 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
         int32_t fold = clamp(warp, 0, 127);
         fm = clamp(fm, 0, 127);
         warp = fm || lfb || lay ? 0x100 : 0;            /* (FM ENV, FEEDBK, LAYER: the loop below; the flag stripped there) */
-        if (wave == DXW_SINE && q[DXP_COLOR] && !warp) {   /* drive x1 .. x2.5 into the soft clip */
-            int32_t g = 4096 + q[DXP_COLOR] * 48;
+        if (cw) {                                        /* (V10.6q) the 808's cowbell: two squares at the pitch and x1.47
+                                                          * (540 / 800 Hz at PITCH 64), each a triangle clipped to an edge
+                                                          * of ~2 samples (no wrap folded back: as good as PolyBLEP under
+                                                          * the band), through the band-pass (below); COLOR the timbre: 0
+                                                          * their mix .. 64 their ring (A B) .. 127 A's phase driven by B
+                                                          * (FM) */
+            uint32_t ph2 = v->ph2, st = (uint32_t)inc << 4;
+            int32_t u = (q[DXP_COLOR] - 64) * 520, t = u < 0 ? u + 33280 : 32767;   /* (ring 0 .. 1 up to 64, FM 0 .. 1 over it) */
+            int32_t ka = (int32_t)((1u << 29) / ((st >> 8) | 1u)), kb = (ka * 2787) >> 12;   /* (the edges' gains, Q8) */
+            int32_t a = v->mo, fbk = DX_FB_CURVE[lfb > 15 ? 15 : lfb], um;
+            u = u < 0 ? 0 : u;
+            um = u + ((fm ? dx_fm_env(fm) * v->ep >> 15 : 0) * 43);   /* (FM ENV: A's modulation struck with the hit) */
             for (i = 0; i < n; i++, inc += dinc, ga += dga) {
-                y[i] = mulq15(softclip((sine_i(ph) * g) >> 12), ga >> 8);
-                ph += (uint32_t)inc << 4;
+                int32_t b = dx_sq(ph2, kb), o;
+                a = dx_sq(ph + ((uint32_t)(dx_tri(ph2) * um) << 1) + (uint32_t)(a * fbk), ka);   /* (A's phase driven by B's
+                                                          * triangle, up to pi: no phase jumps; FEEDBK its own) */
+                o = (a + b) >> 2;                        /* (half scale: the sums fit) */
+                o += mulq15(((mulq15(a, b) * 3) >> 2) - o, t);   /* (the ring x1.5: its sum and difference off the band) */
+                o += mulq15(((a * 3) >> 2) - o, u);
+                y[i] = mulq15(o << 1, ga >> 8);
+                st = (uint32_t)inc << 4;
+                ph += st;
+                ph2 += (st >> 12) * 6021u;
             }
-        } else if (wave == DXW_SINE && !warp) {
-            for (i = 0; i < n; i++, inc += dinc, ga += dga) {
-                y[i] = mulq15(sine_i(ph), ga >> 8);
-                ph += (uint32_t)inc << 4;
-            }
-        } else if (!warp) {                              /* FM: up to ~1.5 cycles of phase */
-            uint32_t ph2 = v->ph2, ratio = DX_RATIO[wave];
-            int32_t idx = q[DXP_COLOR] * 3;
-            for (i = 0; i < n; i++, inc += dinc, ga += dga) {
-                y[i] = mulq15(sine_i(ph + (uint32_t)(sine_i(ph2) * idx) * 512u), ga >> 8);
-                ph += (uint32_t)inc << 4;
-                ph2 += ((uint32_t)inc >> 8) * ratio;
-            }
+            v->mo = a;
             v->ph2 = ph2;
-        } else {                                         /* (0.6.36) FM ENV: the FM struck with the hit and gone with
-                                                          * the pitch envelope (1..40 ms): a beater, a click, a metal
-                                                          * edge on the attack, the tail clean; a SINE gets its octave
-                                                          * as the modulator, the other waves their own ratio and
-                                                          * COLOR's index under it */
+        } else if (wave == DXW_SINE && !warp) {          /* drive x0.25 (as good as clean) .. x2.5 into the soft clip;
+                                                          * (V10.6q) on one line from COLOR 0 (was clean at 0, then x1 ..
+                                                          * x2.5: a step), its peak back to the sine's: a colour, not a level */
+            int32_t g = 1024 + q[DXP_COLOR] * 72, j = q[DXP_COLOR] >> 3, nrm = DX_NRM[j] + (((DX_NRM[j + 1] - DX_NRM[j]) * (q[DXP_COLOR] & 7)) >> 3);
+            for (i = 0; i < n; i++, inc += dinc, ga += dga) {
+                y[i] = mulq15((softclip((sine_i(ph) * g) >> 12) * nrm) >> 12, ga >> 8);
+                ph += (uint32_t)inc << 4;
+            }
+        } else {                                         /* FM (up to ~1.5 cycles of phase: COLOR's index), and (0.6.36)
+                                                          * FM ENV: the FM struck with the hit and gone with the pitch
+                                                          * envelope (1..40 ms): a beater, a click, a metal edge on the
+                                                          * attack, the tail clean; a SINE gets its octave as the
+                                                          * modulator, the other waves their own ratio and COLOR's index
+                                                          * under it. (V10.6o: one loop; without FM ENV, FEEDBK and LAYER
+                                                          * its index steady, nothing fed back, as the plain FM loop was) */
             uint32_t ph2 = v->ph2, ratio = wave == DXW_SINE ? 8192u : DX_RATIO[wave];
-            int32_t base = wave == DXW_SINE ? 0 : q[DXP_COLOR] * 3, fe = dx_fm_lim(dx_fm_env(fm), inc1, ratio);   /* (snd1) */
+            int32_t base = wave == DXW_SINE ? 0 : dx_fm_lim(q[DXP_COLOR] * 3, inc1, ratio), fe = fm ? dx_fm_lim(dx_fm_env(fm), inc1, ratio) : 0;   /* (snd1) */
             int32_t ix = base + ((fe * v->ep) >> 15), dix = ((base + ((fe * ep1) >> 15)) - ix) / (int32_t)n;
             int32_t o = v->mo, o1 = v->mo1, fbk = DX_FB_CURVE[lfb > 15 ? 15 : lfb];   /* (FEEDBK: on its curve, snd1) */
-            if (lay) {                                   /* (0.6.49) LAYER: a second one at sqrt 2, FM'd by the first */
-                dx_layer(v, y, n, &ph, &ph2, &o, &o1, inc, dinc, ga, dga, ix, dix, ratio, fbk, lay);
-            } else
-                for (i = 0; i < n; i++, inc += dinc, ga += dga, ix += dix) {
-                    int32_t f = o + o1;                  /* (snd1: the mean of the last two, x2: fbk / 2 below) */
-                    o1 = o;
-                    o = sine_i(ph + (uint32_t)(sine_i(ph2) * ix) * 512u + (uint32_t)(f * (fbk >> 1)));
-                    y[i] = mulq15(o, ga >> 8);
-                    ph += (uint32_t)inc << 4;
-                    ph2 += ((uint32_t)inc >> 8) * ratio;
-                }
+            dx_layer(v, y, n, &ph, &ph2, &o, &o1, inc, dinc, ga, dga, ix, dix, ratio, fbk, lay);   /* (0.6.49) LAYER: a second
+                                                          * one at sqrt 2, FM'd by the first (V10.6q: its loop the only
+                                                          * one, LAYER 0 none of it) */
             v->ph2 = ph2;
-            v->mo = o;
-            v->mo1 = (int16_t)o1;
+            if (warp) {                                  /* (the feedback's memory: only its own loop's) */
+                v->mo = o;
+                v->mo1 = (int16_t)o1;
+            }
         }
         v->ph = ph;
-        if (L->mode & DX_DRIVE)                         /* (JIANT 0.4) DRIVE: x3 into the soft clip, the level near */
+        if (L->mode & DX_DRIVE) {                       /* (JIANT 0.4) DRIVE: x3 into the soft clip, the level near */
+            int32_t dl = 14000 + !ln * 8000;             /* (V10.6q: 14000, was 22000: +4 dB louder; V10.6z8: the KICK's
+                                                          * 22000 again, its punch as before V10.6q) */
             for (i = 0; i < n; i++)
-                y[i] = (softclip(y[i] * 3) * 22000) >> 15;
+                y[i] = (softclip(y[i] * 3) * dl) >> 15;
+        }
         if (fold) {                                      /* (JIANT 0.5) FOLD: after the envelope, so it follows it */
-            int32_t g = 16 + (fold * 5 >> 3);            /* (JIANT 0.5: x1 .. x5.9, Q4; was x16.9: aliased hiss) */
+            int32_t g = 16 + ((fold * fold * 5) >> 10), c = g * 6144 / (8 + g);   /* (Q4: x1 .. x5.9 on fold^2; V10.6q,
+                                                          * was on fold: +5..+14 dB at the first steps); out x 1.5 g / (0.5
+                                                          * + g), Q12: x1 at the start (was x1.5 at once) */
             for (i = 0; i < n; i++) {
                 int32_t v = clamp((y[i] * g) >> 4, -5 * 16384, 5 * 16384), a;
                 for (a = 0; a < 3; a++)
                     v = v > 16384 ? 32768 - v : v < -16384 ? -32768 - v : v;
-                y[i] = (v * 3) >> 1;
+                y[i] = (v * c) >> 12;
             }
         }
     } else {
         for (i = 0; i < n; i++)
             y[i] = 0;
     }
-    if (ng) {                                            /* the noise through its filter */
+    mt = wave == DXW_METAL && (0x98u >> ln) & 1u ? -1 : 0;   /* (V10.6q) the hats' METAL through the filter
+                                                          * with the noise, in their band (its clank at 1 .. 2.5 kHz was
+                                                          * 13 % of a hat) */
+    if (ng || mt) {                                      /* the noise (and METAL) through its filter */
         int32_t ic1 = v->ic1, ic2 = v->ic2, rng = v->rng;
+        int32_t mr, ck, cv;                              /* (V10.6o: one loop) the output r & mr - k v1 - cv v2: LP v2,
+                                                          * BP v1, HP r - k v1 - v2 (each exactly as its own loop was) */
         kd = flt == DXF_BP ? 2400 : 6000;                /* (BP a little resonant) */
-        tsvf_coef_k(&c, (q[DXP_COLOR] + 14) << 8, kd);   /* (+ an octave of the table: the same Hz at half rate) */
-/* (one loop per filter: the choice is not made per sample) */
-#define DX_NOISE(OUT)                                                                                              \
-        for (i = 0; i < n; i++, gn += dgn) {                                                                       \
-            int32_t r = (((int32_t)noise32(&rng) >> 17) * 23170) >> 15, v3 = r - ic2, v1, v2;   /* +-11585: 1/sqrt2,  \
-                                                          * half rate (the same power in half the band: +3 dB) */      \
-            v1 = (c.a1 * ic1 + c.a2 * v3) >> 13;                                                                   \
-            v2 = ic2 + ((c.a2 * ic1 + c.a3 * v3) >> 13);                                                           \
-            ic1 = clamp(2 * v1 - ic1, -150000, 150000);                                                            \
-            ic2 = clamp(2 * v2 - ic2, -150000, 150000);                                                            \
-            y[i] += mulq15(clamp((OUT) << 1, -32767, 32767), gn >> 8);                                            \
+        tsvf_coef_k(&c, (cx + 14) << 8, kd);   /* (+ an octave of the table: the same Hz at half rate) */
+        mr = flt == DXF_LP || flt == DXF_BP ? 0 : -1;
+        ck = flt == DXF_LP ? 0 : flt == DXF_BP ? -4096 : kd;
+        cv = flt == DXF_LP ? -1 : flt == DXF_BP ? 0 : 1;
+        for (i = 0; i < n; i++, gn += dgn) {
+            int32_t r = mulq15((((int32_t)noise32(&rng) >> 17) * 23170) >> 15, gn >> 8) + ((y[i] & mt) >> 1), v3 = r - ic2, v1, v2;
+                                                         /* (+-11585: 1/sqrt2, half rate: the same power in half the
+                                                          * band, +3 dB; its gain before the filter, V10.6q) */
+            v1 = (c.a1 * ic1 + c.a2 * v3) >> 13;
+            v2 = ic2 + ((c.a2 * ic1 + c.a3 * v3) >> 13);
+            ic1 = clamp(2 * v1 - ic1, -150000, 150000);
+            ic2 = clamp(2 * v2 - ic2, -150000, 150000);
+            y[i] = (y[i] & ~mt) + clamp(((r & mr) - ((ck * v1) >> 12) - cv * v2) << 1, -32767, 32767);
         }
-
-        if (flt == DXF_LP)
-            DX_NOISE(v2)
-        else if (flt == DXF_BP)
-            DX_NOISE(v1)
-        else
-            DX_NOISE(r - ((kd * v1) >> 12) - v2)
-#undef DX_NOISE
         v->ic1 = ic1;
         v->ic2 = ic2;
         v->rng = rng;
     }
-    if (DX_TONE_BP(dx_tone) && (L == &dx_kit[DV_HATC] || L == &dx_kit[DV_HATO] || L == &dx_kit[DV_RIM] ||
-                                L == &dx_kit[DV_BELL])) {   /* (0.6.36) TONE's BP on the metal sounds */
+    if (DX_TONE_BP(dx_tone) && (0xD8u >> ln) & 1u) {     /* (0.6.36) TONE's BP on the metal sounds (the hats, the rim,
+                                                          * the cowbell); (V10.6q) around the sound's own COLOR, an
+                                                          * octave under it .. over it, half dry (was 1.5 .. 9 kHz for all
+                                                          * four and the band alone: 14 dB apart, the hats darkened) */
         int32_t b1 = v->b1, b2 = v->b2;
         tsvf_t cb;
-        tsvf_coef_k(&cb, (int32_t)(92u + DX_TONE_BP(dx_tone) * 2u) << 8, 1800);   /* (half rate: + an octave) */
+        tsvf_coef_k(&cb, (q[DXP_COLOR] + 2 * (int32_t)DX_TONE_BP(dx_tone) - 2) << 8, 1800);   /* (half rate: + an octave) */
         for (i = 0; i < n; i++) {
             int32_t v3 = y[i] - b2, v1 = (cb.a1 * b1 + cb.a2 * v3) >> 13, v2 = b2 + ((cb.a2 * b1 + cb.a3 * v3) >> 13);
             b1 = clamp(2 * v1 - b1, -150000, 150000);
             b2 = clamp(2 * v2 - b2, -150000, 150000);
-            y[i] = clamp(v1 + (v1 >> 1), -32767, 32767);   /* (its centre a little louder: the band sings) */
+            y[i] = clamp((y[i] >> 1) + v1 - (v1 >> 2), -32767, 32767);   /* (its centre a little louder: the band sings) */
         }
         v->b1 = b1;
         v->b2 = b2;
-    }
-    {                                                    /* (JIANT 0.5) the edge taken off: a one-pole low-pass at
-                                                          * ~8 kHz on the sound (FM, FOLD and bright noise at 16 kHz
-                                                          * were knife-sharp, the dice's above all) */
-        int32_t lp = v->lp;
-        for (i = 0; i < n; i++) {
-            lp += ((y[i] - lp) * 29400) >> 15;           /* (~8 kHz at 22 kHz; 22300 at 44.1) */
-            y[i] = lp;
-        }
-        v->lp = lp;
     }
     for (i = n; i-- > 0;) {                              /* (0.6.17) back to full rate: each half-rate sample and the
                                                           * mean of it and the one before (the last block's: v->hl) */
@@ -421,26 +458,14 @@ static __attribute__((noinline)) void dx_run(const dx_lane_t *L, dx_voice_t *v, 
     }
 }
 
-/* the factory kit (DRUM's): {mode, A, B}, A and B {PITCH PMOD DECAY NOISE COLOR}. dx_kit is the music's
- * kit: a section's (project.c keeps it in the project, the song stages it with the section), edited on EDIT >
- * SOUND (ui_input.c); DX_KIT_DEF what a project without one gets */
-#define DX_KIT_INIT {                                                                                                     \
-    {DX_MODE(DXW_SINE, DXF_LP, 1), {9, 70, 72, 4, 20}, {14, 100, 88, 10, 60}},        /* KICK */                    \
-    {DX_MODE(DXW_FM, DXF_BP, 0), {40, 30, 52, 80, 90}, {46, 18, 64, 104, 70}},       /* SNARE */                    \
-    {DX_MODE(DXW_SINE, DXF_BP, 0), {60, 0, 46, 127, 84}, {54, 0, 58, 127, 76}},      /* CLAP */                     \
-    {DX_MODE(DXW_METAL, DXF_HP, 0), {100, 0, 22, 96, 116}, {108, 0, 14, 112, 122}},  /* HAT CL */                   \
-    {DX_MODE(DXW_METAL, DXF_HP, 0), {100, 0, 62, 96, 112}, {108, 0, 74, 112, 118}},  /* HAT OP */                   \
-    {DX_MODE(DXW_SINE, DXF_LP, 1), {30, 40, 66, 10, 30}, {36, 60, 76, 20, 50}},      /* TOM */                      \
-    {DX_MODE(DXW_BELL, DXF_HP, 1), {63, 10, 14, 16, 46}, {70, 24, 20, 30, 60}},     /* RIM */                       \
-    {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 34, 50}, {68, 0, 54, 46, 62}},       /* BELL (0.6.49: shorter, noisier) */\
-}
-static const dx_lane_t DX_KIT_DEF[8] = DX_KIT_INIT;
-/* (0.6.49) the factory kit's LAYERs (FEEDBK 0): the snare, the hats and the bell (no note to them); the rest clean (CPU) */
-static const uint8_t DX_LAY_DEF[8] = DX_LAY_INIT;
-static dx_lane_t dx_kit[8] = DX_KIT_INIT;
-/* (0.7.2) the factory kits: DRUM's presets (eng_drum.c DRUM_PRESETS, one a kit, in this order), each the eight sounds,
- * their LAYERs and their SENDs (bus << 6 | amount). The first is the kit above. Loaded whole by a preset (ui.c
+/* (0.7.2) the factory kits: DRUM's presets (eng_drum.c DRUM_PRESETS, one a kit, in this order), each the eight sounds
+ * ({mode, A, B}, A and B {PITCH PMOD DECAY NOISE COLOR}), their LAYERs and their SENDs (bus << 6 | amount). The first
+ * is the factory kit (DX_KIT_DEF, below). dx_kit is the music's kit: a section's (project.c keeps it in the project,
+ * the song stages it with the section), edited on EDIT > SOUND (ui_input.c). Loaded whole by a preset (ui.c
  * apply_preset_to: dx_kit_load) into the section's kit; INIT SOUND and a new project take the first */
+/* (V10.6z8, the owner: "the kicks sound like a snare", "the hats a giant low clap") every KICK as before V10.6q (LP,
+ * its old NOISE and COLOR: V10.6q's HP noise at 40 was the snare in it); the 808 BOOM, LOFI DUST, ACOUSTIC, DUB ROOTS
+ * and HIP HOP hats' COLOR up (their band at 1.2 .. 2.5 kHz under the preset's TONE: now ~5 .. 8 kHz) */
 typedef struct { dx_lane_t lane[8]; uint8_t lay[8]; uint8_t snd[8]; } dx_kit_t;
 static const dx_kit_t DX_KITS[] = {
     {   /* DRUM-X */
@@ -450,11 +475,11 @@ static const dx_kit_t DX_KITS[] = {
             {DX_MODE(DXW_SINE, DXF_BP, 0), {60, 0, 46, 127, 84}, {54, 0, 58, 127, 76}},   /* CLAP */
             {DX_MODE(DXW_METAL, DXF_HP, 0), {100, 0, 22, 96, 116}, {108, 0, 14, 112, 122}},   /* HAT CL */
             {DX_MODE(DXW_METAL, DXF_HP, 0), {100, 0, 62, 96, 112}, {108, 0, 74, 112, 118}},   /* HAT OP */
-            {DX_MODE(DXW_SINE, DXF_LP, 1), {30, 40, 66, 10, 30}, {36, 60, 76, 20, 50}},   /* TOM */
+            {DX_MODE(DXW_SINE, DXF_HP, 1), {30, 40, 66, 14, 54}, {36, 60, 76, 20, 74}},   /* TOM */
             {DX_MODE(DXW_BELL, DXF_HP, 1), {63, 10, 14, 16, 46}, {70, 24, 20, 30, 60}},   /* RIM */
-            {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 34, 50}, {68, 0, 54, 46, 62}},   /* BELL */
+            {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 34, 6}, {68, 0, 54, 46, 28}},   /* BELL */
         },
-        {0, 6, 0, 9, 9, 0, 0, 11}, {0, 0, 0, 0, 0, 0, 0, 0},   /* the layers; the sends (bus << 6 | amount) */
+        {0, 6, 0, 0, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0},   /* the layers; the sends (bus << 6 | amount) */
     },
     {   /* 909 CLUB */
         {
@@ -463,37 +488,37 @@ static const dx_kit_t DX_KITS[] = {
             {DX_MODE(DXW_SINE, DXF_BP, 0), {60, 0, 52, 127, 88}, {54, 0, 64, 127, 80}},   /* CLAP */
             {DX_MODE(DXW_METAL, DXF_HP, 0), {106, 0, 16, 96, 126}, {114, 0, 8, 112, 127}},   /* HAT CL */
             {DX_MODE(DXW_METAL, DXF_HP, 0), {106, 0, 66, 96, 122}, {114, 0, 78, 112, 127}},   /* HAT OP */
-            {DX_MODE(DXW_SINE, DXF_LP, 1), {32, 54, 66, 10, 44}, {38, 74, 76, 20, 64}},   /* TOM */
+            {DX_MODE(DXW_SINE, DXF_HP, 1), {32, 54, 66, 14, 68}, {38, 74, 76, 20, 88}},   /* TOM */
             {DX_MODE(DXW_BELL, DXF_HP, 1), {65, 10, 12, 16, 50}, {72, 24, 18, 30, 64}},   /* RIM */
-            {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 34, 50}, {68, 0, 54, 46, 62}},   /* BELL */
+            {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 34, 6}, {68, 0, 54, 46, 28}},   /* BELL */
         },
-        {0, 6, 0, 9, 9, 0, 0, 11}, {0, 210, 214, 0, 0, 0, 0, 0},   /* the layers; the sends (bus << 6 | amount) */
+        {0, 6, 0, 0, 0, 0, 0, 0}, {0, 210, 214, 0, 0, 0, 0, 0},   /* the layers; the sends (bus << 6 | amount) */
     },
     {   /* 808 BOOM */
         {
             {DX_MODE(DXW_SINE, DXF_LP, 1) | DXM_LONG << 5, {3, 40, 102, 0, 6}, {8, 70, 118, 6, 46}},   /* KICK */
             {DX_MODE(DXW_SINE, DXF_BP, 0), {36, 18, 46, 90, 66}, {42, 6, 58, 114, 46}},   /* SNARE */
             {DX_MODE(DXW_SINE, DXF_BP, 0), {56, 0, 50, 127, 70}, {50, 0, 62, 127, 62}},   /* CLAP */
-            {DX_MODE(DXW_METAL, DXF_HP, 0), {92, 0, 14, 96, 92}, {100, 0, 6, 112, 98}},   /* HAT CL */
-            {DX_MODE(DXW_METAL, DXF_HP, 0), {92, 0, 60, 96, 88}, {100, 0, 72, 112, 94}},   /* HAT OP */
-            {DX_MODE(DXW_SINE, DXF_LP, 1) | DXM_LONG << 5, {24, 26, 82, 10, 18}, {30, 46, 92, 20, 38}},   /* TOM */
+            {DX_MODE(DXW_METAL, DXF_HP, 0), {92, 0, 14, 96, 118}, {100, 0, 6, 112, 124}},   /* HAT CL */
+            {DX_MODE(DXW_METAL, DXF_HP, 0), {92, 0, 60, 96, 114}, {100, 0, 72, 112, 120}},   /* HAT OP */
+            {DX_MODE(DXW_SINE, DXF_HP, 1) | DXM_LONG << 5, {24, 26, 82, 14, 42}, {30, 46, 92, 20, 62}},   /* TOM */
             {DX_MODE(DXW_BELL, DXF_HP, 1), {65, 10, 14, 16, 38}, {72, 24, 20, 30, 52}},   /* RIM */
-            {DX_MODE(DXW_METAL, DXF_BP, 1), {62, 0, 56, 34, 44}, {66, 0, 66, 46, 56}},   /* BELL */
+            {DX_MODE(DXW_METAL, DXF_BP, 1), {62, 0, 56, 34, 0}, {66, 0, 66, 46, 16}},   /* BELL */
         },
-        {0, 4, 0, 6, 6, 0, 0, 8}, {0, 204, 208, 0, 0, 0, 0, 0},   /* the layers; the sends (bus << 6 | amount) */
+        {0, 4, 0, 0, 0, 0, 0, 0}, {0, 204, 208, 0, 0, 0, 0, 0},   /* the layers; the sends (bus << 6 | amount) */
     },
     {   /* LOFI DUST */
         {
             {DX_MODE(DXW_SINE, DXF_LP, 1), {11, 78, 58, 14, 0}, {16, 108, 74, 20, 40}},   /* KICK */
             {DX_MODE(DXW_FM, DXF_BP, 1), {44, 30, 36, 104, 68}, {50, 18, 48, 127, 48}},   /* SNARE */
             {DX_MODE(DXW_SINE, DXF_BP, 0), {62, 0, 36, 127, 60}, {56, 0, 48, 127, 52}},   /* CLAP */
-            {DX_MODE(DXW_METAL, DXF_BP, 0), {104, 0, 12, 96, 88}, {112, 0, 4, 112, 94}},   /* HAT CL */
-            {DX_MODE(DXW_METAL, DXF_BP, 0), {104, 0, 48, 96, 84}, {112, 0, 60, 112, 90}},   /* HAT OP */
-            {DX_MODE(DXW_SINE, DXF_LP, 1), {32, 40, 52, 20, 10}, {38, 60, 62, 30, 30}},   /* TOM */
+            {DX_MODE(DXW_METAL, DXF_BP, 0), {104, 0, 12, 96, 124}, {112, 0, 4, 112, 127}},   /* HAT CL */
+            {DX_MODE(DXW_METAL, DXF_BP, 0), {104, 0, 48, 96, 120}, {112, 0, 60, 112, 126}},   /* HAT OP */
+            {DX_MODE(DXW_SINE, DXF_HP, 1), {32, 40, 52, 20, 34}, {38, 60, 62, 30, 54}},   /* TOM */
             {DX_MODE(DXW_BELL, DXF_HP, 1), {69, 10, 8, 16, 30}, {76, 24, 14, 30, 44}},   /* RIM */
-            {DX_MODE(DXW_METAL, DXF_BP, 1), {66, 0, 32, 34, 30}, {70, 0, 42, 46, 42}},   /* BELL */
+            {DX_MODE(DXW_METAL, DXF_BP, 1), {66, 0, 32, 34, 10}, {70, 0, 42, 46, 36}},   /* BELL */
         },
-        {0, 9, 0, 9, 9, 0, 5, 11}, {0, 202, 202, 0, 0, 0, 0, 0},   /* the layers; the sends (bus << 6 | amount) */
+        {0, 9, 0, 0, 0, 0, 5, 0}, {0, 202, 202, 0, 0, 0, 0, 0},   /* the layers; the sends (bus << 6 | amount) */
     },
     {   /* INDUSTRIAL */
         {
@@ -502,37 +527,37 @@ static const dx_kit_t DX_KITS[] = {
             {DX_MODE(DXW_SINE, DXF_BP, 0), {60, 0, 54, 127, 108}, {54, 0, 66, 127, 100}},   /* CLAP */
             {DX_MODE(DXW_METAL, DXF_HP, 0), {100, 0, 32, 106, 127}, {108, 0, 24, 122, 127}},   /* HAT CL */
             {DX_MODE(DXW_METAL, DXF_HP, 0), {100, 0, 76, 106, 127}, {108, 0, 88, 122, 127}},   /* HAT OP */
-            {DX_MODE(DXW_SINE, DXF_LP, 1) | DX_DRIVE, {30, 64, 76, 20, 64}, {36, 84, 86, 30, 84}},   /* TOM */
+            {DX_MODE(DXW_SINE, DXF_HP, 1) | DX_DRIVE, {30, 64, 76, 20, 88}, {36, 84, 86, 30, 108}},   /* TOM */
             {DX_MODE(DXW_BELL, DXF_HP, 1) | DXM_NOISE << 5, {63, 22, 20, 28, 70}, {70, 36, 26, 42, 84}},   /* RIM */
-            {DX_MODE(DXW_METAL, DXF_BP, 1) | DXM_NOISE << 5, {64, 0, 48, 46, 74}, {68, 0, 58, 58, 86}},   /* BELL */
+            {DX_MODE(DXW_METAL, DXF_BP, 1) | DXM_NOISE << 5, {64, 0, 48, 46, 96}, {68, 0, 58, 58, 120}},   /* BELL */
         },
-        {0, 12, 0, 9, 9, 0, 6, 13}, {0, 218, 212, 0, 0, 144, 152, 0},   /* the layers; the sends (bus << 6 | amount) */
+        {0, 12, 0, 0, 0, 0, 6, 0}, {0, 218, 212, 0, 0, 144, 152, 0},   /* the layers; the sends (bus << 6 | amount) */
     },
     {   /* ACOUSTIC */
         {
             {DX_MODE(DXW_SINE, DXF_LP, 1), {9, 60, 64, 12, 0}, {14, 90, 80, 18, 34}},   /* KICK */
             {DX_MODE(DXW_BELL, DXF_BP, 0), {38, 30, 56, 98, 74}, {44, 18, 68, 122, 54}},   /* SNARE */
             {DX_MODE(DXW_SINE, DXF_BP, 0), {58, 0, 48, 127, 66}, {52, 0, 60, 127, 58}},   /* CLAP */
-            {DX_MODE(DXW_METAL, DXF_HP, 0), {96, 0, 18, 96, 86}, {104, 0, 10, 112, 92}},   /* HAT CL */
-            {DX_MODE(DXW_METAL, DXF_HP, 0), {96, 0, 66, 96, 82}, {104, 0, 78, 112, 88}},   /* HAT OP */
-            {DX_MODE(DXW_BELL, DXF_LP, 1), {28, 28, 70, 20, 8}, {34, 48, 80, 30, 28}},   /* TOM */
+            {DX_MODE(DXW_METAL, DXF_HP, 0), {96, 0, 18, 96, 116}, {104, 0, 10, 112, 122}},   /* HAT CL */
+            {DX_MODE(DXW_METAL, DXF_HP, 0), {96, 0, 66, 96, 112}, {104, 0, 78, 112, 118}},   /* HAT OP */
+            {DX_MODE(DXW_BELL, DXF_HP, 1), {28, 28, 70, 20, 8}, {34, 48, 80, 30, 28}},   /* TOM */
             {DX_MODE(DXW_BELL, DXF_HP, 1), {61, 10, 16, 16, 26}, {68, 24, 22, 30, 40}},   /* RIM */
-            {DX_MODE(DXW_METAL, DXF_BP, 1), {62, 0, 46, 34, 30}, {66, 0, 56, 46, 42}},   /* BELL */
+            {DX_MODE(DXW_METAL, DXF_BP, 1), {62, 0, 46, 34, 20}, {66, 0, 56, 46, 44}},   /* BELL */
         },
-        {0, 5, 0, 7, 7, 0, 0, 9}, {0, 214, 210, 198, 200, 206, 202, 200},   /* the layers; the sends (bus << 6 | amount) */
+        {0, 5, 0, 0, 0, 0, 0, 0}, {0, 214, 210, 198, 200, 206, 202, 200},   /* the layers; the sends (bus << 6 | amount) */
     },
     {   /* DUB ROOTS */
         {
             {DX_MODE(DXW_SINE, DXF_LP, 1) | DXM_LONG << 5, {3, 58, 92, 4, 0}, {8, 88, 108, 10, 38}},   /* KICK */
             {DX_MODE(DXW_FM, DXF_BP, 0), {34, 30, 64, 88, 80}, {40, 18, 76, 112, 60}},   /* SNARE */
             {DX_MODE(DXW_SINE, DXF_BP, 0), {58, 0, 52, 127, 72}, {52, 0, 64, 127, 64}},   /* CLAP */
-            {DX_MODE(DXW_METAL, DXF_HP, 0), {98, 0, 20, 96, 94}, {106, 0, 12, 112, 100}},   /* HAT CL */
-            {DX_MODE(DXW_METAL, DXF_HP, 0), {98, 0, 68, 96, 90}, {106, 0, 80, 112, 96}},   /* HAT OP */
-            {DX_MODE(DXW_SINE, DXF_LP, 1), {26, 40, 76, 10, 20}, {32, 60, 86, 20, 40}},   /* TOM */
+            {DX_MODE(DXW_METAL, DXF_HP, 0), {98, 0, 20, 96, 122}, {106, 0, 12, 112, 127}},   /* HAT CL */
+            {DX_MODE(DXW_METAL, DXF_HP, 0), {98, 0, 68, 96, 118}, {106, 0, 80, 112, 124}},   /* HAT OP */
+            {DX_MODE(DXW_SINE, DXF_HP, 1), {26, 40, 76, 14, 44}, {32, 60, 86, 20, 64}},   /* TOM */
             {DX_MODE(DXW_BELL, DXF_HP, 1), {59, 10, 24, 16, 46}, {66, 24, 30, 30, 60}},   /* RIM */
-            {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 52, 34, 40}, {68, 0, 62, 46, 52}},   /* BELL */
+            {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 52, 34, 8}, {68, 0, 62, 46, 40}},   /* BELL */
         },
-        {0, 6, 0, 9, 9, 0, 0, 11}, {0, 226, 222, 0, 138, 148, 168, 146},   /* the layers; the sends (bus << 6 | amount) */
+        {0, 6, 0, 0, 0, 0, 0, 0}, {0, 226, 222, 0, 138, 148, 168, 146},   /* the layers; the sends (bus << 6 | amount) */
     },
     {   /* TECHNO RAW */
         {
@@ -541,11 +566,11 @@ static const dx_kit_t DX_KITS[] = {
             {DX_MODE(DXW_SINE, DXF_BP, 0), {60, 0, 48, 127, 94}, {54, 0, 60, 127, 86}},   /* CLAP */
             {DX_MODE(DXW_METAL, DXF_HP, 0), {104, 0, 14, 100, 127}, {112, 0, 6, 116, 127}},   /* HAT CL */
             {DX_MODE(DXW_METAL, DXF_HP, 0), {104, 0, 62, 100, 127}, {112, 0, 74, 116, 127}},   /* HAT OP */
-            {DX_MODE(DXW_METAL, DXF_LP, 1), {30, 52, 68, 16, 46}, {36, 72, 78, 26, 66}},   /* TOM */
+            {DX_MODE(DXW_METAL, DXF_HP, 1), {30, 52, 68, 16, 46}, {36, 72, 78, 26, 66}},   /* TOM */
             {DX_MODE(DXW_BELL, DXF_HP, 1), {65, 10, 10, 22, 58}, {72, 24, 16, 36, 72}},   /* RIM */
-            {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 40, 60}, {68, 0, 54, 52, 72}},   /* BELL */
+            {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 40, 70}, {68, 0, 54, 52, 96}},   /* BELL */
         },
-        {0, 7, 0, 9, 9, 0, 0, 11}, {0, 204, 202, 0, 0, 140, 146, 0},   /* the layers; the sends (bus << 6 | amount) */
+        {0, 7, 0, 0, 0, 0, 0, 0}, {0, 204, 202, 0, 0, 140, 146, 0},   /* the layers; the sends (bus << 6 | amount) */
     },
     {   /* BREAKS */
         {
@@ -554,11 +579,11 @@ static const dx_kit_t DX_KITS[] = {
             {DX_MODE(DXW_SINE, DXF_BP, 0), {60, 0, 48, 127, 94}, {54, 0, 60, 127, 86}},   /* CLAP */
             {DX_MODE(DXW_METAL, DXF_BP, 0), {100, 0, 26, 102, 116}, {108, 0, 18, 118, 122}},   /* HAT CL */
             {DX_MODE(DXW_METAL, DXF_BP, 0), {100, 0, 70, 102, 112}, {108, 0, 82, 118, 118}},   /* HAT OP */
-            {DX_MODE(DXW_SINE, DXF_LP, 1), {32, 48, 66, 18, 42}, {38, 68, 76, 28, 62}},   /* TOM */
+            {DX_MODE(DXW_SINE, DXF_HP, 1), {32, 48, 66, 18, 66}, {38, 68, 76, 28, 86}},   /* TOM */
             {DX_MODE(DXW_BELL, DXF_HP, 1), {63, 10, 14, 20, 56}, {70, 24, 20, 34, 70}},   /* RIM */
-            {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 34, 50}, {68, 0, 54, 46, 62}},   /* BELL */
+            {DX_MODE(DXW_METAL, DXF_BP, 1), {64, 0, 44, 34, 6}, {68, 0, 54, 46, 28}},   /* BELL */
         },
-        {0, 6, 0, 9, 9, 0, 0, 11}, {0, 206, 204, 0, 0, 0, 0, 0},   /* the layers; the sends (bus << 6 | amount) */
+        {0, 6, 0, 0, 0, 0, 0, 0}, {0, 206, 204, 0, 0, 0, 0, 0},   /* the layers; the sends (bus << 6 | amount) */
     },
     {   /* HIP HOP (V10.34, a user's ask): boom bap: a round kick with a knock, a fat cracking snare, a tight clap,
          * dusty hats (band-passed), a low tom, a woody rim, a shaker in the BELL's place */
@@ -566,16 +591,20 @@ static const dx_kit_t DX_KITS[] = {
             {DX_MODE(DXW_SINE, DXF_LP, 1), {6, 84, 74, 8, 26}, {10, 112, 90, 16, 62}},   /* KICK */
             {DX_MODE(DXW_FM, DXF_BP, 1), {38, 34, 62, 106, 82}, {44, 22, 76, 124, 62}},   /* SNARE */
             {DX_MODE(DXW_SINE, DXF_BP, 0), {58, 0, 42, 127, 76}, {52, 0, 54, 127, 66}},   /* CLAP */
-            {DX_MODE(DXW_METAL, DXF_BP, 0), {98, 0, 12, 96, 84}, {106, 0, 6, 112, 92}},   /* HAT CL */
-            {DX_MODE(DXW_METAL, DXF_BP, 0), {98, 0, 54, 96, 80}, {106, 0, 66, 112, 88}},   /* HAT OP */
-            {DX_MODE(DXW_SINE, DXF_LP, 1), {26, 36, 70, 10, 16}, {32, 56, 80, 20, 36}},   /* TOM */
+            {DX_MODE(DXW_METAL, DXF_BP, 0), {98, 0, 12, 96, 116}, {106, 0, 6, 112, 122}},   /* HAT CL */
+            {DX_MODE(DXW_METAL, DXF_BP, 0), {98, 0, 54, 96, 110}, {106, 0, 66, 112, 116}},   /* HAT OP */
+            {DX_MODE(DXW_SINE, DXF_HP, 1), {26, 36, 70, 14, 40}, {32, 56, 80, 20, 60}},   /* TOM */
             {DX_MODE(DXW_BELL, DXF_HP, 1), {61, 10, 10, 16, 34}, {68, 24, 16, 30, 48}},   /* RIM */
             {DX_MODE(DXW_METAL, DXF_BP, 0), {84, 0, 20, 110, 70}, {92, 0, 28, 124, 80}},   /* SHAKER */
         },
-        {0, 8, 0, 8, 8, 0, 4, 6}, {0, 206, 204, 0, 0, 0, 196, 0},   /* the layers; the sends (bus << 6 | amount) */
+        {0, 8, 0, 0, 0, 0, 4, 0}, {0, 206, 204, 0, 0, 0, 196, 0},   /* the layers; the sends (bus << 6 | amount) */
     },
 };
 #define DX_NKIT ((uint32_t)(sizeof DX_KITS / sizeof DX_KITS[0]))
+/* (V10.6o) the factory kit (DX_KIT_DEF: what a project without one gets) and (0.6.49) its LAYERs (FEEDBK 0: the snare,
+ * the hats and the bell, no note to them; the rest clean, CPU): the first kit's, DRUM-X (were copies of it) */
+#define DX_KIT_DEF (DX_KITS[0].lane)
+#define DX_LAY_DEF (DX_KITS[0].lay)
 /* a stored kit as the voice takes it: values 0..127, the mode's fields in range (wave 0..3, filter 0..2, snap) */
 static int dx_kit_ok(const dx_lane_t *k)
 {
@@ -589,3 +618,9 @@ static int dx_kit_ok(const dx_lane_t *k)
     }
     return 1;
 }
+
+
+/* Classic callers retain exactly the original feedback path. */
+static void dx_run(const dx_lane_t *L, dx_voice_t *v, int32_t morph, int32_t tune16,
+                   int32_t dofs, int32_t cofs, int32_t nofs, int32_t warp, int32_t fm, int32_t *y, uint32_t n)
+{ dx_run_fx(L,v,morph,tune16,dofs,cofs,nofs,warp,fm,y,n,0); }

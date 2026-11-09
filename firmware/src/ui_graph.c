@@ -63,6 +63,7 @@ static void lz_uline(int32_t x, int32_t y, const aafont_t *f, const char *s, uin
 static int32_t graph_ht = 100;
 #include "ui_organic.c"                              /* JIANT FM's organic line art (drawn by code) */
 static uint16_t heat_col(int32_t v);
+static uint16_t note_col(uint32_t n);                /* (V10.6i) ui_lzpage.c: a note's own colour */
 #include "ui_scene.c"                                /* (V10.25) SCL > SCENE: the multitimbral page */
 #include "ui_euclid.c"                               /* (V10.6) SEQ > EUCLID / MODES: the generator, its graph */
 #include "ui_fm6op.c"                                /* (0.6.10, from Felucca 1.5) EDIT > OPERATOR, OP ENV, OPERATOR 2 */
@@ -365,10 +366,6 @@ static void graph_morph(const track_t *t)
         a0 = ((uint32_t)pos >> 8) & 7u; a1 = (a0 + 1u) & 7u;
         pd_setup(&pa, a0, dcw); pd_setup(&pb, a1, dcw);
         n0 = N_PD_WAVE[a0]; n1 = N_PD_WAVE[a1];
-    } else if (ENGINES[e] == &ENG_LOFI) {
-        pos = clamp(p[P_E1] * 256 + p[P_MORPH] * 768 / 127, 0, RW_WRAM * 256);
-        a0 = (uint32_t)pos >> 8; a1 = a0 + 1u < RW_BYTE ? a0 + 1u : a0;
-        n0 = N_RWAVE[a0]; n1 = N_RWAVE[a1];
     } else {
         if (p[P_E0] >= 4) {                             /* (0.6.81) PWM SYNC RING SAW3: the WAVE, what MORPH moves */
             static const char *const WHAT[5] = {"PWM  WIDTH", "SYNC  RATIO", "RING  RATIO", "SAW3  SPREAD", "PLS3  WIDTH"};
@@ -398,9 +395,6 @@ static void graph_morph(const track_t *t)
         if (ENGINES[e] == &ENG_PHASE) {
             s = pd_wave(&pa, ph >> 16);
             if (f) s += ((pd_wave(&pb, ph >> 16) - s) * f) >> 8;
-        } else if (ENGINES[e] == &ENG_LOFI) {
-            s = lofi_mto(a0, ph, 0x80000000u, WRAM[((uint32_t)p[P_E2] >> 3) & 15u], 0, 1u);
-            if (f) s += ((lofi_mto(a1, ph, 0x80000000u, WRAM[((uint32_t)p[P_E2] >> 3) & 15u], 0, 1u) - s) * f) >> 8;
         } else
             s = an_morph(pos, ph, inc);
         y = 46 - s * 34 / 32768;
@@ -527,20 +521,24 @@ static void pr_split(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c, uin
         cv_rect(x + k * (pw + 1), y, pw, h, c);
 }
 /* a note's colour in the lens's pictures, as the mock-up's: JIANT on the heat ramp, a note warm (115; a chord's a
- * little warmer), an accent near white (243); another palette the notes ACCENT, an accent TEXT (the highlight) */
-static uint16_t lz_note(const step_t *st, int acc, uint16_t c)
+ * little warmer), an accent near white (243); another palette the notes ACCENT, an accent TEXT (the highlight).
+ * (V10.6w, the owner: "the whole system one visual language") JIANT's notes (n: the note; a kit's lane -1) their pitch
+ * class's own heat, as SCL's keys (ui_lzpage.c note_col), an accent toward white */
+static uint16_t lz_note(const step_t *st, int acc, int32_t n)
 {
-    (void)c;
-    if (settings.palette == UI_JIANT_INDEX)
+    if (settings.palette == UI_JIANT_INDEX) {
+        if (n >= 0 && !ux.mono)
+            return ux_mix(note_col((uint32_t)n), T_TEXT, acc ? 55 : 0);
         return heat_col(acc ? 243 : st->n > 1u ? 146 : 115);
+    }
     return acc ? T_TEXT : T_ACCENT;
 }
 /* (seq2d) a component's colour by its family, as the mock-up's: the pitch (ARP SEQ OCT TRANSPOSE RANDOM BEND) ACCENT,
- * the time (RATCHET STUTTER) THEME, the flow (MUTE JUMP) MID, the sound (LOCK SOUND) TEXT */
+ * the time (RATCHET STUTTER) THEME, the flow (MUTE) MID, the sound (LOCK SOUND RAMP) TEXT */
 static uint16_t comp_col(uint32_t a)
 {
-    return a == CA_RATCH || a == CA_STUT ? T_THEME : a == CA_MUTE || a == CA_JUMP ? T_MID :
-           a == CA_LOCK || a == CA_SOUND ? T_TEXT : T_ACCENT;
+    return a == CA_RATCH || a == CA_STUT ? T_THEME : a == CA_MUTE ? T_MID :
+           a == CA_LOCK || a == CA_SOUND || a == CA_RAMP ? T_TEXT : T_ACCENT;
 }
 /* a step's component marks (3 x 3 at y, centred on x): C1's, C2's beside it; none: nothing */
 static void lz_comp_mark(const step_t *st, int32_t x, int32_t y)
@@ -561,7 +559,7 @@ static uint32_t comp_span_at(const track_t *t, uint32_t si, uint32_t len)
         const step_t *st = &seq_steps(t)[(si + len - j) % len];
         for (k = 0; k < 2u; k++) {
             uint32_t a = CO_ACT(k ? st->comp2 : st->comp), l = st->clen[k];
-            if (a && a != CA_JUMP && l < CL_MAX && l >= j)
+            if (a && a != CA_RAMP && l < CL_MAX && l >= j)   /* (V10.6v: a RAMP's its curve, seq_overlay) */
                 return k + 1u + (a << 2);
         }
     }
@@ -616,13 +614,13 @@ static void bar_cell(const track_t *t, uint32_t b, int32_t x, int32_t y, int32_t
             continue;
         if (dr) {
             for (l = 0; l < NLANE; l++)
-                if ((step_lanes(st) >> l) & 1u)
+                if ((step_lanes_of(TSEL,st) >> l) & 1u)
                     cv_rect(sx, top + (int32_t)l * nh / (int32_t)NLANE, mw, nh / (int32_t)NLANE > 2 ? 2 : 1,
-                            lz_note(st, (step_accents(st) >> l) & 1u, c));
+                            lz_note(st, (step_accents_of(TSEL,st) >> l) & 1u, -1));
             continue;
         }
         cv_rect(sx, top + nh - 2 - ((int32_t)st->note[0] - lo) * (nh - 2) / (hi - lo), mw, 2,
-                lz_note(st, (st->flags & SF_ACCENT) != 0u, c));
+                lz_note(st, (st->flags & SF_ACCENT) != 0u, st->note[0]));
     }
     s[0] = (char)('1' + b);
     s[1] = 0;
@@ -662,11 +660,11 @@ static void pr_bars(const step_t *st, int32_t x, int32_t w, uint16_t c, int acc_
         if (*first < -1000)
             *first = y;
         if (y < PR_Y0)
-            pr_split(x, PR_Y0, w, 1, c ? c : lz_note(st, acc, ACC), hits);
+            pr_split(x, PR_Y0, w, 1, c ? c : lz_note(st, acc, j < 4u ? n : -1), hits);
         else if (y >= ybot)
-            pr_split(x, ybot - 1, w, 1, c ? c : lz_note(st, acc, ACC), hits);
+            pr_split(x, ybot - 1, w, 1, c ? c : lz_note(st, acc, j < 4u ? n : -1), hits);
         else
-            pr_split(x, y, w, PR_RH - 1, c ? c : lz_note(st, acc, ACC), hits);
+            pr_split(x, y, w, PR_RH - 1, c ? c : lz_note(st, acc, j < 4u ? n : -1), hits);
     }
 }
 /* (0.9.9-seq2b, the approved mock-up's R1 .. R3) the playheads' colours: the sequencer's ACCENT, FUGUE's heads 2 .. 4 the
@@ -877,10 +875,10 @@ static void graph_grid(const track_t *t, uint16_t c)
             const step_t *st = &seq_steps(t)[base + i];
             uint32_t b = 1u << l;
             int32_t x = 40 + (int32_t)i * 12;
-            if ((step_lanes(st) & b) && step_ratchet(st) > 1u)
-                pr_split(x, y + hy, 10, 10, lz_note(st, step_accents(st) & b, c), step_ratchet(st));
-            else if (step_lanes(st) & b)
-                cv_rect(x, y + hy, 10, 10, lz_note(st, step_accents(st) & b, c));
+            if ((step_lanes_of(TSEL,st) & b) && step_ratchet(st) > 1u)
+                pr_split(x, y + hy, 10, 10, lz_note(st, step_accents_of(TSEL,st) & b, -1), step_ratchet(st));
+            else if (step_lanes_of(TSEL,st) & b)
+                cv_rect(x, y + hy, 10, 10, lz_note(st, step_accents_of(TSEL,st) & b, -1));
             else
                 cv_rect(x + 4, y + hy + 4, 2, 2, i % 4u == 0u || sel ? T_MID : T_DIM);
             if (sel && base + i == ui.cursor)          /* the cursor: a 1 px frame */
@@ -1061,7 +1059,11 @@ static int graph_project_used(uint32_t slot)
     static uint8_t mask, ready;
     if (!ready || fm1_ms - ms >= 500u || (ui.force && frame != ui.frame)) {
         uint32_t i; mask = 0;
-        for (i = 0; i < 4u; i++) mask |= (uint8_t)((project_name(i, graph_pname[i]) != 0) << i);
+        for (i = 0; i < 4u; i++) {
+            mask |= (uint8_t)((project_name(i, graph_pname[i]) != 0) << i);
+            part_play.b[i] = (uint8_t)((mask >> i) & 1u ? part_scan(i) : 0u);   /* (V10.6o) PARTS, TIMELINE: its tracks
+                                                         * (proj_scratch as read) */
+        }
         graph_pname_sig = fnv(2166136261u, graph_pname, sizeof graph_pname);
         ready = 1; ms = fm1_ms; frame = ui.frame;
     }
@@ -1200,11 +1202,25 @@ static void seq_col(uint32_t dr, uint32_t i, int32_t *x, int32_t *w)
     *x = dr ? 40 + (int32_t)i * 12 : PR_CX(i);
     *w = dr ? 10 : PR_CWI(i);
 }
+/* (V10.6v) SEQ > COMP, a RAMP on the cursor step (column k of the bar shown): its CURVE over the steps it lasts (cold UI:
+ * in the Bluetooth segment, as gen.c's cards) */
+BTAPP_FN static void ramp_draw_bt(const track_t *t, uint32_t dr, int32_t top, uint32_t k)
+{
+    const step_t *cs = &seq_steps(t)[ui.cursor % NSTEP];
+    uint32_t v = comp_arg(cs), nc = v & CV_RAMP_BARS ? 16u : cs->clen[comp_slot()] + 1u;
+    int32_t x, w, x1, w1, px;
+    nc = nc < 16u - k ? nc : 16u - k;
+    seq_col(dr, k, &x, &w);
+    seq_col(dr, k + nc - 1u, &x1, &w1);
+    w = x1 + w1 - x;
+    for (px = 0; px < w; px++)
+        cv_rect(x + px, top + 12 - (ramp_curve(CV_RAMP_CURVE(v), px * 32768 / w) * 12 >> 15), 1, 2, T_TEXT);
+}
 /* the page's marks over the roll / the grid (0.9.17's): PLAYHEADS FUGUE's heads on the grid too (the roll draws them on
  * every page); COMP the steps with the cursor's component a bar on top ACCENT, another component a thin MID one;
  * AUTOMATION / AUTO LIST the records at the foot (a lock ACCENT, automation TEXT; AUTO LIST the row picked framed THEME);
  * MUTATE a chip, the next mutation; TRACK the notes PITCH moves them to, MID outlines */
-static void seq_overlay(const track_t *t, const page_t *pg)
+static __attribute__((noinline)) void seq_overlay(const track_t *t, const page_t *pg)
 {
     uint32_t dr = drum_track(t), len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), base = ui.bank * 16u, i, k;
     int32_t top = dr ? 19 : PR_Y0, bot = dr ? 19 + 8 * 15 - 1 : PR_Y0 + PR_ROWS * PR_RH, x, w;
@@ -1223,6 +1239,9 @@ static void seq_overlay(const track_t *t, const page_t *pg)
             else
                 cv_rect(x + 2, top - 2, w - 4, 1, T_MID);
         }
+        k = ui.cursor % NSTEP;
+        if (mine == CA_RAMP && k >= base && k < base + 16u && bt_hw_seg())
+            ramp_draw_bt(t, dr, top, k - base);
     } else if (pg->graph == GR_MOTION || pg->graph == GR_EVENTS) {
         uint8_t idx[MOTION_MAX];
         uint32_t n = ev_rows(idx), cur = ev_row(n);
@@ -1316,7 +1335,7 @@ static int drift_on(void)
            g != GR_ROLL && g != GR_SHAPE && g != GR_COMP && g != GR_FUGUE && g != GR_LIVE &&   /* (0.8.3: LENTE's step, the
                                                          * heads; p2: LIVE's rails) */
            g != GR_STEPS && g != GR_CHANCE && g != GR_BROWSE && g != GR_USER && g != GR_SLOTS && g != GR_EVENTS &&
-           g != GR_SONG && g != GR_TOOLS && g != GR_PATS;
+           g != GR_SONGSAVE && g != GR_SONG && g != GR_TOOLS && g != GR_PATS;
 }
 static void graph_drift(void)
 {
@@ -1403,7 +1422,7 @@ static void toast_pill(void)
 static void sound_name(const track_t *t, char *b);   /* (ui_draw.c) */
 static void gen_panel(void);                         /* (0.8.5) gen.c: GEN in HOME's lens */
 static uint32_t gen_draw_sig(void);
-static uint32_t graph_signature(void)
+static __attribute__((noinline)) uint32_t graph_signature(void)
 {
     const page_t *pg = cur_page();
     const track_t *t = TSEL;
@@ -1445,6 +1464,8 @@ static uint32_t graph_signature(void)
         h ^= chain.running ? (chain.row + 1u) * 104729u + chain.remaining * 1299709u + chain.pass * 15485863u : 0u;
         h ^= SONG_END(&chain_config) * 2246822519u;      /* (0.6.22: the END) */
         for (i = 0; i < 4u; i++) h ^= (uint32_t)graph_project_used(i) << (24u + i);
+        for (i = 0; i < NTRK; i++) h = (h ^ (clip_now[i] | clip_go[i] << 4)) * 16777619u;   /* (V10.6s) CLIPS */
+        h ^= live.srec * 3266489917u + ui.part * 668265263u;
         h += graph_pname_sig;
     }
     if (pg->graph == GR_MOD)
@@ -1466,6 +1487,8 @@ static uint32_t graph_signature(void)
             h = (h ^ (uint32_t)song.g[G_SLMODE + i]) * 16777619u;
     if (pg->graph == GR_SLPIT)
         h ^= (sl_ui_step + 1u) * 40503u;
+    if (FIT_PAGE(pg)) h ^= (t->seq_fit + 1u) * 104729u;
+    if (pg->graph == GR_SONGSAVE) h ^= (song_save_target + 1u) * 2654435761u;
     if (pg->graph == GR_TOOLS)                       /* (0.6.12) the action picked, the song's row */
         h ^= ui.act * 7919u + ui.song_row * 104729u + (tl_t0 ? (fm1_ms - tl_t0 + 1u) / 40u + 1u : 0u) * 2654435761u;
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot; the project, the music's section, the song) */
@@ -1509,6 +1532,8 @@ static uint32_t graph_signature(void)
     if (pg->fam == FAM_EDIT && trk_engp(t) == &ENG_INPUT)   /* (V10.54) INPUT: its meters live */
         h = (h ^ ((uint32_t)(ain_pk[0] >> 10) | (uint32_t)(ain_pk[1] >> 10) << 6 | (uint32_t)(mod_follow >> 10) << 12 |
                   (uint32_t)(ain_gg[(uint32_t)(t - trk) % NTRK] >> 12) << 18)) * 16777619u;
+    if (pg->fam == FAM_EDIT && trk_engp(t) == &ENG_INPUT && t->p[P_E0] == AIN_SW)   /* (SWARM: it moves every frame) */
+        h ^= ui.frame * 2654435761u;
 #endif
     if (DX_KIT3(pg))                                 /* (0.8.8) KIT 3's colony lives every frame, as KIT's (was still) */
         h ^= ui.frame * 2654435761u;
@@ -1553,6 +1578,7 @@ static uint32_t graph_signature(void)
     if (pg->scope == SC_ENGINE && trk_eng(t) == ENGI_DRUM)
         h ^= ui.frame * 2654435761u;                 /* DRUM-X: the specimen moves every frame */
     if (pg->graph == GR_DXSND) h ^= ui.frame * 2654435761u ^ dx_sig();
+    if (pg->graph == GR_SWARM) h ^= ui.frame * 2654435761u;   /* (V10.6z6: the morph, live) */
     if (pg->scope == SC_ENGINE && trk_eng(t) == ENGI_FM6)   /* the patch (PAT's algorithm, levels, FB) */
         h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u;
     if (fop_page(pg->graph))                         /* (0.6.77) OPERATOR, OP ENV (track pages): the patch, the operator */
@@ -1563,9 +1589,12 @@ static uint32_t graph_signature(void)
         if (pg->graph == GR_USER || pg->graph == GR_BROWSE)
             h ^= bg_energy() > 2 ? anim_fr * 2654435761u : 0u;   /* (the being moves with the sound) */
         if (pg->graph == GR_SONG) {                  /* (ARRANGE: as SLOTS', the rows and where the song is) */
-            for (i = 0; i < CHAIN_ROWS; i++)         /* (add15: ARRANGE 2's tracks) */
-                h = (h ^ song_idx.tsrc[song_cur][i] ^ song_idx.tvar[song_cur][i] * 31u) * 16777619u;
-            h ^= (ui.song_tk + 1u) * 2654435761u;
+            for (i = 0; i < CHAIN_ROWS; i++)         /* (add15: ARRANGE 2's tracks; V10.6o: the rows' mutes) */
+                h = (h ^ song_idx.tsrc[song_cur][i] ^ song_idx.tvar[song_cur][i] * 31u ^
+                     (uint32_t)song_idx.scene[song_cur][i].mute << 7 ^ (uint32_t)song_idx.scene[song_cur][i].on << 3) * 16777619u;
+            h ^= (ui.part + 1u) * 2654435761u + song.sel * 977u + (uint32_t)(live.req + 2) * 7919u + live.mode * 131u +   /* (PARTS: */
+                 chain.hold * 31u + song.playing * 3u + (song.playing ? anim_fr / 8u * 40503u : 0u) +   /* the part, what */
+                 part_play.w * 104729u;               /* loops, pulsing; its tracks) */
             for (i = 0; i < 4u; i++) h ^= (uint32_t)graph_project_used(i) << (20u + i);
             h += graph_pname_sig + (uint32_t)(live.cur + 1) * 40503u;
         }
@@ -1644,11 +1673,11 @@ static const char *eng_abbr(const char *name)
 #if FELUCCA_FM4
                                        {"DIGITAL", "DGTL"},
 #endif
-                                       {"PHASE", "PHAS"}, {"LOFI", "LOFI"},
+                                       {"PHASE", "PHAS"}, {"MATH", "MATH"},
                                        {"SAMPLE", "SMPL"}, {"VOICE", "VOCL"}, {"TRIO", "TRIO"}, {"WHEEL", "WHEL"},
                                        {"GRAIN", "GRAN"}, {"PHYS", "PHYS"}, {"DRUM", "DRUM"},
                                        {"NOISE", "NOIS"}, {"FM6", "FM6"}, {"SLICE", "SLCE"},
-                                       {"ANIMAL", "ANML"}, {"STRING", "STRG"}, {"ADD", "ADD"}, {"INPUT", "IN"}};
+                                       {"ANIMAL", "ANML"}, {"STRING", "STRG"}, {"ADD", "ADD"}, {"EXT", "EXT"}};
     uint32_t i;
     for (i = 0; i < sizeof A / sizeof A[0]; i++)
         if (str_eq(name, A[i][0]))
@@ -1803,7 +1832,7 @@ static void track_strip(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, ui
  * beside it, PAN (from the middle) and the REV send as the two bars under it */
 #define T6_W 38
 #define T6_X(c) (3 + 39 * (int32_t)(c))
-static void track_col6(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, uint32_t hot, uint32_t lvl, int32_t pan,
+static __attribute__((noinline)) void track_col6(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, uint32_t hot, uint32_t lvl, int32_t pan,
                        int32_t rv, const char *b)
 {
     char v[8];
@@ -1848,7 +1877,7 @@ static void track_col6(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, uin
         cv_rect(4, sy, 12, 3, sc);
     }
     if (lvl) {
-        int32_t d = LEVEL_DB_X10[lvl];
+        int32_t d = LEVEL_DB_X10_AT(lvl);
         fmt_int(v, (d + (d < 0 ? -5 : 5)) / 10);
     } else {
         str_cpy(v, "OFF", sizeof v);
@@ -1865,7 +1894,7 @@ static void track_col6(uint32_t c, uint32_t sel, uint32_t st, uint32_t mute, uin
         cv_rect(4, 113, rv * pw / 127 + 1, 3, mute ? T_DIM : hot == 3u ? T_ACCENT : heat_col(40 + rv * 3 / 2));
     cv_blit((uint32_t)T6_X(c), lz_on() ? graph_y() + 9u : Y_GRAPH);   /* (0.8.5: GLO's lens, the panel under the cards) */
 }
-static void draw_tracks(void)
+static __attribute__((noinline)) void draw_tracks(void)
 {
     uint32_t c, sk = strip_kind() == SK_TRK, six = !sk;   /* (0.6.80: the six columns with every COLOR and STYLE;
                                                          * MENU > LARGE: four, bigger) */
@@ -1935,7 +1964,7 @@ static void draw_tracks(void)
             char v[8];
             knob(KB_X, KB_Y, KNOB_BIG_R, KNOB_BIG_COV, KNOB_BIG_ANG, (int32_t)lvl, 0, 127, hot == 1u ? T_ACCENT : vc);
             if (lvl) {
-                int32_t d = LEVEL_DB_X10[lvl];
+                int32_t d = LEVEL_DB_X10_AT(lvl);
                 fmt_int(v, (d + (d < 0 ? -5 : 5)) / 10);
                 GFX_HOOK_ALIGN(KB_X, 0, KB_X + 2 * KNOB_BIG_R, 0, AL_H, "mixer level text centred across");
                 cv_text_in(KB_X, KB_Y + KNOB_BIG_R + 5, 2 * KNOB_BIG_R, &AF_S, "dB", T_DIM, T_SURF);
@@ -2032,7 +2061,8 @@ static void graph_mseq(const track_t *t, uint16_t c)
  * the bars in all. KNOB 1 the row, 2 its section (on END: STOP / x2 .. / LOOP), 3 its bars, 4 its scene */
 static uint16_t sec_col(uint32_t s)
 {
-    static const uint8_t HJ[4] = {0, 85, 171, 213}, HO[4] = {120, 160, 200, 240};   /* (0.8.5: JIANT the mock-up's cyan
+    static const uint8_t HJ[4] = {40, 92, 140, 196}, HO[4] = {120, 160, 200, 240};   /* (V10.6i) A..D cold to hot: violet red
+                                                         * orange amber (was indigo red amber cream) */   /* (0.8.5: JIANT the mock-up's cyan
                                                          * violet orange yellow; was 60 115 175 230) */
     return heat_col(settings.palette == UI_JIANT_INDEX ? HJ[s & 3u] : HO[s & 3u]);
 }
@@ -2045,7 +2075,7 @@ static uint16_t sec_col(uint32_t s)
 /* (0.9.9-seq2f) GLO > COMPS' roll: the lane's 16 steps as columns, each one's component mark on top (comp_col, as a
  * track's), its LENGTH a line after it, the six tracks it applies to as small marks in rows below, the cursor step
  * framed, the global step playing underlined; MONO / POLY at the right */
-static void graph_gcomp(void)
+static __attribute__((noinline)) void graph_gcomp(void)
 {
     uint32_t i, k, j, h = graph_h(), play = song.playing ? gl_step_at(0) % GL_N : GL_N;
     int32_t x0 = 12, cw = 13, y0 = 8;
@@ -2061,7 +2091,7 @@ static void graph_gcomp(void)
         if (!a)
             continue;
         cv_rect(x + cw / 2 - 2, y0, 4, 4, comp_col(a));
-        for (j = 1; a != CA_JUMP && j <= c->len && j < GL_N; j++)   /* (its LENGTH, round the bar) */
+        for (j = 1; j <= c->len && j < GL_N; j++)   /* (its LENGTH, round the bar) */
             cv_rect(x0 + (int32_t)((i + j) % GL_N) * cw, y0 + 6, cw, 1, comp_col(a));
         for (k = 0; k < NTRK; k++)
             cv_rect(x + cw / 2 - 1, y0 + 12 + (int32_t)k * 9, 3, 3, (c->mask >> k) & 1u ? T_TEXT : T_DIM);
@@ -2187,6 +2217,7 @@ static void draw_graph(void)
                 graph_dximg(t);
             break;
         case GR_ROLL:
+        case GR_TRACKGEN:
         case GR_CHANCE:
         case GR_SHAPE:                               /* (0.6.85) STRETCH: the whole sequence, as the roll shows it */
             cv_oy = 0;
@@ -2251,3 +2282,4 @@ static void draw_graph(void)
         toast_at[0] = toast_at[2] = 0;
     cv_blit(0, graph_y());
 }
+

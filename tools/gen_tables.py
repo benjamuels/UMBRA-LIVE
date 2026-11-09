@@ -46,7 +46,11 @@ def main(path):
           "}"]
     # times 1 ms .. 10 s (exponential), env in Q24 (1.0 = 1<<24)
     ms = [1.0 * (10000 ** (v / 127)) for v in range(128)]
-    L += arr("TIME_MS_X10", "uint32_t", [int(round(m * 10)) for m in ms], 10)
+    t10 = [int(round(m * 10)) for m in ms]
+    assert all((t >= 65536) == (v >= 122) for v, t in enumerate(t10))
+    L += arr("TIME_MS_X10", "uint16_t", [t & 0xFFFF for t in t10], 10)
+    L += ["/* TIME_MS_X10[v]: 1 ms .. 10 s in 0.1 ms; above 65535 from v 122 on (checked) */",
+          "#define TIME_MS_X10_AT(v) ((uint32_t)TIME_MS_X10[(v) & 127] + ((((v) & 127) >= 122) ? 65536u : 0u))"]
     L += arr("ENV_LIN", "uint32_t", [max(1, int((1 << 24) * CTL / (m * FS / 1000))) for m in ms], 8)
     exp_k = []
     for m in ms:
@@ -55,7 +59,7 @@ def main(path):
     L += arr("ENV_EXP", "uint16_t", exp_k)
     # LFO 0.05 .. 40 Hz, phase increment per control tick
     hz = [0.05 * (800 ** (v / 127)) for v in range(128)]
-    L += arr("LFO_HZ_X100", "uint32_t", [int(round(h * 100)) for h in hz], 10)
+    L += arr("LFO_HZ_X100", "uint16_t", [int(round(h * 100)) for h in hz], 10)
     L += arr("LFO_INC", "uint32_t", [int(h * CTL / FS * 2 ** 32) for h in hz], 8)
     # filter cutoff 30 Hz .. 16 kHz
     fc = [30.0 * ((16000 / 30) ** (v / 127)) for v in range(128)]
@@ -65,7 +69,8 @@ def main(path):
     # level: 0 = off, else dB = (v - 112) / 2  (112 = 0 dB, 127 = +7.5 dB)
     db = [None] + [(v - 112) / 2 for v in range(1, 128)]
     L += arr("LEVEL_Q12", "uint16_t", [0] + [int(round(4096 * 10 ** (d / 20))) for d in db[1:]])
-    L += arr("LEVEL_DB_X10", "int16_t", [-999] + [int(round(d * 10)) for d in db[1:]])
+    assert all(int(round(d * 10)) == (v - 112) * 5 for v, d in enumerate(db) if v)
+    L += ["#define LEVEL_DB_X10_AT(v) ((v) ? ((int32_t)(v) - 112) * 5 : -999)   /* 0.1 dB; 0 = off */"]
     # per-sample exponential decay for drum voices: 5 ms .. 4 s to -60 dB, Q16
     dms = [5.0 * (800 ** (v / 127)) for v in range(128)]
     L += arr("DECAY_K", "uint16_t", [min(65535, int(65536 * math.exp(-6.9 / (m / 1000 * FS)))) for m in dms])
@@ -99,7 +104,8 @@ def fm6_tables():
          f"#define FM6_AMS_K {int(round(0.07 / 262144 * math.log2(math.e) * 2 ** 24 * 1024))}      /* d/dsensamp of it, Q24 / 1024 */"]
     # 2^(i / 1024) - 1, Q30: the mantissa of Exp2::lookup and Freqlut::lookup (linear between the points, as
     # msfa's: within 6e-8 of 2^x; a Q16 table drifted the partials of a ratio against each other)
-    L += arr("FM6_EXP2", "uint32_t", [int(round((1 << 30) * (2 ** (i / 1024) - 1))) for i in range(1025)], 8)
+    L += arr("FM6_EXP2", "uint32_t", [int(round((1 << 30) * (2 ** (i / 512) - 1))) for i in range(513)], 8)   # (V10.6k: 513
+                                                         # points, half the flash; the lines between them ~-110 dB off)
     lforatio = int(4437500000.0 * CTL / FS)                                  # msfa Lfo::lforatio_ (uint32)
     L += arr("FM6_LFO_DELTA", "uint32_t", [int(s * lforatio) for s in FM6_LFO_SOURCE], 8)
     # msfa note osc_freq: the DETUNE step of note mn, Q24 log2 (0.0209 * exp(-0.396 * lf) / 7 * lf, lf in octaves)

@@ -35,6 +35,7 @@ static track_t *drum_setup(void)
     dt = &trk[3];
     set_engine_of(dt, ENGI_DRUM);
     dt->engine = dt->eng_req;
+    dt->p[P_DKEYMODE] = 0;                              /* (V10.6r: EXTENDED by default; these are CLASSIC's octaves) */
     song.sel = 3;
     song.octave = 0;
     song.rec = 0;
@@ -297,12 +298,13 @@ static int down(void)
                 r0 = rms_of(0, 5u * ms);
         }
         ok &= len[1] < len[0] * 3u / 4u && len[1] > len[0] / 5u && pk[1] * 10 > pk[0] * 8;
-        okg &= len[2] < len[0] * 3u / 4u && pk[2] * 100 < pk[0] * 55 && br[2] < br[1] * 0.97;
+        okg &= len[2] < len[0] * 3u / 4u && pk[2] * 100 < pk[0] * 55 && br[2] < br[1] * (l ? 0.97 : 1.0);   /* (V10.6z8:
+                                                         * the kick a clean sine again, no noise to darken: no brighter) */
         strike_dmp(NOTE[l], 3);                         /* FLAM: the grace hit, the hit ~20 ms on */
         g0 = rms_of(0, 5u * ms);                        /* (the first 5 ms of each, RMS) */
         g1 = rms_of(at, at + 5u * ms);
         okf &= g0 < g1 * 0.65 && g1 > r0 * 0.65 && hit_len(AN) > len[0] && at > 18u * ms && at < 23u * ms;
-        printf("ui:   note %u: length %u %u %u %u samples, peak %d %d %d, brightness %.4f %.4f %.4f; FLAM grace %.0f, hit %.0f (plain %.0f)\n",
+        printf("ui:   note %u: length %u %u %u %u samples, peak %d %d %d, brightness %.6f %.6f %.6f; FLAM grace %.0f, hit %.0f (plain %.0f)\n",
                NOTE[l], len[0], len[1], len[2], len[3], pk[0], pk[1], pk[2], br[0], br[1], br[2], g0, g1, r0);
     }
     bad += check("TOUCH SHORT: under 3/4 of the length, the same level, every lane", ok);
@@ -869,6 +871,7 @@ static int rec_ratch(void)
     return bad;
 }
 
+#ifndef DRUM_OCT_NO_MAIN
 int main(void)
 {
     int bad = 0;
@@ -888,3 +891,5 @@ int main(void)
     printf("drumx octaves: all ok\n");
     return 0;
 }
+#endif
+

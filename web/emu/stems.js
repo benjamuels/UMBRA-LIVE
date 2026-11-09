@@ -9,7 +9,8 @@
 // 44.1 kHz in one ZIP (stored, no compression). Runs as a module Worker (index.html) and imports into Node
 // (stems_test.mjs).
 const RATE = 44100, BLOCK = 128, TRACKS = 6;
-const SONG_IDS = [10, ...Array.from({ length: 32 }, (_, i) => 40 + i), 6, 7, 9, 0];   // the index, the songs, presets, live last
+// (V10.6p) 6 songs: 40..63; an older backup's songs 7, 8 (64..71) are left out
+const SONG_IDS = [10, ...Array.from({ length: 24 }, (_, i) => 40 + i), 6, 7, 9, 0];   // the index, the songs, presets, live last
 
 // ---------------------------------------------------------------------------------------------- CRC-32, WAV, ZIP
 const CRC_T = (() => {
@@ -82,7 +83,7 @@ export async function deviceFromBackup(wasmBytes, backup, seed = 0x4A49414E) {
   }
   return { ex, mem };
 }
-/* one pass: the song (opts.mode "song", opts.song 0..7) or the live section looped opts.bars bars, with the parts of
+/* one pass: the song (opts.mode "song", opts.song 0..5) or the live section looped opts.bars bars, with the parts of
  * skipMask left out; opts.tail seconds after the end (the FX tails); frames capped at opts.maxFrames. Returns {l, r} */
 export function renderPass(dev, skipMask, opts, onFrames) {
   const { ex, mem } = dev, tail = Math.round((opts.tail ?? 3) * RATE), maxFrames = opts.maxFrames ?? RATE * 60 * 20;

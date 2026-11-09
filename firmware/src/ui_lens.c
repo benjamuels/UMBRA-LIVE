@@ -41,8 +41,8 @@ typedef struct { const char *nm, *tab; } ng_t;                /* a group: its na
 typedef struct { const nv_t *e; const ng_t *g; uint8_t n, ng; } ch_t;
 #define NV(t, nm, g, lv) {t, nm, g, lv}
 static const nv_t CE_HOME[] = {NV(0, "WELCOME", 0, 0), NV(0, "LIVE AUDIO CTRLS", 1, 0), NV(0, "LIVE VIZ CTRLS", 1, 0),
-                               NV(0, "BEING", 1, 1), NV(0, "ROUTES", 1, 1), NV(0, "GEN 1", 2, 2), NV(0, "GEN 2", 2, 2),
-                               NV(0, "GEN 3", 2, 2)};
+                               NV(0, "BEING", 1, 1), NV(0, "ROUTES", 1, 1), NV(0, "GENE 1", 2, 2), NV(0, "GENE 2", 2, 2),
+                               NV(0, "GENE 3", 2, 2)};
 #define HOME_E_BEING 3u                                 /* (UMBRA OBSCURA, the user 2026-11-09: WELCOME, then UMBRA's MACROS -
                                                          * AUDIO and MACROS - VISUALS (empty for now) before BEING and ROUTES;
                                                          * JIANT's ECO and MACROS, UMBRA's PLATE, NOTES and ROUTING gone (what
@@ -52,11 +52,11 @@ static const nv_t CE_HOME[] = {NV(0, "WELCOME", 0, 0), NV(0, "LIVE AUDIO CTRLS",
 #define HOME_E_GEN 5u                                   /* ((UMBRA OBSCURA, the user 2026-11-09) MACROS - AUDIO and MACROS -
                                                          * VISUALS are LIVE AUDIO CTRLS and LIVE VIZ CTRLS; WELCOME, once
                                                          * dismissed, is not among them: ui_umbra_welcome.c) */
-static int umw_gone(void);
-static const ng_t CG_HOME[] = {{"WELCOME", 0}, {"UMBRA", 0}, {"GEN", 0}};
+static int umw_gone(void), umw_hid(void);
+static const ng_t CG_HOME[] = {{"WELCOME", 0}, {"UMBRA", 0}, {"GENE", 0}};
 static const nv_t CE_SYN[] = {NV("EDIT 1", 0, 0, 0), NV("EDIT 2", 0, 0, 0), NV("FILTER", 0, 1, 1), NV("MORPH", 0, 1, 1),
                               NV("RETRIG", 0, 1, 1), NV("ROTOR", 0, 1, 1), NV("WORDS", 0, 1, 1), NV("STEREO", 0, 1, 1),
-                              NV("FOCUS", 0, 2, 2), NV("VOICE", 0, 3, 1), NV("VOICE 2", 0, 3, 1)};   /* (V10.49: STEREO; the
+                              NV("SWARM", 0, 1, 1), NV("SWARM 2", 0, 1, 1), NV("FOCUS", 0, 2, 2), NV("VOICE", 0, 3, 1), NV("VOICE 2", 0, 3, 1)};   /* (V10.49: STEREO; the
                                                          * voices' pages last, after the sound's (the user)) */
 static const ng_t CG_SYN[] = {{"SOUND", 0}, {"TONE", 0}, {"FOCUS", 0}, {"VOICE", 0}};
 static const nv_t CE_FM6[] = {NV("EDIT 1", 0, 0, 0), NV("EDIT 2", 0, 0, 0), NV("FILTER", 0, 1, 1), NV("STEREO", 0, 1, 1),
@@ -76,13 +76,13 @@ enum { LV_PAT, LV_BAR, LV_STEP, LV_N };                 /* SEQ's pictures: the b
 /* (0.9.9-seq2, the approved mock-up) SEQ's chain in seven tabs: STEP . LENGTH (the PATTERN page, then TRACK) . MUTATE .
  * PLAYHEADS . STRETCH . COMP (COMP 2 after it, by SELECT as before) . AUTO (AUTOMATION, AUTO LIST). BAR and NOTE stay pages
  * (code puts them) but out of the chain, until the step held opens its own (the mock-up's slice 5) */
-static const nv_t CE_SEQ[] = {NV("STEP", 0, 0, LV_BAR), NV("PATTERN", "LENGTH", 1, LV_PAT), NV("TRACK", 0, 1, LV_PAT),
+static const nv_t CE_SEQ[] = {NV("STEP", 0, 0, LV_BAR), NV("PATTERN", "LENGTH", 1, LV_PAT), NV("RHYTHM", 0, 1, LV_PAT), NV("TRACK", 0, 1, LV_PAT),
                               NV("EUCLID", 0, 2, LV_PAT), NV("MODES", 0, 2, LV_PAT), NV("MUTATE", 0, 2, LV_PAT),
                               NV("PLAYHEADS", 0, 3, LV_PAT), NV("STRETCH", 0, 4, LV_PAT),
                               NV("COMP", 0, 5, LV_STEP), NV("COMP 2", 0, 5, LV_STEP), NV("AUTOMATION", 0, 6, LV_BAR),
-                              NV("AUTO LIST", 0, 6, LV_BAR)};
+                              NV("AUTO LIST", 0, 6, LV_BAR), NV("LYRIC STEP",0,6,LV_BAR),NV("GENERATE",0,7,LV_BAR)};
 static const ng_t CG_SEQ[] = {{"STEP", 0}, {"LENGTH", "LEN"}, {"EUCLID", "EUCL"}, {"PLAYHEADS", "HEAD"}, {"STRETCH", "STR"},
-                              {"COMP", 0}, {"AUTO", 0}};   /* (seven tabs: a short form of 4 letters at most fits one) */
+                              {"COMP", 0}, {"AUTO", 0}, {"GENERATE","GEN"}};
 enum { FXL_TRACK, FXL_BUSES, FXL_EFFECT };
 static const nv_t CE_FX[] = {NV("FX", "SENDS", 0, FXL_TRACK), NV("DIST", 0, 0, FXL_TRACK), NV("AUTO PAN", 0, 0, FXL_TRACK),
                              NV("BUSES", 0, 1, FXL_BUSES), NV("DLY", 0, 2, FXL_EFFECT), NV("DLY 2", 0, 2, FXL_EFFECT),
@@ -96,7 +96,7 @@ static const ng_t CG_FX[] = {{"TRACK", "TRK"}, {"BUSES", "BUS"}, {"DELAY", "DLY"
                              {"SLICER", "SLC"}, {"PUNCH", "PCH"}, {"MASTER", "MST"}};
 static const nv_t CE_GLO[] = {NV("MANO", 0, 0, 0), NV("RIELES", 0, 0, 0), NV("MIXER", 0, 1, 0), NV("SENDS", 0, 1, 0),
                               NV("COMPS", 0, 2, 3), NV("COMPS 2", 0, 2, 3), NV("GLOBAL", 0, 3, 1),
-                              NV("SYSTEM", 0, 4, 2), NV("SYSTEM 2", 0, 4, 2)};   /* (V10.37) the performing pages first, the
+                              NV("SYSTEM", 0, 4, 2), NV("SYSTEM 2", 0, 4, 2), NV("KEY SPLIT", 0, 4, 2), NV("KEY SPLIT 2", 0, 4, 2)};   /* (V10.37) the performing pages first, the
                                                          * settings (GLOBAL, SYSTEM) last */   /* (0.9.9-seq2f) the global lane; (p2) LIVE first
                                                          * (ui_live.c) */
 static const ng_t CG_GLO[] = {{"LIVE", 0}, {"MIX", 0}, {"COMPS", "CMP"}, {"GLOBAL", 0}, {"SYSTEM", 0}};
@@ -111,8 +111,9 @@ static const ng_t CG_SCL[] = {{"KEY", 0}, {"CHORD", 0}, {"SCENE", 0}};
 static const nv_t CE_ARP[] = {NV("ARP", 0, 0, 2), NV("ARP 2", 0, 0, 2)};
 static const ng_t CG_ARP[] = {{"ARP", 0}};
 enum { SV_LIB, SV_PROJ, SV_SOUND };
-static const nv_t CE_SAVE[] = {NV("TIMELINE", 0, 0, SV_PROJ), NV("PROJECT", "SECTIONS", 0, SV_PROJ),   /* (V10.1) composing first */
-                               NV("PROJECT", "PROJECTS", 1, SV_LIB), NV("ARRANGE", 0, 1, SV_PROJ), NV("TOOLS", 0, 1, SV_LIB),
+static const nv_t CE_SAVE[] = {NV("TIMELINE", 0, 0, SV_PROJ), NV("PARTS", 0, 0, SV_PROJ), NV("CLIPS", 0, 0, SV_PROJ),
+                               NV("PROJECT", "SECTIONS", 0, SV_PROJ),   /* (V10.1) composing first; V10.6o PARTS; V10.6s CLIPS */
+                               NV("PROJECT", "PROJECTS", 1, SV_LIB), NV("ARRANGE", 0, 1, SV_PROJ), NV("TOOLS", 0, 1, SV_LIB), NV("SAVE SONG AS", 0, 1, SV_PROJ),
                                NV("USER", 0, 2, SV_SOUND), NV("PRESETS", 0, 2, SV_SOUND)};
 static const ng_t CG_SAVE[] = {{"SONG", 0}, {"PROJECT", 0}, {"SOUND", 0}};
 #define CH(e, g) {e, g, (uint8_t)NELEM(e), (uint8_t)NELEM(g)}
@@ -153,7 +154,7 @@ static uint32_t nv_page(uint32_t sec, uint32_t e)
             return i;
     return NPAGES;
 }
-static int nv_ok(uint32_t sec, uint32_t e) { return sec == SEC_HOME ? e < NELEM(CE_HOME) && (e || !umw_gone()) : nv_page(sec, e) < NPAGES; }
+static int nv_ok(uint32_t sec, uint32_t e) { return sec == SEC_HOME ? e < NELEM(CE_HOME) && (e || !umw_hid()) : nv_page(sec, e) < NPAGES; }
 /* the entry shown: HOME's from its state (ui.hlv, ui.hset, GEN's page); the others the one remembered when it is the page
  * shown, else the page's own (put by code: in the group left, the default page's, then the chain's first), else
  * (PHRASES, CHANCE: out of the chain) the one left */
@@ -234,10 +235,6 @@ static void nav_go(uint32_t sec, uint32_t e, int outside)
     if (sec == SEC_HOME) {
         if (e >= HOME_E_GEN) {                          /* GEN: the generator's screen, HOME's last group */
             if (!gen_on()) {
-                if (chain_busy()) {
-                    ui_message("SONG PLAYS: STOP IT TO EDIT");
-                    return;
-                }
                 confirm_open(CF_DICE_ALL, song.sel);
                 gen_open();
             }
@@ -260,6 +257,7 @@ static void nav_go(uint32_t sec, uint32_t e, int outside)
     ui.page = (uint8_t)i;
     ui.home = 0;
     page_entered();
+    if (PAGES[i].graph == GR_SONGSAVE) ui.act = 4u;
     if (PAGES[i].graph == GR_USER || PAGES[i].graph == GR_SLOTS)
         ui.act = outside && (PAGES[i].graph == GR_USER || c->e[e].lv == SV_PROJ) ? 4u : 0u;
     page_flash();
@@ -393,4 +391,5 @@ static int32_t focus_slot(uint32_t k)
             return (int32_t)j;
     return -1;
 }
+
 

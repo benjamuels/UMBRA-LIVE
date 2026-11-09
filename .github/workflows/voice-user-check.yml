@@ -1,0 +1,185 @@
+name: VOICE user lyric candidate
+on:
+  push:
+    branches: [codex/voice-user-lyrics, codex/swarm]
+permissions:
+  contents: read
+concurrency:
+  group: voice-user-candidate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install Pillow==12.3.0 numpy==2.3.5 fonttools==4.61.1
+      - name: Generate headers
+        run: python3 -c "import sys;sys.path.insert(0,'tools');import build;build.generate()"
+      - name: Pinned audio gap packing regression
+        run: python3 tests/layout_packing_test.py
+      - name: JieLi toolchain cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.jieli
+            ~/fw-AC79_AIoT_SDK/cpu/wl82/tools
+          key: jieli-ac79-v1.2.1
+      - name: Toolchain and SDK
+        run: |
+          retry() { for d in 0 5 15 30; do sleep $d; "$@" && return 0; done; return 1; }
+          T=$HOME/fw-AC79_AIoT_SDK/cpu/wl82/tools
+          [ -e "$HOME/.jieli/toolchain" ] || retry sh tools/get_toolchain.sh "$HOME/.jieli"
+          if [ ! -s "$T/uboot.boot" ] || [ ! -s "$T/cfg_tool.bin" ] || [ ! -s "$T/cfg/eq_cfg_hw.bin" ]; then
+            retry git clone --filter=blob:none --no-checkout https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$HOME/fw-AC79_AIoT_SDK"
+            cd "$HOME/fw-AC79_AIoT_SDK"
+            git sparse-checkout set --no-cone /cpu/wl82/tools/uboot.boot /cpu/wl82/tools/cfg_tool.bin /cpu/wl82/tools/cfg/eq_cfg_hw.bin
+            retry git checkout d179b4484759423312073f5fbb232501aa491047
+          fi
+          test -s "$T/uboot.boot" && test -s "$T/cfg_tool.bin" && test -s "$T/cfg/eq_cfg_hw.bin"
+      - name: FM-1 package and target budgets
+        env:
+          AC79_SDK: /home/runner/fw-AC79_AIoT_SDK
+          JIELI_TOOLCHAIN: /home/runner/.jieli/toolchain
+        run: |
+          mkdir -p build/song-check
+          python3 tools/build.py > build/song-check/target.log 2>&1 || {
+            cat build/song-check/target.log
+            python3 -c "import sys,pathlib;sys.path.insert(0,'tools');import build;p=pathlib.Path('build/felucca.map');r=build.map_inputs(p.read_text()) if p.exists() else [];print('Largest sections:', sorted(r,key=lambda x:x[2],reverse=True)[:35]);print('Save/GEN sections:',[(n,a,z,o) for n,a,z,o in r if n.startswith(('.text.song_', '.text.gen_', '.text.project_save', '.text.lib_scan'))]);print('Cold bank:',[l for l in p.read_text().splitlines() if '_bt_end' in l or '_bt_start' in l] if p.exists() else [])"
+            exit 1
+          }
+      - name: Firmware memory and reach checks
+        run: tail -n 20 build/song-check/target.log
+      - name: Lossless font metadata and isolated per-track generator
+        run: |
+          set -euo pipefail
+          python3 tests/font_pack_test.py
+          cc -O1 -w -Ibuild/gen -Ifirmware/src tests/text_ref_test.c -lm -o build/song-check/text-ref
+          build/song-check/text-ref | tee build/song-check/text-ref.log
+          cc -O1 -g -w -Wno-implicit-function-declaration -fsanitize=address,bounds -Ibuild/gen -Ifirmware/src tests/track_generator_test.c -lm -o build/song-check/track-gen
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 build/song-check/track-gen | tee build/song-check/track-gen.log
+      - name: DRUM performance and multilingual intentional lyric regression
+        run: |
+          set -euo pipefail
+          cc -O1 -g -w -Wno-implicit-function-declaration -fsanitize=address,bounds -Ibuild/gen -Ifirmware/src tests/drum_voice_extensions_test.c -lm -o build/song-check/drum-voice
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 build/song-check/drum-voice | tee build/song-check/drum-voice.log
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/drumx_oct_test.c -lm -o build/song-check/classic-octaves
+          build/song-check/classic-octaves | tee build/song-check/classic-octaves.log
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/voice_test.c -lm -o build/song-check/voice-reading
+          build/song-check/voice-reading | tee build/song-check/voice-reading.log
+          python3 tests/voice_web_test.py
+      - name: FIT clock, persistence and audio timing
+        run: |
+          set -euo pipefail
+          mkdir -p build/song-check
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/persistence_test.c -lm -o build/song-check/persistence
+          build/song-check/persistence | tee build/song-check/persistence.log
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/backup_test.c -lm -o build/song-check/backup
+          build/song-check/backup > build/song-check/backup.log
+          cc -O1 -w -Wno-implicit-function-declaration -DSONG_SAVE_ONLY -Ibuild/gen -Ifirmware/src tests/ui_test.c -lm -o build/song-check/ui
+          build/song-check/ui | tee build/song-check/ui.log
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/project_test.c -lm -o build/song-check/project
+          build/song-check/project > build/song-check/project.log
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/fit_test.c -lm -o build/song-check/fit
+          build/song-check/fit | tee build/song-check/fit.log
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/probability_component_test.c -lm -o build/song-check/probability
+          build/song-check/probability | tee build/song-check/probability.log
+          cc -O1 -g -w -Wno-implicit-function-declaration -fsanitize=address,bounds -Ibuild/gen -Ifirmware/src tests/ramp_test.c -lm -o build/song-check/ramp
+          build/song-check/ramp | tee build/song-check/ramp.log
+          cc -O1 -g -w -Wno-implicit-function-declaration -fsanitize=address,bounds -Ibuild/gen -Ifirmware/src tests/swarm_test.c -lm -o build/song-check/swarm
+          build/song-check/swarm | tee build/song-check/swarm.log
+          cc -O1 -w -Wno-implicit-function-declaration -DTIMING_FIT -Ibuild/gen -Ifirmware/src tests/ctl64_timing_test.c -lm -o build/song-check/fit-timing
+          build/song-check/fit-timing | tee build/song-check/fit-timing.log
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/ctl64_timing_test.c -lm -o build/song-check/timing
+          build/song-check/timing > build/song-check/timing.log
+          python3 tests/uac_input_irq_test.py > build/song-check/usb-input.log
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/midi_control_test.c -lm -o build/song-check/midi
+          build/song-check/midi | tee build/song-check/midi.log
+      - name: Generator song progress and whole-song save regression
+        run: |
+          set -euo pipefail
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/song_generator_test.c -lm -o build/song-check/generator
+          build/song-check/generator | tee build/song-check/generator.log
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/song_draft_test.c -lm -o build/song-check/draft
+          build/song-check/draft | tee build/song-check/draft.log
+      - name: Matrix and track follower regression
+        run: |
+          set -euo pipefail
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/mod_test.c -lm -o build/song-check/mod
+          build/song-check/mod > build/song-check/mod.log
+          cc -O1 -g -w -Wno-implicit-function-declaration -fsanitize=address,bounds -Ibuild/gen -Ifirmware/src tests/track_follow_test.c -lm -o build/song-check/follow
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 build/song-check/follow | tee build/song-check/follow.log
+      - name: Contextual destinations, legacy routes and editor protocol
+        run: |
+          set -euo pipefail
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/matrix_context_test.c -lm -o build/song-check/context
+          build/song-check/context | tee build/song-check/context.log
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/matrix_editor_test.c -lm -o build/song-check/context-editor
+          build/song-check/context-editor | tee build/song-check/context-editor.log
+          python3 tests/matrix_web_test.py
+      - name: App protocol contract (editor protocol 1.0, pushes, engine ids, NRPN map)
+        run: |
+          set -euo pipefail
+          cc -O1 -g -w -Wno-implicit-function-declaration -fsanitize=address,bounds -Ibuild/gen -Ifirmware/src tests/app_contract_test.c -lm -o build/song-check/app-contract
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 build/song-check/app-contract | tee build/song-check/app-contract.log
+      - name: Expression keys and the feel of live recording (V10.6z4)
+        run: |
+          set -euo pipefail
+          cc -O1 -g -w -Wno-implicit-function-declaration -fsanitize=address,bounds -Ibuild/gen -Ifirmware/src tests/expr_keys_test.c -lm -o build/song-check/expr-keys
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 build/song-check/expr-keys | tee build/song-check/expr-keys.log
+          cc -O1 -g -w -Wno-implicit-function-declaration -fsanitize=address,bounds -Ibuild/gen -Ifirmware/src tests/legato_rec_test.c -lm -o build/song-check/legato-rec
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 LEGATO_REC_VERBOSE=1 build/song-check/legato-rec | tee build/song-check/legato-rec.log
+      - name: Song sounds held, PROX / AIR calibration median and SYSTEM 2 (V10.6z8)
+        run: |
+          set -euo pipefail
+          cc -O1 -g -w -Wno-implicit-function-declaration -fsanitize=address,bounds -Ibuild/gen -Ifirmware/src tests/song_hold_test.c -lm -o build/song-check/song-hold
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 build/song-check/song-hold | tee build/song-check/song-hold.log
+          cc -O1 -g -w -Wno-implicit-function-declaration -fsanitize=address,bounds -Ibuild/gen -Ifirmware/src tests/prox_cal_test.c -lm -o build/song-check/prox-cal
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 build/song-check/prox-cal | tee build/song-check/prox-cal.log
+      - name: Velocity diagnostic, key velocity and pressure (V10.6z6) and the boot's packed RAM code (V10.6z5)
+        run: |
+          set -euo pipefail
+          cc -O1 -g -w -fsanitize=address,undefined -Ibuild/gen -Ifirmware/src tests/vel_diag_test.c -o build/song-check/vel-diag
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 build/song-check/vel-diag | tee build/song-check/vel-diag.log
+          cc -O1 -g -w -fsanitize=address,undefined -Ibuild/gen -Ifirmware/src tests/vel_test.c -o build/song-check/vel
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 build/song-check/vel | tee build/song-check/vel.log
+          cc -O1 -g -w -Wno-implicit-function-declaration -fsanitize=address,bounds -Ibuild/gen -Ifirmware/src tests/vel_seq_test.c -lm -o build/song-check/vel-seq
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 build/song-check/vel-seq | tee build/song-check/vel-seq.log
+          cc -O1 -g -w -fsanitize=address,undefined -Ifirmware/src tests/boot_lz4_test.c -o build/song-check/boot-lz4
+          ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 build/song-check/boot-lz4 | tee build/song-check/boot-lz4.log
+      - name: Verified pre-split baseline for UI regression comparison
+        uses: actions/checkout@v4
+        with:
+          ref: f5f6b1bde3a2eefa14444ad2212626c7aa4d46a8
+          path: build/ui-baseline
+          persist-credentials: false
+      - name: Full UI comparison against known baseline
+        run: |
+          set -euo pipefail
+          (cd build/ui-baseline && python3 -c "import sys;sys.path.insert(0,'tools');import build;build.generate()")
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/gen -Ifirmware/src tests/ui_test.c -lm -o build/song-check/ui-full
+          cc -O1 -w -Wno-implicit-function-declaration -Ibuild/ui-baseline/build/gen -Ibuild/ui-baseline/firmware/src build/ui-baseline/tests/ui_test.c -lm -o build/song-check/ui-base
+          set +e
+          build/song-check/ui-full > build/song-check/ui-full.log
+          FULL_RC=$?
+          build/song-check/ui-base > build/song-check/ui-base.log
+          BASE_RC=$?
+          set -e
+          python3 tests/ui_baseline_compare.py build/song-check/ui-base.log build/song-check/ui-full.log "$BASE_RC" "$FULL_RC"
+      - name: Recorded audio layout
+        if: always()
+        run: cat tools/audio_layout.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: voice-user-candidate
+          path: |
+            build/song-check/*.log
+            build/felucca.fwsc
+            build/felucca.bin
+            build/bt.bin
+            build/layout.ld
+            build/felucca.map
+            tools/audio_layout.txt

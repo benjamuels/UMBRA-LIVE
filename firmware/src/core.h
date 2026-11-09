@@ -147,7 +147,13 @@ enum {                          /* per-track parameters */
  * WHAT = PARAM moves, MUT_PIDS); P_MCFG, DIGITAL's free OP4 LEVEL slot, holds 127 - cfg (its stored default 127: cfg 0 in
  * every project and preset before it): bits 0..2 WHAT, 3..5 LOOP, 6 SCALE OFF. WHAT 0 with P_MSND / P_MPAT set is the
  * 0.6.43 MUTATE as it was (SOUND / PATTERN every OFF 1 2 4 8 16 32 bars: every old project plays the same) */
-#define P_MCFG P_FM4_LEVEL
+/* (after V10.7.2, the owner: "many sounds don't benefit from velocity, basses, certain leads") EDIT > VOICE 2's VEL, the sound's
+ * velocity amount, in MUTATE's old P_MCFG (retired with MUTATE in V10.6, read by nothing since): 127 (its stored default:
+ * every project, preset and GENE song before it) 100 %, the velocity as played; less: each note's distance from 100
+ * scaled by VEL / 127, 0 every note at 100 (VELOCITY OFF's) from every source: the keys, the sequencer, the arp, MIDI;
+ * the matrix's VEL reads it too. A step's ACCENT keeps its 127, HUMAN and RATCHET's DECAY act on the scaled value;
+ * the recording keeps the key's own (seq.c tvel, STEP_VEL) */
+#define P_TVEL P_FM4_LEVEL
 #define P_MORPH P_FM3_ATK              /* (JIANT 0.6.45) EDIT > MORPH: ANALOG PHASE LOFI's wave on towards the next ones
                                          * (0: as WAVE has it; every project and preset before it), in DIGITAL's slot */
 #define P_CLEN P_FM3_DEC               /* (JIANT 0.6.47) SHIFT > C.LEN: the step components as a lane of their own, steps
@@ -180,7 +186,22 @@ enum {                          /* per-track parameters */
 #define P_SIMG P_LN0                   /* (V10.49) a synth's EDIT > STEREO IMAGE, stored inverted (127 = 0 %: the lane level's
                                          * 127 every synth part holds); DRUM-X's lane 1 level there. (P_DXIMG is VOICE's LYRIC) */
 #define P_VLANG P_LRTRG
+#define P_DKEYMODE P_LRTRG        /* DRUM-X only: 0 classic, 1 extended performance octaves. */
 #define P_VLYR P_DXIMG
+/* (V10.6y, alex.knip) VOICE's CONS (EDIT > WORDS KNOB 3): its consonants' length, 50 .. 400 %, in DRUM-X's lane 2 level
+ * slot. 127 there (what every synth part holds) is 100 %, so a project or preset of before sings as it did: the knob's
+ * place (vcons_rank, params.c param_turn) is the value + 33, mod 128 (127 at 32: 50 .. 98 % left of it, 103 .. 400 %
+ * right). vcons_q6: the length, 1/64 (sing.c sy_enter) */
+#define P_VCONS P_LN1
+/* (V10.6z4) a synth's expression keys as the sequencer recorded them (seq.c kx_block, ui_input.c kx_frame), in DRUM-X's
+ * lane 8 level (127 every synth part holds): 127 - (bit 0 OCT- VIBRATO, bit 1 OCT+ BEND), automation only */
+#define P_XPR P_LN7
+static inline uint32_t vcons_rank(int32_t v) { return ((uint32_t)v + 33u) & 127u; }
+static inline uint32_t vcons_q6(int32_t v)
+{
+    uint32_t r = vcons_rank(v);
+    return r < 32u ? 32u + r : 64u + (r - 32u) * 192u / 95u;
+}
 /* (JIANT 0.6.9) AUTO PAN (fx.c mix_part), in the slots of the old per-track SLICER (one on a bus since 0.6.3, its
  * slots stored, never read but by proj_sl_migrate). Laid so what old stores hold means OFF: DPTH where SLCR was (0, or
  * 1..2 from a project of before 0.6.3: inaudible), RATE where PAT was (1..16: slow), WAVE where RATE was (1: TRI), SYNC
@@ -312,23 +333,36 @@ static int analog_from_trio(uint32_t engine, int16_t *e)
     e[7] = 64;
     return 1;
 }
-/* PHYS MODEL DRUM (MODEL 4, before 1.0) -> the DRUM engine, its E values in place: {MODEL, TUNE, TONE, DECY,
- * SNAP, ACC, KICK, PERC} -> {MRPH 64, TUNE, TONE, DECY, NOIS 64, FM 0, -, DRV 0}. 1 = it was one (its engine is
- * ENGI_DRUM now); projects (project.c) and user presets (upreset.c) */
-static int drum_from_phys(uint32_t engine, int16_t *e)
+/* (V10.6d) LOFI is MATH, BYTE and FLOAT alone: a sound of a chip wave (WAVE 0..4: PLS TRI SAW NOIS WRAM) -> ANALOG's
+ * nearest, its E values in place: one oscillator (MIX 0), PLS SQR, TRI TRI, SAW SAW, NOIS a saw under full NOISE, WRAM
+ * SIN; CUT open, no RES DRIVE INT (the FILTER page's CUT RES, the envelope, the mix, the sends stay). A BYTE / FLOAT with
+ * CHIP STEP (4) -> 4BIT, the same sound. 1 = it was a chip sound (its engine is ANALOG now): projects (project.c
+ * proj_phys_gone), user presets (upreset.c). Idempotent */
+static const char U_REG64[] = "";   /* (V10.6d) a desc's unit: a register stored 0..127, shown as semitones from 64
+                                     * (64 - v: smaller is higher), "+0" the key played (params.c param_format) */
+static int analog_from_chip(uint32_t engine, int16_t *e)
 {
-    if (engine != ENGI_PHYS || e[0] != 4)
+    static const uint8_t W[5] = {1, 2, 0, 0, 3};
+    uint32_t w = (uint32_t)e[1];
+    if (engine != ENGI_LOFI)
         return 0;
-    e[0] = e[4] = 64;
-    e[5] = e[6] = e[7] = 0;                             /* (ACC is gone: E5 is FM now, off) */
+    if (w == 5u || w == 6u) {
+        if (e[0] < 0 || e[0] > 3)
+            e[0] = 0;
+        return 0;
+    }
+    w = w < 5u ? w : 0u;
+    e[0] = (int16_t)W[w];
+    e[1] = e[2] = e[5] = e[6] = e[7] = 0;
+    e[3] = (int16_t)(w == 3u ? 127 : 0);
+    e[4] = 110;
     return 1;
 }
-
 /* SAMPLE SET 4 was PERC, the GM-mapped drum kit (tools/gen_samples.py); retired after 1.0.2: its index stays
  * (SET / GRAIN SRC 4 is an alias of PIANO; 5..7, once USR1..3, clamp to it). A sound that selected it is the DRUM engine with
  * its default kit (eng_drum.c DRUM_PRESETS[0]: the same GM key map, so its patterns still play as drums): its E
  * values become the kit's, the rest of the sound (mix, sends, matrix, ..) stays. 1 = it was one (its engine is
- * ENGI_DRUM now); projects (project.c proj_perc), user presets (upreset.c up_migrate), factory preset 4 and
+ * ENGI_DRUM now); user presets (upreset.c up_migrate), factory preset 4 and
  * favourites (ui.c, settings_persist.c). Idempotent */
 #define SMP_SET_PERC 4u
 #define DRUM_KIT_E {64, 64, 70, 64, 64, 0, 0, 0}   /* {MRPH, TUNE, TONE, DECY, NOIS, FM, WARP, DRV} (eng_drum.c) */
@@ -411,7 +445,21 @@ typedef struct {
                                   * never touches the steps; SEQ > PATTERNS loads a pattern (ui.c pat_load). The
                                   * arp is the track's too: a preset does not set it */
     uint8_t xp;                  /* (JIANT 0.8.5) VOICE: LANG | LYRIC << 2 (P_VLANG, P_VLYR; 0 = OFF, its vowels) */
+    const int8_t *mod;           /* (V10.6i) the sound's movement: pairs of a common parameter (< P_E0) and its value, -1
+                                  * ends (MODS: the LFO and its DEST, ENV 2, the MOD slots, the FILTER page, GLIDE ..),
+                                  * set after the rest of the preset (ui.c apply_preset_to); 0 none. In flash */
 } preset_t;
+#define MODS(...) .mod = (const int8_t[]){__VA_ARGS__, -1}
+/* the MOD slots' SRC and DEST numbers a preset names (mod.c MS_* / MD_*, checked there; the engines come before it) */
+enum { PS_LFO = 1, PS_ENV, PS_VEL, PS_KEY, PS_RAND, PS_MODW, PS_AT, PS_NOISE = 14, PS_ENV2 = 16 };
+enum { PD_PITCH = 1, PD_CUT, PD_SHP, PD_AMP, PD_PAN, PD_DIST, PD_CHO, PD_DLY, PD_REV, PD_LRATE, PD_VIB, PD_E1,
+       PD_FCUT = 30, PD_LEVEL };
+#define PD_E(k) (PD_E1 + (k))    /* EDIT k (P_E0 + k: 0 the first, as the engine's edit[]) */
+/* a MOD slot k (1..4): SRC DEST AMT; the LFO: WAVE RATE and its depths to PITCH FILTER; ENV 2 */
+#define MMOD(k, s, d, a) P_M##k##SRC, (s), P_M##k##DST, (d), P_M##k##AMT, (a)
+#define MLFO(w, r, pit, flt) P_LWAVE, (w), P_LRATE, (r), P_LD_PIT, (pit), P_LD_FLT, (flt)
+#define MENV2(a, d, s, r) P_E2ATK, (a), P_E2DEC, (d), P_E2SUS, (s), P_E2REL, (r)
+enum { LW_SIN, LW_TRI, LW_SAW, LW_SQR, LW_SH, LW_DRIFT };
 #define FX(d, c, dl, r) .fx = {(d) + 1, (c) + 1, (dl) + 1, (r) + 1}
 #define PAT(n) .pat = (n)
 #define WORDS(lang, lyr) .xp = (uint8_t)((lang) | (lyr) << 2)
@@ -602,10 +650,7 @@ static const uint8_t CP_ADEF[CP_N] = {0, 0, 0, 0, 0, 2, 0, 9, 7, 1, 0, 0, 0, 0, 
 static const uint8_t CP_AMIN[CP_N] = {0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static int cp_iswalk(uint32_t c) { return c == CP_WALK || c == CP_CLIMB; }
 #define CP_ORD(a) ((uint32_t)(a) & 3u)            /* UP DOWN UP-DN RND */
-/* (0.6.62) JUMP: its step (bits 0-5) and TIMES (bits 6-7); REV: TIMES (bits 0-1). TIMES: ALWAYS, x1 (once a pass of
- * the pattern, then it plays on), x2, 1:2 (once, every other pass). 0, ALWAYS: as a JUMP / REV of before (seq.c fl_ok) */
-#define CP_JTO(a) ((uint32_t)(a) & 63u)
-#define CP_TIMES(c, a) ((c) == CP_JUMP ? ((uint32_t)(a) >> 6) & 3u : (uint32_t)(a) & 3u)
+/* (0.6.62) JUMP / REV: (V10.6v) gone, a legacy one migrates to none */
 #define CP_RATE(a) (((uint32_t)(a) >> 2) & 7u)    /* 0..4: x2 x3 x4 x6 x8 */
 #define CP_RNG(a) (((uint32_t)(a) >> 5) & 3u)     /* 0..3: 1..4 octaves (SCALE: 3 5 8 15 degrees) */
 #define CP_ARG(o, r, g) ((uint8_t)(((o) & 3u) | ((r) & 7u) << 2 | ((g) & 3u) << 5))
@@ -623,8 +668,8 @@ static int cp_isarp(uint32_t c) { return c >= CP_ARPN && c <= CP_ARPS; }
  * CONDITION (4-7), carg / carg2 the VALUE, clen[] LENGTH - 1 (the steps it stays on, from its own on, as the track
  * plays them), cnm[] N:M. Two a step: C1 first, then C2; C2's condition ELSE is MONO (it acts only when C1 did not),
  * any other POLY (both stack: C1 on the step, C2 over the result). seq.c comp_run */
-enum { CA_NONE, CA_ARP, CA_SEQ, CA_OCTU, CA_OCTD, CA_RATCH, CA_STUT, CA_MUTE, CA_TRANS, CA_RAND, CA_LOCK, CA_JUMP,
-       CA_SOUND, CA_BEND, CA_SHIFT, CA_CHORD, CA_N };
+enum { CA_NONE, CA_ARP, CA_SEQ, CA_OCTU, CA_OCTD, CA_RATCH, CA_STUT, CA_MUTE, CA_TRANS, CA_RAND, CA_LOCK, CA_RAMP,
+       CA_SOUND, CA_BEND, CA_SHIFT, CA_CHORD, CA_N };   /* (V10.6v: RAMP took JUMP's code, 11) */
 enum { CC_ALWAYS, CC_P25, CC_P50, CC_P75, CC_FIRST, CC_NFIRST, CC_FILL, CC_NFILL, CC_PRE, CC_NPRE, CC_NEI, CC_NNEI,
        CC_ELSE, CC_NM, CC_NNM, CC_N };
 #define CO_ACT(c) ((uint32_t)(c) & 15u)
@@ -639,7 +684,7 @@ enum { CC_ALWAYS, CC_P25, CC_P50, CC_P75, CC_FIRST, CC_NFIRST, CC_FILL, CC_NFILL
  * BOUNCE; OCT+ / OCT- 0..2: 1..3 octaves; RATCHET bits 0-2 x2..x8, bits 3-4 DECAY (0 flat, 1 down, 2 up); STUTTER 0..3: again
  * every 1..4 steps; MUTE 0 MUTE, 1 CUT; TRANSPOSE bits 0-3 the move -7..+7 (7: 0), bits 4-7 RANGE - 1 (RANGE 1: FIX, the
  * move whenever the condition holds; 2..16: it adds up each pass the condition holds, round RANGE places, acting every
- * pass); RANDOM 0..6: 1..7 degrees; JUMP 0..63 the step, 64 REV; SOUND 0..2 SHORT GHOST FLAM (a kit); BEND 0..24 -12..+12 */
+ * pass); RANDOM 0..6: 1..7 degrees; RAMP CV_RAMP_*; SOUND 0..2 SHORT GHOST FLAM (a kit); BEND 0..24 -12..+12 */
 #define CV_ARP_SCALE 0x80u
 #define CV_SEQ_BOUNCE 0x40u
 #define CV_RAT_HITS(v) (2u + ((uint32_t)(v) & 7u) % 7u)
@@ -647,8 +692,18 @@ enum { CC_ALWAYS, CC_P25, CC_P50, CC_P75, CC_FIRST, CC_NFIRST, CC_FILL, CC_NFILL
 #define CV_TR_MOVE(v) ((int32_t)((uint32_t)(v) & 15u) % 15 - 7)
 #define CV_TR_RANGE(v) (((uint32_t)(v) >> 4) + 1u)
 #define CV_TR_MAKE(mv, rng) ((uint8_t)(((uint32_t)((mv) + 7) & 15u) | (((rng) - 1u) & 15u) << 4))
-#define CV_JUMP_REV 64u
-static const uint8_t CA_VMAX[CA_N] = {0, 191, 127, 2, 2, 20, 3, 1, 239, 6, 0, 64, 2, 24, 126, 10};   /* KNOB 4's list, 0.. */
+/* (V10.6v) RAMP (seq.c ramp_run): the step's parameter LOCK glides there from FROM (KNOB: the knob's value; OPP: the
+ * other end of the parameter's range) along CURVE over its LENGTH (clen + 1 of the track's steps, or bars with BARS: 1..32
+ * steps, 1..16 bars), once a launch: the step again while it runs does not restart it (shorter than the pattern: it
+ * ends first, each pass); then (and at a stop) the knob's value back. No lock on the step: nothing. VALUE bits 0-3 KNOB 4's
+ * place: CURVE (LIN EXP LOG S STEPS ZIGZAG) from KNOB, then the six from OPP; bit 4 BARS; anything else (a JUMP of
+ * before) is no RAMP (comp_migrate) */
+#define CV_RAMP_NC 6u
+#define CV_RAMP_BARS 16u
+#define CV_RAMP_OPP(v) (((uint32_t)(v) & 15u) >= CV_RAMP_NC)
+#define CV_RAMP_CURVE(v) (((uint32_t)(v) & 15u) % CV_RAMP_NC)
+#define CV_RAMP_OK(v) ((uint32_t)(v) < 32u && ((uint32_t)(v) & 15u) < 2u * CV_RAMP_NC)   /* (BARS: 1..16, clen % 16) */
+static const uint8_t CA_VMAX[CA_N] = {0, 191, 127, 2, 2, 20, 3, 1, 239, 6, 0, 11, 2, 24, 126, 10};   /* KNOB 4's list, 0.. */
 static const uint8_t CA_VDEF[CA_N] = {0, 0x08, 0, 0, 0, 0, 0, 0, 0x38, 1, 0, 0, 0, 14, 63, 0};    /* (stored VALUE) */
 static int comp_any(const step_t *s) { return CO_ACT(s->comp) || CO_ACT(s->comp2); }
 typedef struct {                 /* a step as formats 1..4 (projects to FUN4) stored it: no hits */
@@ -710,6 +765,8 @@ typedef struct track {
     uint8_t engine, preset;      /* engine: what the audio ISR renders */
     uint8_t eng_req;             /* engine the UI asked for (the ISR switches at a block start) */
     uint8_t user;                /* user preset slot + 1 the sound came from (UI), 0 = none */
+    int16_t rh_p;                /* (V10.6z4, in what was padding) a recorded held note: where it was played, samples from
+                                  * its step's place (seq.c rec_end: its length) */
     voice_t v[NVOICE];
     /* LFO */
     uint32_t lfo_ph;
@@ -808,8 +865,7 @@ typedef struct track {
     uint16_t ext;                /* (0.6.88) TIMING: samples the playing step began before its place (it is early) */
     int8_t mic;                  /* .. the playing step's own TIMING (ST_MICRO), late: seq_step queues its notes */
     int8_t hum_env;              /* (0.6.92) HUMAN: the next notes' DEC / REL move (seq_step sets it, voice_start takes it) */
-    uint8_t pfx_half;            /* (p2: unused, kept for track_t's size: 1/2 TEMPO and LOOP are LIVE's now, seq_live.c,
-                                  * its ghost where the track would be) */
+    uint8_t seq_fit;             /* FIT: bit 7 ON; SPAN 1..64 (0 = 16), in an unused byte: track_t stays the same size */
     uint8_t pfx_rs;
     uint16_t pfx_idx0;
     uint32_t pfx_pos0, pfx_el;
@@ -837,6 +893,7 @@ typedef struct {
     int32_t batt_raw;            /* smoothed ADC ch3 (battery divider), 0 = not read yet */
 } song_t;
 
+static uint8_t trk_live = 4;
 static track_t trk[NTRK];        /* the instrument: four parts */
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
@@ -875,3 +932,4 @@ static int bt_hw_seg(void);                             /* bt_hw.c */
 #define BTAPP_FN
 static int bt_hw_seg(void) { return 1; }                /* (the host: everything in the one image) */
 #endif
+

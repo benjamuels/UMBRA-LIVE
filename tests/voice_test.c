@@ -9,7 +9,8 @@
  *    notes, every word a real one of the bank.
  * 3. the sound: the vowels' formants (an LPC-free peak pick on the spectrum of a held vowel) inside their ranges;
  *    s / sh / f frication bands; a plosive's closure and burst; no click at syllable changes; no DC; no clipping at
- *    the corners; LANG OFF bit for bit the vowels of before (the goldens hold that too).
+ *    the corners; LANG OFF bit for bit the vowels of before (the goldens hold that too); (V10.6y) an open A under full
+ *    scale, as loud as the other engines; CONS 50 .. 400 % the consonants' length.
  * 4. the lyric: notes sing the next syllable, a TIE holds it, "-" holds the vowel, POS jumps, LOOP restarts; a
  *    project round trip with lyrics, a project without them loads none.
  * 5. cost: host ns per sample and voice, vowels against words (the counts: tests/cpu_vg.c eng/VOICE.*).
@@ -177,7 +178,8 @@ static void check_cache(void)
     uint32_t k, bad_b = 0, miss = 0, used = 0, ntok = 0, bad_t = 0, nocache = 0;
     sing_init();
     for (k = 0; k < LYB_N; k++) {
-        const char *q = k < LYB_SCAT ? ly_word(&LY_BANK[1], k) : k < LYB_N - 1u ? SCAT_EN[k - LYB_SCAT] : VOCABLE[1];
+        char word[20];
+        const char *q = k < LYB_SCAT ? ly_word(&LY_BANK[1], k, word) : k < LYB_N - 1u ? SCAT_EN[k - LYB_SCAT] : VOCABLE[1];
         if (!lyb_at[k]) miss++;
         else {
             bad_b += !entry_is(&lyb_ph[lyb_at[k] - 1u], q, 64u);
@@ -440,6 +442,22 @@ static void check_reading(void)
                  (unsigned)LY_EN_N, b);
         check(what, ok);
     }
+    {   /* (V10.6f) the words left out of the packed dictionary (tools/lyrics/en_ruled.txt): not in it, and the letter
+         * rules read each exactly as the dictionary did (its phonemes, stresses, syllables) */
+        uint8_t ph[SW_MAX];
+        uint32_t nw, n, ns, i, nsr, bad = 0;
+        for (nw = 0; nw < LY_EN_RULED_N; nw++) {
+            const char *rw = LY_EN_RULED_W[nw], *rp = LY_EN_RULED_PH[nw];
+            uint32_t wl = (uint32_t)strlen(rw);
+            bad += sy_en_find(rw, wl, ph) != 0;
+            n = sy_word(LG_EN, rw, wl, ph, &ns);
+            for (i = nsr = 0; i < strlen(rp); i++) nsr += ((uint8_t)rp[i] & SYB) != 0;
+            if (n != strlen(rp) || ns != nsr) { bad++; continue; }
+            for (i = 0; i < n; i++) bad += ph[i] != ((uint8_t)rp[i] & 0x7Fu);
+        }
+        printf("voice:   %u words by the rules alone (out of the dictionary), %u differ\n", (unsigned)LY_EN_RULED_N, bad);
+        check("V10.6f English: the words the rules read as the dictionary did, out of it, sung the same", !bad && LY_EN_RULED_N > 400u);
+    }
     {   /* (V10.15) the dictionary in the Bluetooth segment: without it (ly_en_ok 0, NO SEG) nothing of it is read (its
          * bytes poisoned here: a read would change the words), every English word by the letter rules, each with a
          * syllable; the generator's words too (sing_init again), and singing goes on; with it back, as before */
@@ -473,17 +491,20 @@ static void check_reading(void)
         static const char *const LN[4] = {"", "ES", "EN", "JA"};
         uint32_t bad_w = 0, tot = 0;
         for (l = LG_ES; l <= LG_JA; l++) {
+            const char *const *ref=l==LG_ES?LY_ES_BANK_REF_W:l==LG_EN?LY_EN_BANK_REF_W:LY_JA_BANK_REF_W;
             const ly_bank_t *bk = &LY_BANK[l - 1u];
             uint32_t nwds = l == LG_ES ? LY_ES_NW : l == LG_EN ? LY_EN_NW : LY_JA_NW;
             for (k = 0; k < nwds; k++) {
                 uint8_t ph[SW_MAX];
                 char nw2[24];
-                const char *w = ly_word(bk, k);
+                char word[20];
+                const char *w = ly_word(bk, k, word);
+                bad_w += strcmp(w,ref[k])!=0; /* exact text, not only the syllable count */
                 (void)sy_word(l, nw2, sy_norm(w, (uint32_t)strlen(w), nw2, sizeof nw2), ph, &n);
                 tot++;
-                if (n != (bk->meta[k] & 15u)) {
+                if (n != (ly_meta(bk,k) & 7u)) {
                     if (bad_w++ < 8u)
-                        printf("voice:   %s %s: %u syllables here, %u in the bank\n", LN[l], w, n, bk->meta[k] & 15u);
+                        printf("voice:   %s %s: %u syllables here, %u in the bank\n", LN[l], w, n, ly_meta(bk,k) & 7u);
                 }
             }
         }
@@ -572,7 +593,8 @@ static void check_generator(void)
                     n = (uint32_t)(q - p);
                     if (!n) break;
                     for (w = 0; w < nwds && !found; w++) {
-                        const char *t = ly_word(bk, w);
+                        char word[20];
+                        const char *t = ly_word(bk, w, word);
                         found = strlen(t) == n && (!strncmp(t, p, n) ||
                                                    (l == LG_ES && !strncmp(t, p, n - 1u) && t[n - 1u] == 'o' && p[n - 1u] == 'a'));
                     }
@@ -1183,6 +1205,83 @@ static void check_cost(void)
            (double)(t1 - t0) / FS / 4.0, (double)(t3 - t2) / FS / 4.0);
 }
 
+/* (V10.6y, alex.knip) the level: an open vowel ("AH", LANG OFF and sung) under full scale, as loud as the other engines
+ * (it was ~+9 dB over them, a third of an A's samples in the soft knee); CONS (EDIT > WORDS KNOB 3, P_VCONS): 127 (every
+ * project and preset of before) 100 %, the consonants 50 .. 400 % as long */
+static uint32_t cons_raw(uint32_t pct)                   /* the stored value nearest pct */
+{
+    uint32_t v, best = 127;
+    for (v = 0; v < 128u; v++)
+        if (abs((int)(vcons_q6((int32_t)v) * 100u / 64u) - (int)pct) < abs((int)(vcons_q6((int32_t)best) * 100u / 64u) - (int)pct))
+            best = v;
+    return best;
+}
+static uint32_t cons_blocks(uint32_t raw, uint32_t ph)  /* "sa" at CONS raw: the blocks phoneme ph sounds */
+{
+    uint32_t b, n = 0;
+    vsetup(preset_of("CANTOR ES"), LG_ES, "sa");
+    trk[0].p[P_VCONS] = (int16_t)raw;
+    trk_note_on(&trk[0], 60, 100);
+    for (b = 0; b < FS / CTL; b++) {
+        vrender(0, CTL);
+        n += sing_phon(&sing[0]) == ph && sing[0].i < sing[0].nu;
+    }
+    return n;
+}
+static void check_level_cons(void)
+{
+    static double y[FS];
+    static const uint8_t NT[3] = {48, 60, 72}, VL[2] = {100, 127};
+    char what[200], v[8];
+    const char *u;
+    double pk = 0, lo = 0, hi = -99, ra;
+    uint32_t k, j, i, n100, n300, n50;
+    for (k = 0; k < 6u; k++)
+        for (j = 0; j < 2u; j++) {
+            double s = 0, r;
+            vsetup(preset_of(k & 1u ? "CANTOR ES" : "INIT VOWEL"), k & 1u ? LG_ES : 0u, k & 1u ? "a" : "");
+            trk[0].p[P_ATK] = 2;
+            trk_note_on(&trk[0], NT[k >> 1], VL[j]);
+            vrender(y, FS);
+            for (i = 0; i < FS; i++) { s += y[i] * y[i]; if (fabs(y[i]) > pk) pk = fabs(y[i]); }
+            r = 10 * log10(s / FS);
+            if (r < lo || lo == 0) lo = r;
+            if (r > hi) hi = r;
+        }
+    vsetup(0, 0, "");
+    host_preset(&trk[0], 0, 0);                          /* (ANALOG's first, as a reference) */
+    trk[0].p[P_CHOR] = trk[0].p[P_DLY] = trk[0].p[P_REV] = 0;
+    trk_note_on(&trk[0], 60, 100);
+    vrender(y, FS);
+    for (i = 0, ra = 0; i < FS; i++) ra += y[i] * y[i];
+    ra = 10 * log10(ra / FS);
+    snprintf(what, sizeof what, "level: an open A (vowels, sung) C3 .. C5 peaks %.2f (under full scale), RMS %.1f .. %.1f dB (ANALOG %.1f)",
+             pk, lo, hi, ra);
+    check(what, pk < 0.95 && hi < ra + 3 && lo > ra - 10);
+    vsetup(preset_of("CANTOR ES"), LG_ES, "sa");
+    {
+        const param_desc_t *d = track_desc(&trk[0], P_VCONS);
+        uint32_t ok = d && str_eq(d->label, "CONS") && trk[0].p[P_VCONS] == 127 && vcons_q6(127) == 64u;
+        param_format(d, 127, v, &u);
+        ok &= str_eq(v, "100") && str_eq(u, "%");
+        param_format(d, param_turn(d, 127, -200), v, &u);
+        ok &= str_eq(v, "50");
+        param_format(d, param_turn(d, 127, 200), v, &u);
+        ok &= str_eq(v, "400");
+        ok &= param_turn(d, 127, 1) != 127 && vcons_q6(param_turn(d, 127, 1)) > 64u && vcons_q6(param_turn(d, 127, -1)) < 64u;
+        for (k = 0; k < NELEM(PAGES); k++)
+            if (str_eq(PAGES[k].title, "WORDS"))
+                ok &= PAGES[k].id[2] == P_VCONS;
+        ok &= track_desc(&trk[0], P_VCONS) != track_desc(&(track_t){.eng_req = ENGI_DRUM}, P_VCONS);
+        check("CONS: on WORDS' KNOB 3, 127 (projects and presets of before) 100 %, turned 50 .. 400 %; DRUM's lane level else", ok);
+    }
+    n100 = cons_blocks(127, PH_S);
+    n300 = cons_blocks(cons_raw(300), PH_S);
+    n50 = cons_blocks(cons_raw(50), PH_S);
+    snprintf(what, sizeof what, "CONS: the s of \"sa\" %u blocks at 100 %%, %u at 300 %%, %u at 50 %%", n100, n300, n50);
+    check(what, n100 > 4u && n300 >= n100 * 5u / 2u && n300 <= n100 * 7u / 2u && n50 * 2u >= n100 - 2u && n50 * 2u <= n100 + 2u);
+}
+
 /* --------------------------------------------------------------------------------------------------- demos --- */
 static void demos(const char *dir)
 {
@@ -1322,9 +1421,9 @@ static void check_theme(void)
     ok &= names == 8u && param_turn(d, v, 1) == 120 && param_turn(d, 64, 1) == 88 && param_turn(d, 64, -1) == 56 &&
           param_turn(d, 127, -2) == 88;
     check("THEME: LOVE .. FIRE in 7 detents, each onto its name's middle (stored 0..127 as before)", ok);
-    ok = param_turn(&FMT_WDESC[7], 0, 1) == 38 && param_turn(&LOFI_WAVNUM, 64, 1) == 76 && param_turn(&NOISE_LONG, 0, 3) == 56 &&
-         param_turn(&FMT_WDESC[0], 5, 1) == 6;       /* (LOOP 5 names; WAV# 16; LEN 8; POS no names: a value) */
-    check("  the other named values a name a detent (LOOP, LOFI WAV#, NOISE LEN); POS a value a detent", ok);
+    ok = param_turn(&FMT_WDESC[7], 0, 1) == 38 && param_turn(&NOISE_LONG, 0, 3) == 56 &&
+         param_turn(&FMT_WDESC[0], 5, 1) == 6;       /* (LOOP 5 names; LEN 8; POS no names: a value; V10.6d: LOFI's WAV# gone with its chips) */
+    check("  the other named values a name a detent (LOOP, NOISE LEN); POS a value a detent", ok);
     {                                                    /* (0.9.17) between the detents: the blend */
         static char t8[2048], tv[2048];
         uint32_t s1, l, same = 1, diff = 1;
@@ -1363,6 +1462,7 @@ int main(int argc, char **argv)
     check_presets();
     check_lyric();
     check_theme();
+    check_level_cons();
     check_cost();
     if (argc > 1)
         demos(argv[1]);
@@ -1371,3 +1471,4 @@ int main(int argc, char **argv)
     printf("voice: %s\n", bad ? "FAILED" : "all checks ok");
     return bad != 0;
 }
+

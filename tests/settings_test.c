@@ -23,6 +23,10 @@ static void settings_save(void) {}
 #if __has_include("../firmware/src/favorites.c")
 #include "../firmware/src/favorites.c"
 #endif
+static struct { uint8_t cal; } vs = {1};          /* (V10.6z6 / 6ba2f5e: settings_import reads the keys' calibration
+                                                   * again: vel_kb.h's vk_cal; without it this test no longer built
+                                                   * and run_tests.sh, set -e, stopped here, before 56 more suites) */
+#define vk_cal (vs.cal)
 #include "../firmware/src/settings_persist.c"
 int main(void)
 {

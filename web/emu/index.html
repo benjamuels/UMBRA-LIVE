@@ -547,7 +547,7 @@ async function midiOn() {
       backup = readBackup(JSON.parse(await f.text()));
       const idx = backup.objects.find((o) => o.id === 10);
       songs = [];
-      for (let s = 0; s < 8; s++) {               /* a song with a section stored: a choice */
+      for (let s = 0; s < 6; s++) {               /* a song with a section stored: a choice (V10.6p: 6 songs, 7-8 left out) */
         const has = backup.objects.some((o) => o.id >= 40 + 4 * s && o.id < 44 + 4 * s && o.size);
         if (has) songs.push(s);
       }

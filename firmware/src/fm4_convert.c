@@ -56,7 +56,15 @@
  *                                  saved as a user preset again (a user preset keeps PTCH, not the patch); the
  *                                  OP ENV values their defaults (inert since; ids 61..80 stay, no id moves)
  * Not carried: the accent's index boost (velocity > 110), LFO / matrix amounts keep their values (FM6 reads FLT
- * as MLVL, SHP as the feedback). fm4_test.c renders DIGITAL (FELUCCA_FM4=1) against the conversion. */
+ * as MLVL, SHP as the feedback). fm4_test.c renders DIGITAL (FELUCCA_FM4=1) against the conversion.
+ *
+ * (V10.6s) The conversion is retired from the firmware (FM4_CONVERT 0, its default without FELUCCA_FM4): a DIGITAL
+ * sound that arrives becomes FM6 with the init patch (FM6_INIT) as its own, its values as they are, and a DIGITAL
+ * preset number does not load DIGITAL's preset first. The conversion above stays in the tree with the DIGITAL engine
+ * (FELUCCA_FM4=1 builds, its tests: fm4_test.c, fm4_div0_test.c FM4_CONVERT 1). */
+#ifndef FM4_CONVERT
+#define FM4_CONVERT FELUCCA_FM4
+#endif
 
 /* ------------------------------------------------- DIGITAL's tables --- */
 static const char *const N_FMALG[] = {"1", "2", "3", "4", "5", "6", "7", "8"};
@@ -103,6 +111,7 @@ static const engine_t ENG_FM4_GONE = {
 #endif
 
 /* ------------------------------------------------------- conversion --- */
+#if FM4_CONVERT
 #define FM4_MUTE (-100000)       /* the microsteps of silence */
 #ifndef FM4_FB_NOISE
 #define FM4_FB_NOISE 20          /* FDBK from here: DIGITAL's op 4 turns to noise (its feedback near 0.33 cycles) */
@@ -141,7 +150,7 @@ BTAPP_FN static int32_t fm4_lg(uint32_t x)
 BTAPP_FN static int32_t fm4_ms(uint32_t q15) { return q15 ? fm4_lg(q15) - 15 * 256 : FM4_MUTE; }
 
 /* DIGITAL time value v (0..127) in samples */
-BTAPP_FN static int32_t fm4_samples(int32_t v) { return (int32_t)(TIME_MS_X10[v & 127] * 441u / 100u); }
+BTAPP_FN static int32_t fm4_samples(int32_t v) { return (int32_t)(TIME_MS_X10_AT(v) * 441u / 100u); }
 
 /* the FM6 rate (0..99) of a stage that takes `per` samples per 6 dB (msfa: (4 + q % 4) << (7 + q / 4) a block,
  * q = rate x 41 / 64): the nearest in log */
@@ -376,11 +385,21 @@ static uint32_t fm4_convert(int16_t *p, uint8_t *v)
     fm6_unpack(FM6_FACTORY[FM4_TO_FM6[fm4_nearest(&p[P_E0])] % FM6_NFACTORY], v);
     return fm4_tail(p, fm4_nearest(&p[P_E0]));
 }
+#else
+/* (V10.6s) retired: the init patch, the values as they are (see the top) */
+static uint32_t fm4_convert(int16_t *p, uint8_t *v)
+{
+    (void)p;
+    fm6_unpack(FM6_INIT, v);
+    return 0;
+}
+#endif
 
 /* DIGITAL preset k's values into p as a preset load sets them (ui.c apply_preset_to: the EDIT values, ENV, ENV ->
  * FLT, VOICE, the sends; the OP ENV values their defaults); the track's own values (param_kept) are the caller's */
 static void fm4_preset_values(int16_t *p, uint32_t k)
 {
+#if FM4_CONVERT
     static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
     const preset_t *pr = &DIGITAL_PRESETS[k % FM4_NPRESETS];
     uint32_t i;
@@ -396,4 +415,7 @@ static void fm4_preset_values(int16_t *p, uint32_t k)
         p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     for (i = P_FM1_ATK; i <= P_FM4_LEVEL; i++)
         p[i] = (i - P_FM1_ATK) % 5u == 2u || (i - P_FM1_ATK) % 5u == 4u ? 127 : 0;
+#else
+    (void)p; (void)k;                                  /* (V10.6s: retired, see the top) */
+#endif
 }

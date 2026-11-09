@@ -36,6 +36,7 @@ static void fl_plain_window_init(void) {}
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
+#include "legacy_proj.h"                       /* (V10.6s) FUN6, retired: refused */
 
 enum { ED_BACKUP_LIST = 65, ED_BACKUP_GET, ED_BACKUP_PUT };
 static uint8_t rep[4096];
@@ -177,7 +178,7 @@ int main(void)
     reset();
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
     bad += check("LIST captures the runtime: 13 objects (id 8 empty, id 9 the FM6 patches), runtime 3840 B (FUNB)",
-                 list(0, &len, &crc) == 0 && rep[2] == 43u && len == sizeof(project_store_t) && len == 3840u &&
+                 list(0, &len, &crc) == 0 && rep[2] == 35u && len == sizeof(project_store_t) && len == 3840u &&
                  crc == st_crc32(ED_BK_RAW, len));
     bad += check("an empty project slot lists as length 0", list(2, &len, &crc) == 0 && len == 0);
     bad += check("GET of the runtime copy", get(0, 0, 64) == 0);
@@ -302,6 +303,19 @@ int main(void)
                      song_idx.scene[2][0].mac[3] == 98 && !song_idx.tsrc[2][0] && song_idx.version == SONG_IDX_V);
         si.version = 7;
         bad += check("  an index of another version is refused", put_all(10u, &si, sizeof si, st_crc32(&si, sizeof si)) == 2);
+        {   /* (V10.6p) 6 songs: LIST names 0..10 and 40..63 (35); songs 7, 8's ids (64..71, an older archive's) are refused
+             * at begin (rc 1: nothing written, fm1backup.js skips them), the sample bank's reserve untouched */
+            static uint8_t keep[FL_SAMPLES_SIZE];
+            uint32_t i, ids = 1;
+            call(ED_BACKUP_LIST, 0, 0);
+            for (i = 0; i < rep[2]; i++)
+                ids &= rep[3 + i * 11u] == (i < 11u ? i : 29u + i);
+            ids &= rep[2] == 35u && rep[3 + 34u * 11u] == 63u;
+            memcpy(keep, nor + FL_SAMPLES, sizeof keep);
+            ids &= put_begin(64u, sizeof st, st_crc32(&st, sizeof st)) == 1 && put_begin(71u, 0, 0) == 1 &&
+                   put_all(63u, &st, sizeof st, st_crc32(&st, sizeof st)) == 0 && !memcmp(keep, nor + FL_SAMPLES, sizeof keep);
+            bad += check("  6 songs: LIST 0..10, 40..63; songs 7-8's ids refused, nothing written in the sample bank's flash", ids);
+        }
     }
     {   /* FUN8 of 1.0.x (3584 bytes, 91 parameters, the patches at 3056): restores as FUN9, E0 at P_E0, lanes 100 % */
         static uint8_t v8[3584];
@@ -339,15 +353,16 @@ int main(void)
     v6.t[0].p[61] = 3;                                   /* old E0 */
     chain_defaults(&v6.chain);
     v6.sum = proj_hash(&v6, sizeof v6 - 4u);
-    bad += check("a FUN6 project restores as FUN9, bounded, its E0 at P_E0",
-                 put_all(5, &v6, sizeof v6, st_crc32(&v6, sizeof v6)) == 0 && ((uint32_t *)proj_slot[3].raw)[0] == PROJ_MAGIC &&
-                 proj_import(&proj_scratch, &proj_slot[3], sizeof st) && proj_scratch.t[0].step[0].n == 4u &&
-                 proj_scratch.t[0].step[0].note[0] == 127u && proj_scratch.t[0].p[P_E0] ==
-                 clamp(3, param_desc_of(trk[0].engine, P_E0)->min, param_desc_of(trk[0].engine, P_E0)->max));
-    {   /* 1.0.3: the FM6 patch bank (id 8) is retired; an older archive's bank moves into its user presets (ids 6, 7
-         * restored first), the user presets' patches are id 9 */
+    {   /* (V10.6s) FUN6 is retired: refused, the slot and its flash as they were */
+        static project_store_t was;
+        memcpy(&was, &proj_slot[3], sizeof was);
+        bad += check("a FUN6 project (retired) is refused (2), the slot kept",
+                     put_all(5, &v6, sizeof v6, st_crc32(&v6, sizeof v6)) == 2u && !memcmp(&was, &proj_slot[3], sizeof was));
+    }
+    {   /* 1.0.3: the FM6 patch bank (id 8) is retired; (V10.6s) an older archive's bank is taken and ignored (its move
+         * into the user presets is retired too), the user presets' patches are id 9 */
         static up_bank_t ub;
-        static fm6_bank_t bk;
+        static struct { uint32_t magic; uint16_t ver, nslot; uint32_t used, rsv; uint8_t v[27][FM6_PACKED]; } bk;   /* (1.0's) */
         static upf_t got;
         uint8_t pk[FM6_PACKED];
         static const int16_t SL[5] = {FM6_NFACTORY + 2, 1, FM6_NFACTORY + 4, FM6_NFACTORY + 2, FM6_NFACTORY + 2};
@@ -364,30 +379,25 @@ int main(void)
         ub.r[4].name[1] = 'X';
         up_set_value(&ub.r[4], P_E0, 3);                 /* (another sound than slot 1's) */
         memset(&bk, 0, sizeof bk);
-        bk.magic = FM6_BANK_MAGIC; bk.ver = 1; bk.nslot = FM6_BANK_N; bk.used = 1u << 2;
+        bk.magic = 0x42364D46u; bk.ver = 1; bk.nslot = 27; bk.used = 1u << 2;   /* ("FM6B") */
+        _Static_assert(sizeof bk == sizeof(fm6_bank_t), "the retired bank's size");
         memcpy(bk.v[2], FM6_FACTORY[5], FM6_PACKED);
         memcpy(bk.v[2] + 118, "BANK B3   ", 10);
         upf_empty();
         bad += check("the user presets of an old archive (id 6) restore", put_all(6, &ub, sizeof ub, st_crc32(&ub, sizeof ub)) == 0);
-        bad += check("an old archive's FM6 bank (id 8) is taken (0)", put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 0);
-        bad += check("  .. its B3 patch is now the B3 presets' own (slots 1 and 5)",
-                     !upf_get(0, pk) && !memcmp(pk + 118, "BANK B3   ", 10) && !upf_get(4, pk) && !memcmp(pk + 118, "BANK B3", 7));
-        bad += check("  .. an F slot, an empty B slot and a DRUM sound get none (factory / init / no patch, as before)",
-                     upf_get(1, pk) && upf_get(2, pk) && upf_get(3, pk));
-        bad += check("  .. written to flash (the user presets' FM6 patches)",
-                     st_load(OBJ_UPFM6, &got, sizeof got) == (int)sizeof got && !memcmp(&got, &upf, sizeof got));
-        up_load(0);
-        bad += check("  .. and the B3 preset loads it, SLOT OWN", TSEL->eng_req == ENGI_FM6 &&
-                     !memcmp(fm6_patch[song.sel] + FP_NAME, "BANK B3", 7) && TSEL->p[P_E7] == FM6_OWN);
-        up_load(1);
-        bad += check("  .. the F2 preset loads the factory patch, SLOT F2", TSEL->p[P_E7] == 1 &&
-                     !memcmp(fm6_patch[song.sel] + FP_NAME, FM6_FACTORY[1] + 118, 10));
-        bad += check("a restore of id 8 twice moves nothing more (idempotent)",
+        memcpy(&got, &upf, sizeof got);
+        bad += check("an old archive's FM6 bank (id 8) is taken (0) and ignored: no patch moves",
+                     put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 0 && !memcmp(&got, &upf, sizeof got) &&
+                     upf_get(0, pk) && upf_get(4, pk));
+        bk.v[3][0] = 200;
+        bad += check("  .. whatever it holds (a byte above 127: taken, ignored)",
                      put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 0 && !memcmp(&got, &upf, sizeof got));
         bad += check("an empty id 8 (a 1.0.3 archive) is taken and ignored", put_all(8, 0, 0, st_crc32(0, 0)) == 0 &&
                      !memcmp(&got, &upf, sizeof got));
-        bk.v[3][0] = 200;
-        bad += check("an FM6 bank with a byte above 127 is refused (2)", put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 2u);
+        up_load(1);
+        bad += check("the F2 preset loads the factory patch, SLOT F2", TSEL->p[P_E7] == 1 &&
+                     !memcmp(fm6_patch[song.sel] + FP_NAME, FM6_FACTORY[1] + 118, 10));
+        upf_set(0, bk.v[2]);                             /* (slot 1's own patch, as an FM6 preset saves it) */
         bad += check("id 8 lists empty, id 9 with the patches' length", list(8, &len, &crc) == 0 && len == 0 &&
                      list(9, &len, &crc) == 0 && len == sizeof(upf_t) && crc == st_crc32(&upf, sizeof upf));
         memcpy(&got, &upf, sizeof got);

@@ -22,7 +22,7 @@ enum { TL_CLEAR, TL_REV, TL_LEFT, TL_RIGHT, TL_RANDOM, TL_COOK, TL_BEAT, TL_CAUT
 static uint32_t tl_len(const track_t *t) { return (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP); }
 static uint32_t tl_rnd(uint32_t n) { return n ? rng() % n : 0u; }
 static int tl_gate(const step_t *s) { return s->time == ST_NOTE && s->n; }
-static uint32_t tl_lane(const step_t *s, uint32_t l) { return (step_lanes(s) >> l) & 1u; }
+static uint32_t tl_lane(const step_t *s, uint32_t l) { return (step_lanes_of(TSEL,s) >> l) & 1u; }
 /* place p's action is there for this track (the lane row and BEAT: DRUM only) */
 static int tl_cell(const track_t *t, uint32_t p)    /* (V10.6) RANDOM COOK BEAT and the lane's RANDOM gone: EUCLID */
 {
@@ -166,7 +166,7 @@ static const char *tl_do(track_t *t, uint32_t p, uint32_t l)
                 const step_t *s = &tl_src[len - 1u - i];
                 grid_hit(t, i, l, tl_lane(s, l));
                 if (tl_lane(s, l))
-                    grid_acc(t, i, l, (step_accents(s) >> l) & 1u);
+                    grid_acc(t, i, l, (step_accents_of(TSEL,s) >> l) & 1u);
             }
             msg = " REVERSED";
         } else {
@@ -271,3 +271,4 @@ static uint32_t tl_repeat(track_t *t, uint32_t k)       /* k: 2..8 times, 0: to 
     t->p[P_SLEN] = (int16_t)nlen;
     return nlen;
 }
+

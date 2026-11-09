@@ -35,6 +35,13 @@ static uint32_t host_tick_dflt;                 /* (V10.33) TIMER4's ticks (the 
 static struct { volatile uint32_t notes, buttons; } fm1_in;
 #include "../firmware/src/core.h"
 #include "../firmware/src/engines.c"
+/* (V10.6o) DRUM-X's kit has no initializer any more (the firmware's power-on sets it): the host starts with the factory
+ * kit as the firmware's tracks do, before any test runs (__attribute: __attribute__ is defined away above) */
+static void __attribute((constructor)) host_dx_kit_boot(void)
+{
+    memcpy(dx_kit, DX_KIT_DEF, sizeof dx_kit);
+    memcpy(dx_lay, DX_LAY_DEF, sizeof dx_lay);
+}
 #include "../firmware/src/params.c"
 #include "../firmware/src/mod.c"
 #include "../firmware/src/voice.c"
@@ -113,6 +120,7 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     }
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = (int16_t)(p->fx[i] ? p->fx[i] - 1 : FX_DEF[i]);
+    preset_mods(t, p);                            /* (V10.6i) its movement (ui.c apply_preset_to) */
     fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
@@ -599,8 +607,11 @@ static int rec_test(void)
     input_on(t1, 60, 100);
     rec_run_to(t1, 5, 30);
     input_off(t1, 60);
+    /* (V10.6z4, "lengths in LEN": the last TIE stays unless the note ends in its first 1/32, its LEN where the note
+     * ended, counted from where it was played (0.1 into step 2): 0.3 - 0.1 of step 5, 3/16; the older take there gives
+     * way. Was: released before the middle, step 5 put back) */
     ok_len = rec_step_is(t1, 2, ST_NOTE, 1, 60) && rec_step_is(t1, 3, ST_TIE, 0, 0) && rec_step_is(t1, 4, ST_TIE, 0, 0) &&
-             rec_step_is(t1, 5, ST_NOTE, 1, 48);
+             rec_step_is(t1, 5, ST_TIE, 0, 0) && CT_LEN(&t1->step[5]) == 3u;
     /* (b) released after 0.3 step: one step */
     rec_run_to(t1, 8, 5);
     input_on(t1, 62, 100);
@@ -657,7 +668,7 @@ static int rec_test(void)
     rec_run_to(t3, 14, 50);
     ok_mono = rec_step_is(t3, 10, ST_NOTE, 1, 60) && rec_step_is(t3, 11, ST_TIE, 0, 0) && rec_step_is(t3, 12, ST_NOTE, 1, 62) &&
               rec_step_is(t3, 13, ST_TIE, 0, 0) && t3->step[14].time != ST_TIE;
-    printf("tracks: recording lengths: held 3.3 steps -> NOTE TIE TIE (the 4th step put back) %s; 0.3 step -> one "
+    printf("tracks: recording lengths: held 3.3 steps -> NOTE TIE TIE TIE, the last its LEN 3/16 (V10.6z4) %s; 0.3 step -> one "
            "step %s; past the middle of the next -> NOTE TIE %s\n", ok_len ? "ok" : "FAIL", ok_short ? "ok" : "FAIL",
            ok_half ? "ok" : "FAIL");
     printf("tracks: recording lengths: a chord ties until its last key %s; capped at LEN 4 %s; MONO legato A..B -> "

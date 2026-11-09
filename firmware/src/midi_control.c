@@ -11,6 +11,7 @@ typedef struct {
     uint8_t owned[NTRK];                    /* held/pedal notes per track, at most 128 per channel */
     uint8_t ready, semis, cents;
     uint8_t rpn_msb, rpn_lsb;
+    uint8_t nrpn_msb, nrpn_lsb, nrpn_v;     /* (V10.6z3) the NRPN selected (127: none) and its data entry MSB */
 } midi_channel_t;
 static midi_channel_t midi_ch[16];
 /* A nibble per note (JIANT: two to a byte, 1 KB): low bits track + 1, bit 3 key released, held by its channel's pedal */
@@ -22,6 +23,31 @@ static void mn_set(uint32_t ch, uint32_t note, uint32_t v)
     uint32_t sh = (note & 1u) * 4u;
     *b = (uint8_t)((*b & ~(15u << sh)) | (v & 15u) << sh);
 }
+/* Dense remaps only for transposed keys; normal MIDI keeps its existing nibble table.
+ * At most 128 transposed presses, each retaining original channel/key until release.
+ * LOWBUF has linker-checked room; preserve the pool's 8 KiB safety reserve. */
+static struct {
+    uint16_t n;
+    struct { uint16_t key; uint8_t note, rsv; } row[128];
+} midi_map __attribute__((section(".lowbuf")));
+static uint32_t midi_mapped(uint32_t ch, uint32_t note, uint32_t forget)
+{
+    uint32_t key=(ch<<7)|note;
+    for(uint32_t i=0;i<midi_map.n;i++) if(midi_map.row[i].key==key) {
+        note=midi_map.row[i].note;
+        if(forget) midi_map.row[i]=midi_map.row[--midi_map.n];
+        break;
+    }
+    return note;
+}
+static int midi_remap(uint32_t ch,uint32_t note,uint32_t sound)
+{
+    if(note==sound) return 1;
+    if(midi_map.n==128u) return 0; /* bounded admission; never lose a stored note-off */
+    midi_map.row[midi_map.n].key=(uint16_t)((ch<<7)|note);
+    midi_map.row[midi_map.n++].note=(uint8_t)sound;
+    return 1;
+}
 static uint16_t midi_owners[NTRK];           /* avoids rescanning all 2048 entries for CC123 */
 #define MIDI_PEDAL_NOTE 0x8u
 
@@ -30,7 +56,7 @@ static midi_channel_t *midi_channel(uint32_t ch)
     midi_channel_t *c = &midi_ch[ch];
     if (!c->ready) {
         c->semis = 2;
-        c->rpn_msb = c->rpn_lsb = 127;
+        c->rpn_msb = c->rpn_lsb = c->nrpn_msb = 127;
         c->ready = 1;
     }
     return c;
@@ -38,7 +64,10 @@ static midi_channel_t *midi_channel(uint32_t ch)
 
 static uint32_t midi_targets(uint32_t ch)
 {
-    return midi_channel(ch)->targets | (1u << trk_index(midi_track(ch)));
+    uint32_t mask = midi_channel(ch)->targets;
+    if (split_cfg[0] && ch == split_cfg[6]) mask |= (1u << split_track(0)) | (1u << split_track(1));
+    else mask |= 1u << trk_index(midi_track(ch));
+    return mask;
 }
 
 static void midi_expression(track_t *t, const midi_channel_t *c)
@@ -60,10 +89,11 @@ static void midi_expression_channel(uint32_t ch)
 /* a MIDI note of track t sounds note */
 static int midi_note_held(const track_t *t, uint32_t note)
 {
-    uint32_t ch, id = trk_index(t) + 1u;
-    for (ch = 0; ch < 16u; ch++)
-        if ((mn_get(ch, note) & 0x7u) == id)
-            return 1;
+    uint32_t id=trk_index(t)+1u;
+    for(uint32_t ch=0;ch<16u;ch++)
+        if((mn_get(ch,note)&7u)==id && midi_mapped(ch,note,0)==note) return 1;
+    for(uint32_t i=0;i<midi_map.n;i++)
+        if(midi_map.row[i].note==note && (mn_get(midi_map.row[i].key>>7,midi_map.row[i].key&127u)&7u)==id) return 1;
     return 0;
 }
 
@@ -84,14 +114,17 @@ static int midi_local_held(const track_t *t, uint32_t note)
 static void midi_release(uint32_t ch, uint32_t note)
 {
     uint32_t id = mn_get(ch, note) & 0x7u;
-    mn_set(ch, note, 0);
+    uint32_t source = note;
+    note = midi_mapped(ch, source, 1);
+    mn_set(ch, source, 0);
     if (id) {
         midi_owners[id - 1u]--;
         if (!--midi_ch[ch].owned[id - 1u])
             midi_ch[ch].targets &= (uint8_t)~(1u << (id - 1u));
     }
-    if (id && drum_track(&trk[id - 1u]) && drum_oct_of(note)) {   /* (0.8.5) a band of the kit's octaves */
-        dxo_off(&trk[id - 1u], DXO_MIDI + (ch << 7) + note);
+    if(id && drum_track(&trk[id-1u])) dxo_off(&trk[id-1u],DXO_MIDI+(ch<<7)+source);
+    if (id && drum_track(&trk[id - 1u]) && !drum_ext(&trk[id-1u]) && drum_oct_of(note)) {   /* classic octave bands */
+        dxo_off(&trk[id - 1u], DXO_MIDI + (ch << 7) + source);
         if (!midi_local_held(&trk[id - 1u], drum_oct_base(note)))
             input_off(&trk[id - 1u], drum_oct_base(note));
     } else if (id && !midi_local_held(&trk[id - 1u], note))
@@ -101,6 +134,10 @@ static void midi_release(uint32_t ch, uint32_t note)
 /* a MIDI note-on (ch, note) of track t. A note another key or MIDI note holds already sounds: not started again */
 static void midi_play(track_t *t, uint32_t ch, uint32_t note, uint32_t vel)
 {
+    if(drum_track(t)&&drum_ext(t)) {
+        dxo_on(t,note,0,vel,DXO_MIDI+(ch<<7)+note);
+        return;
+    }
     if (drum_track(t) && drum_oct_of(note)) {          /* (0.8.5) the kit in another octave: its sound, ratcheted /
                                                          * damped (seq.c dxo_on) */
         dxo_on(t, drum_oct_base(note), drum_oct_of(note), vel, DXO_MIDI + (ch << 7) + note);
@@ -115,15 +152,19 @@ static void midi_note_event(uint32_t ch, uint32_t note, uint32_t vel)
     midi_channel_t *c = midi_channel(ch);
     uint32_t id = mn_get(ch, note) & 0x7u;
     if (vel) {
-        track_t *t = midi_track(ch);
+        uint32_t high = note >= split_cut(1), sound = note;
+        int split = split_cfg[0] && ch == split_cfg[6];
+        track_t *t = split ? &trk[split_track(high)] : midi_track(ch);
+        if (split && !drum_track(t)) sound = (uint32_t)clamp((int32_t)note + 12 * split_oct(high), 0, 127);
         /* Repeated notes replace the previous press, including a pedal-held one. */
         if (id)
             midi_release(ch, note);
+        if (!midi_remap(ch, note, sound)) return;
         midi_expression(t, c);
         if (t != TSEL)
             midi_hint = (uint8_t)(trk_index(t) + 1u);
         c->targets |= (uint8_t)(1u << trk_index(t));
-        midi_play(t, ch, note, vel);
+        midi_play(t, ch, sound, vel);
         mn_set(ch, note, (uint8_t)(trk_index(t) + 1u));
         midi_owners[trk_index(t)]++;
         c->owned[trk_index(t)]++;
@@ -153,8 +194,10 @@ static void __attribute__((noinline)) midi_forget_track(uint32_t track)
         if (!(midi_ch[ch].targets & (1u << track)))
             continue;
         for (note = 0; note < 128u; note++)
-            if ((mn_get(ch, note) & 0x7u) == track + 1u)
+            if ((mn_get(ch, note) & 0x7u) == track + 1u) {
+                midi_mapped(ch, note, 1);
                 mn_set(ch, note, 0);
+            }
         midi_ch[ch].targets &= (uint8_t)~(1u << track);
         midi_ch[ch].owned[track] = 0;
     }
@@ -207,21 +250,49 @@ static const uint8_t MIDI_CC_MAP[][2] = {
 };
 /* per engine (ENGINES[] order): CC74's E index + 1 in the high nibble, CC71's in the low one, 0 = none */
 static const uint8_t MIDI_CC_ENG[NENGINES] = {
-    0x56, 0x00, 0x30, 0x80, 0x50, 0x07, 0x67, 0x00,   /* ANALOG CUT RES, -, PHASE DCW, LOFI TONE, SAMPLE CUT, VOICE Q,
-                                                       * TRIO CUT RES, WHEEL - */
+    0x56, 0x00, 0x30, 0x00, 0x50, 0x07, 0x67, 0x00,   /* ANALOG CUT RES, -, PHASE DCW, MATH - (V10.6h: was E8, now its LOOP:
+                                                       * its CUT RES are the FILTER page's), SAMPLE CUT, VOICE Q, TRIO
+                                                       * CUT RES, WHEEL - */
     0x32, 0x30, 0x30, 0x34, 0x30,                     /* (snd5) STRING BRIGHT DECAY, PHYS BRIT, DRUM TONE, NOISE FREQ RES, FM6 MLVL */
     0x26,                                             /* (snd5) ADD BRIGHT FORMNT */
     0x23, 0x00,  /* (V10.54: then INPUT, none) */  /* ANIMAL PRESS (TOUCH CLICK BUZZ MOUTH), CHAOS (COUPLE Q DRIFT ROUGH) */
 };
-/* a CC's value 0..127 over parameter id's range of track t, as a knob sets it; AUTOMATION records it */
-static void __attribute__((noinline)) midi_cc_set(track_t *t, uint32_t id, uint32_t value)
+/* a CC's value 0..top (127, or an NRPN's 16383) over parameter id's range of track t (d), as a knob sets it;
+ * AUTOMATION records it */
+static void __attribute__((noinline)) midi_val_set(track_t *t, const param_desc_t *d, uint32_t id, uint32_t value, int32_t top)
 {
-    const param_desc_t *d = param_desc_of(eng_idx(t->eng_req), id);
-    int32_t v = d->min + ((int32_t)value * (d->max - d->min) + 63) / 127;
+    int32_t v = d->min + ((int32_t)value * (d->max - d->min) + top / 2) / top;
     if (d->max <= d->min || t->p[id] == v)
         return;
     t->p[id] = (int16_t)v;
     (void)motion_capture(t, id, (int16_t)v);
+}
+static void midi_cc_set(track_t *t, uint32_t id, uint32_t value)
+{
+    midi_val_set(t, param_desc_of(eng_idx(t->eng_req), id), id, value, 127);
+}
+/* (V10.6z3, editor protocol 1.0: docs/NRPN.md) NRPN on the channel a track plays (ROUT as notes; channel 16 also with
+ * ROUT CH1-6, the selected track): CC99 0, CC98 a P_* id that automation records (motion_param), CC6 the value's top 7
+ * bits (alone: a 7-bit value, as a CC's), CC38 its low 7 (a 14-bit value, after CC6), over the range DESC / TRACK_PARAM
+ * give. CC99 1, CC98 a global id: the global (no transport, routing, load / save, engine switch: NRPN_G_NO). AUTOMATION
+ * records a track's as a knob move (the DJ FILTER's too); a held CC99 / CC98 takes any number of values */
+static __attribute__((noinline)) void midi_nrpn(uint32_t ch, midi_channel_t *c, uint32_t lo, uint32_t value)
+{
+    uint32_t id = c->nrpn_lsb, x;
+    track_t *t = midi_track(ch);
+    if (!lo)
+        c->nrpn_v = (uint8_t)value;
+    x = (uint32_t)c->nrpn_v << 7 | (lo ? value : c->nrpn_v);   /* (7 bits alone: 0 .. 127 -> 0 .. 16383, as a CC) */
+    if (!c->nrpn_msb) {
+        if (id < P_COUNT && motion_param(id))
+            midi_val_set(t, track_desc(t, id), id, x, 16383);
+    } else if (nrpn_g_ok(id)) {
+        int32_t v = GP[id].min + ((int32_t)x * (GP[id].max - GP[id].min) + 8191) / 16383;
+        if (id == G_DJF)
+            motion_djf_set(t, (int16_t)v);
+        else
+            song.g[id] = (int16_t)v;
+    }
 }
 static void __attribute__((noinline)) midi_cc_map(track_t *t, uint32_t cc, uint32_t value)
 {
@@ -233,9 +304,9 @@ static void __attribute__((noinline)) midi_cc_map(track_t *t, uint32_t cc, uint3
         if (id == 0xFFFFu)
             return;
         e = MIDI_CC_ENG[eng_idx(t->eng_req)] >> (id == MCC_CUT ? 4 : 0) & 15u;
-        if (!e)
+        if (!e && eng_idx(t->eng_req) != ENGI_LOFI)
             return;
-        id = P_E0 + e - 1u;
+        id = e ? P_E0 + e - 1u : id == MCC_CUT ? P_FCUT : P_FRES;   /* (V10.6h) MATH: the FILTER page's CUT RES */
     }
     midi_cc_set(t, id, value);
 }
@@ -337,13 +408,19 @@ static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
         else
             midi_pedal_up(ch);
         break;
-    case 101: c->rpn_msb = (uint8_t)value; break;
-    case 100: c->rpn_lsb = (uint8_t)value; break;
+    case 101: c->rpn_msb = (uint8_t)value; c->nrpn_msb = 127; break;
+    case 100: c->rpn_lsb = (uint8_t)value; c->nrpn_msb = 127; break;
     case 99: case 98:                              /* NRPN selection cancels RPN data entry */
         c->rpn_msb = c->rpn_lsb = 127;
+        if (cc == 99u)
+            c->nrpn_msb = (uint8_t)value;
+        else
+            c->nrpn_lsb = (uint8_t)value;
         break;
     case 6: case 38:
-        if (!c->rpn_msb && !c->rpn_lsb) {           /* RPN 0: +/-0..24 semitones, 0..99 cents */
+        if (c->nrpn_msb <= 1u)                     /* (V10.6z3) NRPN 0 / 1: a track's or a global parameter */
+            midi_nrpn(ch, c, cc == 38u, value);
+        else if (!c->rpn_msb && !c->rpn_lsb) {      /* RPN 0: +/-0..24 semitones, 0..99 cents */
             if (cc == 6u)
                 c->semis = (uint8_t)(value > 24u ? 24u : value);
             else
@@ -366,6 +443,7 @@ static void __attribute__((noinline)) midi_route_ch14(void)
 {
     uint32_t ch, note;
     for (ch = NPART; ch < 16u; ch++) {
+        if (split_cfg[0] && ch == split_cfg[6]) continue;
         midi_channel_t *c = midi_channel(ch);
         for (note = 0; note < 128u; note++)
             if (mn_get(ch, note))
@@ -383,8 +461,8 @@ static void __attribute__((noinline)) midi_route_ch14(void)
  * sound load is the main loop's: ui.c midi_pc_poll). 0 none, else n + 1 */
 static volatile uint8_t midi_pc_req[NTRK];
 /* (JIANT 0.6.80) PROGRAM CHANGE on channel 16, the song's own (never a track's, whatever ROUTE): 0..3 the section A..D
- * (in on the next bar, as the song layer's keys), 16..23 the project 1..8 (stopped only, as SAVE > PROJECT). The UI
- * takes it between frames (ui.c midi_pc_poll). 0 none, else n + 1 */
+ * (in on the next bar, as the song layer's keys), 16..21 the project 1..6 (V10.6p: 6 songs; stopped only, as SAVE >
+ * PROJECT). The UI takes it between frames (ui.c midi_pc_poll). 0 none, else n + 1 */
 static volatile uint8_t midi_song_req;
 
 /* Keep the occasional controller/panic dispatch outside the hot rendering loop. Channel voice messages only
@@ -397,18 +475,22 @@ static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint3
         midi_song_req = (uint8_t)(d1 + 1u);
         return;
     }
-    if (ch >= NPART && !song.g[G_ROUTE])
+    if (ch >= NPART && !song.g[G_ROUTE] && !(split_cfg[0] && ch == split_cfg[6]) && (!midi_channel(ch)->targets || (st == 0x90u && d2))) {
+        if (ch == 15u && st == 0xB0u && (d1 == 99u || d1 == 98u || d1 == 6u || d1 == 38u))
+            midi_control(ch, d1, d2);              /* (V10.6z3) channel 16's NRPN (the globals: MIDI OUT sends them there) */
         return;
+    }
     if (st == 0x90u || st == 0x80u)
         midi_note_event(ch, d1, st == 0x90u ? d2 : 0);
     else if (st == 0xE0u) {
         midi_channel(ch)->bend = (int16_t)((int32_t)(d1 | (d2 << 7)) - 8192);
         midi_expression_channel(ch);
-    } else if (st == 0xB0u) {
-        mod_midi(midi_track(ch), st, d1, d2);
-        midi_control(ch, d1, d2);
-    } else if (st == 0xD0u)
-        mod_midi(midi_track(ch), st, d1, d2);
+    } else if (st == 0xB0u || st == 0xD0u) {
+        uint32_t mask = split_cfg[0] && ch == split_cfg[6] ? midi_targets(ch) : 1u << trk_index(midi_track(ch));
+        for (uint32_t i = 0; i < NTRK; i++) if (mask & (1u << i)) mod_midi(&trk[i], st, d1, d2);
+        if (st == 0xB0u) midi_control(ch, d1, d2);
+    }
     else if (st == 0xC0u)                          /* (0.6.72) PROGRAM CHANGE: the UI loads it (ui.c midi_pc_poll) */
         midi_pc_req[trk_index(midi_track(ch)) % NTRK] = (uint8_t)(d1 + 1u);
 }
+

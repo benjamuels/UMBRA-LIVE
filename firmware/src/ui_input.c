@@ -120,7 +120,7 @@ static uint32_t grid_leds(void)
         uint32_t p = key_place(k), on;
         if (!key_black(k)) {
             uint32_t i = ui.bank * 16u + p;
-            on = i < len && ((acc ? step_accents(&seq_steps(t)[i]) : step_lanes(&seq_steps(t)[i])) & b) != 0u;
+            on = i < len && ((acc ? step_accents_of(TSEL,&seq_steps(t)[i]) : step_lanes_of(TSEL,&seq_steps(t)[i])) & b) != 0u;
             on ^= (uint32_t)(p == ph);
         } else {
             on = p < NLANE ? p == ui.lane : p == GK_ACC ? acc : len > 16u;
@@ -144,7 +144,7 @@ static uint32_t grid_beats(void)
         uint32_t p = key_place(k), i = ui.bank * 16u + p;
         if (key_black(k) || p % 4u || i >= len || p == ph)
             continue;
-        m |= (uint32_t)(((acc ? step_accents(&seq_steps(t)[i]) : step_lanes(&seq_steps(t)[i])) & b) == 0u) << k;
+        m |= (uint32_t)(((acc ? step_accents_of(TSEL,&seq_steps(t)[i]) : step_lanes_of(TSEL,&seq_steps(t)[i])) & b) == 0u) << k;
     }
     return m;
 }
@@ -340,7 +340,7 @@ static uint32_t key_leds(uint32_t *br)                 /* (*br: a layer's keys t
  * rest: the root's keys lit, the scale's at the mid level, the others glowing; the keys held and playing as ever
  * (lit, INV dark). Each picture is built off-line and copied one byte per column, the
  * glow first: an LED going from lit to dim never has a dark frame */
-static void ui_leds(void)
+static __attribute__((noinline)) void ui_leds(void)
 {
     uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, own[FM1_NCOL] = {0}, og[FM1_NCOL] = {0}, nb[FM1_NCOL] = {0};
     uint8_t nm[FM1_NCOL] = {0}, sg[FM1_NCOL] = {0}, sm[FM1_NCOL] = {0};
@@ -487,6 +487,7 @@ static void knob_cap(track_t *t, uint32_t id)
 {
     motion_capture(t, id, t->p[id]);
     ml_knob(t, id);
+    mo_knob(trk_index(t), id);                         /* (V10.6z3) MIDI OUT ALL: the move as an NRPN (seq.c) */
 }
 /* (V10.23, a tester: "the STRING modes don't take until a knob goes up") STRING's EXCITE into or out of FDBK: EDIT 2's
  * four knobs change meaning (STRETCH BODY SIZE BOW / GAIN DIST SPEAKR BLOOM), so each side keeps its own four: the
@@ -562,6 +563,10 @@ static int rec_tap(void)                                /* 1: the arming changed
     uint8_t bit = (uint8_t)(1u << song.sel);
     if (cp_paste_rec())                                 /* (seq2h) a step key held, the clipboard full: PASTE */
         return 0;
+    if (!ui.home && SONG_CLIPS(cur_page())) {          /* (V10.6s) CLIPS: REC records the launches as the song's rows */
+        song_rec_toggle();
+        return 1;
+    }
     if (chain_busy()) {
         ui_message("STOP TO RECORD");
         return 0;
@@ -642,7 +647,7 @@ static void grid_keys(uint32_t pressed)
                 const step_t *st = &TSEL->step[i];
                 uint64_t b = (uint64_t)1 << i;
                 uint32_t acc = (uint32_t)black_held(GK_ACC);
-                if (((acc ? step_accents(st) : step_lanes(st)) >> ui.lane) & 1u) {
+                if (((acc ? step_accents_of(TSEL,st) : step_lanes_of(TSEL,st)) >> ui.lane) & 1u) {
                     ui.plk_rm |= b;
                     ui.plk_acc = acc ? ui.plk_acc | b : ui.plk_acc & ~b;
                     ui.plk_lane = ui.lane;
@@ -919,7 +924,7 @@ static void note_drop(step_t *st, uint32_t j)           /* note j out of the ste
     if (st->n) st->note[--st->n] = 0;
     if (!st->n && !st->hit) st->time = ST_REST;
 }
-static void note_edit(uint32_t slot, int32_t steps)
+static __attribute__((noinline)) void note_edit(uint32_t slot, int32_t steps)
 {
     track_t *t = TSEL;
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, c = ui.cursor, i;
@@ -1000,7 +1005,7 @@ static int32_t step_velpos(const step_t *st)
 {
     return (st->flags & SF_SLIDE) ? (st->flags & SF_ACCENT ? 130 : 129) : (st->flags & SF_ACCENT) ? 128 : st->vel ? st->vel : 96;
 }
-static void step_edit(uint32_t slot, int32_t steps)
+static __attribute__((noinline)) void step_edit(uint32_t slot, int32_t steps)
 {
     step_t *st = &TSEL->step[ui.cursor];
     uint32_t i;
@@ -1065,10 +1070,10 @@ static void step_edit(uint32_t slot, int32_t steps)
 }
 
 /* (0.9.9-seq2d) SEQ > COMP / COMP 2: the cursor step's C1 / C2 (the step picked on the roll, SELECT here): KNOB 1
- * ACTION (OFF and the twelve, then BEND; a new one its VALUE's default, LENGTH 1), KNOB 2 LENGTH 1..32 (a JUMP none),
- * KNOB 3 CONDITION (ALWAYS 25 50 75 % FIRST !FIRST FILL !FILL PRE !PRE NEI !NEI, ELSE on COMP 2 alone: MONO; then
+ * ACTION (OFF and the twelve, then BEND; a new one its VALUE's default, LENGTH 1), KNOB 2 LENGTH 1..32 (a RAMP's: 1..32
+ * steps, then 1..16 bars), KNOB 3 CONDITION (ALWAYS 25 50 75 % FIRST !FIRST FILL !FILL PRE !PRE NEI !NEI, ELSE on COMP 2 alone: MONO; then
  * 1:2 .. 16:16, !1:2 .. !16:16), KNOB 4 VALUE (core.h). OFF clears the component. The step's CHANCE and RATCH: CHANCE */
-static void comp_knob(uint32_t slot, int32_t steps)
+static __attribute__((noinline)) void comp_knob(uint32_t slot, int32_t steps)
 {
     step_t *st = &TSEL->step[ui.cursor];
     uint32_t k = comp_slot(), a = comp_view();
@@ -1084,11 +1089,19 @@ static void comp_knob(uint32_t slot, int32_t steps)
         *ap = CA_VDEF[na];
         if (!a) { *lp = 0; *np = CNM_MAKE(1u, 2u); }
         if (na == CA_ARP || na == CA_STUT) *lp = 3;     /* (an ARP, a STUTTER: four steps to start with) */
+        if (na == CA_RAMP) {                            /* (V10.6v: a RAMP 16 steps; the step's LOCK is what it moves) */
+            *lp = 15;
+            if (!motion_lock_at(TSEL, ui.cursor % NSTEP)) ui_message("LOCK A PARAM");
+        }
         return;
     }
     if (!a) { ui_message("ACTION FIRST"); return; }
     if (slot == 1u) {
-        if (a != CA_JUMP)
+        if (a == CA_RAMP) {                             /* (V10.6v) 1..32 steps, then 1..16 bars */
+            int32_t i = clamp((int32_t)(*ap & CV_RAMP_BARS ? CL_MAX + *lp : *lp) + d, 0, CL_MAX + 15);
+            *ap = (uint8_t)((*ap & ~CV_RAMP_BARS) | (i >= (int32_t)CL_MAX ? CV_RAMP_BARS : 0u));
+            *lp = (uint8_t)(i >= (int32_t)CL_MAX ? i - (int32_t)CL_MAX : i);
+        } else
             *lp = (uint8_t)clamp((int32_t)*lp + d, 0, CL_MAX - 1);
     } else if (slot == 2u) {
         uint32_t c, nm;
@@ -1101,8 +1114,9 @@ static void comp_knob(uint32_t slot, int32_t steps)
         *cp = CO_MAKE(a, c);
         if (c >= CC_NM) *np = (uint8_t)nm;
     } else {
-        int32_t i = clamp((int32_t)comp_vidx(a, *ap) + steps, 0, CA_VMAX[a]);
-        *ap = (uint8_t)comp_vat(a, (uint32_t)i);
+        uint32_t b = a == CA_RAMP ? *ap & CV_RAMP_BARS : 0u;   /* (V10.6v: a RAMP's BARS, KNOB 2's) */
+        int32_t i = clamp((int32_t)comp_vidx(a, *ap ^ b) + steps, 0, CA_VMAX[a]);
+        *ap = (uint8_t)(comp_vat(a, (uint32_t)i) | b);
     }
 }
 /* (0.6.85) SEQ > STRETCH: KNOB 1 STRETCH /8 .. /2, x1, x2 .. x8; KNOB 2 REPEAT OFF, x2 .. x8, TO 64; (0.6.92) done as the
@@ -1113,6 +1127,7 @@ static void comp_knob(uint32_t slot, int32_t steps)
 static uint32_t tl_len(const track_t *t);
 static void tl_take(const track_t *t);
 static void tl_shift(track_t *t, uint32_t len, uint32_t d);
+static void tl_order(track_t *t, uint32_t len, const uint8_t *src);
 static uint32_t tl_stretch(track_t *t, int32_t k);
 static uint32_t tl_repeat(track_t *t, uint32_t k);
 static struct {
@@ -1152,13 +1167,43 @@ static void shape_apply(uint32_t which)
     if (which == 0u && shp_k() > 1 && was * (uint32_t)shp_k() > NSTEP) str_cpy(m + str_len(m), " CUT", 5);
     ui_message(m);
 }
+/* (NUDGE's step) a note's first step: back from i over TIEs; one past its last: on from i over TIEs, inside len */
+static __attribute__((noinline)) uint32_t ndg_note(const step_t *s, uint32_t i) { while (i && s[i].time == ST_TIE) i--; return i; }
+static __attribute__((noinline)) uint32_t ndg_end(const step_t *s, uint32_t i, uint32_t len)
+{
+    while (++i < len && s[i].time == ST_TIE) {}
+    return i;
+}
 static void shape_knob(uint32_t slot, int32_t steps)
 {
     int32_t d = steps > 0 ? 1 : -1;
     if (slot == 0u) { shp_i = (uint8_t)clamp((int32_t)shp_i + d, 0, 14); shape_apply(0); }
     else if (slot == 1u) { shp_r = (uint8_t)clamp((int32_t)shp_r + d, 0, 8); shape_apply(1); }
-    else if (slot == 2u && ndg_step) {                  /* (V10.25) the cursor step off the grid, 64ths of a step */
+    else if (slot == 2u && ndg_step == 1u) {            /* (V10.25) the cursor step off the grid, 64ths of a step */
         micro_edit(steps);
+    } else if (slot == 2u && ndg_step) {                /* (V10.7.4) OCT+ again: the cursor step itself a step left / right
+                                                         * (traded with its neighbour), the cursor with it. A note moves with
+                                                         * its TIEs and trades with the neighbour's note whole (V10.7.4
+                                                         * swapped single steps: a moved note lost its length, the TIE left
+                                                         * behind lengthened the note before it); at step 1 / LEN it stays
+                                                         * (V10.7.4 wrapped: a note's TIEs cannot) */
+        track_t *t = TSEL;
+        uint8_t src[NSTEP];
+        uint32_t len = tl_len(t), c = ui.cursor % len, a, b, x, y, z, j;
+        if (chain_busy()) { ui_message("SONG PLAYS: STOP IT TO EDIT"); return; }
+        a = ndg_note(t->step, c);                       /* the cursor's note [a, b): back over its TIEs, past them */
+        b = ndg_end(t->step, a, len);
+        if (d > 0 ? b >= len : !a)                      /* (an end: it stays) */
+            return;
+        if (d > 0) { x = a; y = b; z = ndg_end(t->step, b, len); }
+        else { y = a; z = b; x = ndg_note(t->step, a - 1u); }
+        for (j = 0; j < len; j++)                       /* [x, y) and [y, z) trade places */
+            src[j] = (uint8_t)(j < x || j >= z ? j : j - x < z - y ? y + j - x : j - (z - y));
+        x = d > 0 ? x + z - y : x;                      /* (the note's new place) */
+        undo_mark();
+        tl_take(t);
+        tl_order(t, len, src);
+        ui.cursor = (uint8_t)x;
     } else if (slot == 2u) {
         track_t *t = TSEL;
         if (chain_busy()) { ui_message("SONG PLAYS: STOP IT TO EDIT"); return; }
@@ -1172,7 +1217,7 @@ static void shape_knob(uint32_t slot, int32_t steps)
 }
 /* (0.8.5) EDIT > FOCUS: KNOB 1 the parameter (E1..E8 with a name, no wrap), 2 its value, 3 the SRC of the MOD slot aimed
  * at it (from OFF: a free slot takes it, its DEST E1..E8; back to OFF: the slot free again), 4 that slot's AMT */
-static void focus_knob(uint32_t slot, int32_t steps)
+static __attribute__((noinline)) void focus_knob(uint32_t slot, int32_t steps)
 {
     uint32_t k = focus_k(), f = k, n;
     int32_t j = focus_slot(k);
@@ -1199,6 +1244,9 @@ static void focus_knob(uint32_t slot, int32_t steps)
         excite_turn(TSEL, &TSEL->p[P_E0 + k], was);
         return;
     }
+    if (slot == 2u && j < 0 && !mod_dst_offer(TSEL, MD_E1 + k)) {
+        ui_message("NO MOD DEST"); return;
+    }
     if (slot == 2u && j < 0) {                          /* (no slot aims at it: a free one, turned up) */
         uint32_t m;
         if (steps <= 0)
@@ -1218,6 +1266,140 @@ static void focus_knob(uint32_t slot, int32_t steps)
     d = track_desc(TSEL, P_M1SRC + 3u * (uint32_t)j + (slot == 2u ? 0u : 2u));
     *p = (int16_t)param_turn(d, *p, slot == 2u ? (steps > 0 ? 1 : -1) : accel(EN_K1 + 3u, steps, d->max - d->min));
 }
+/* Preserve fractional progress when FIT/SPAN changes during playback; never catch up thousands of tiny steps.
+ * This runs only on a knob turn, outside the audio ISR. */
+static void fit_ui_edit(track_t *t, int16_t *param, int16_t value)
+{
+    uint32_t old, now, ti = trk_index(t), oldghost = 0;
+    if (param ? *param == value : t->seq_fit == fit_valid((uint8_t)value)) return;
+    if (!param && !(t->seq_fit & 128u) && !((uint8_t)value & 128u)) {
+        t->seq_fit = fit_valid((uint8_t)value);          /* editing an inactive SPAN must not disturb microtiming */
+        return;
+    }
+    fm1_irq_off();
+    if (LV_ON(ti) && lv.gpos[ti] < 0x7FFFFFFFu)
+        oldghost = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), lv.gidx[ti]);
+    old = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx);
+    if (param) *param = value;
+    else t->seq_fit = fit_valid((uint8_t)value);
+    if (t->seq_pos < 0x7FFFFFFFu) t->seq_idx %= (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
+    now = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx);
+    if (t->seq_pos < 0x7FFFFFFFu) {
+        uint32_t pos = old ? (uint32_t)((uint64_t)t->seq_pos * now / old) : 0u;
+        t->seq_pos = pos < now ? pos : now - 1u;
+        t->ext = 0;
+    }
+    if (oldghost) {
+        lv.gidx[ti] %= (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
+        now = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), lv.gidx[ti]);
+        uint32_t pos = (uint32_t)((uint64_t)lv.gpos[ti] * now / oldghost);
+        lv.gpos[ti] = pos < now ? pos : now - 1u;
+    }
+    fm1_irq_on();
+}
+static void fit_ui_set(track_t *t, uint8_t value) { fit_ui_edit(t, 0, value); }
+
+/* (V10.6o) SAVE > PARTS and TIMELINE (the owner's mock-ups A and B; ui_lzsave.c graph_parts graph_tl) */
+/* song row d becomes row s (its scene, tracks, variations with it; ARRANGE's and TIMELINE's ADD, DELETE ROW); s past the
+ * rows: an empty one (A, 4 bars) */
+static void row_copy(uint32_t d, uint32_t s)
+{
+    if (s < CHAIN_ROWS) {
+        chain_config.row[d] = chain_config.row[s];
+        song_idx.scene[song_cur][d] = song_idx.scene[song_cur][s];
+        song_idx.tsrc[song_cur][d] = song_idx.tsrc[song_cur][s];
+        song_idx.tvar[song_cur][d] = song_idx.tvar[song_cur][s];
+    } else {
+        chain_config.row[d] = (chain_row_t){0, 4};
+        memset(&song_idx.scene[song_cur][d], 0, sizeof(scene_t));
+        song_idx.tsrc[song_cur][d] = song_idx.tvar[song_cur][d] = 0;
+    }
+}
+/* the song's row of part s: d = 0 the cursor's if it is s's, else s's first; else s's next / previous (round); none: the
+ * cursor's */
+static uint32_t part_row(uint32_t s, int32_t d)
+{
+    uint32_t n = chain_config.count, r = ui.song_row, k;
+    if (!d && r < n && chain_config.row[r].slot == s)
+        return r;
+    if (!d) r = n - 1u;                                 /* (its first) */
+    for (k = 0; k < n; k++)
+        if (chain_config.row[r = (r + (d < 0 ? n - 1u : 1u)) % n].slot == s)
+            return r;
+    return ui.song_row;
+}
+/* OCT+ / F3..B3: part s loops (what plays: in on the next bar, the song cut; stopped: now, and PLAY) */
+static void parts_audition(uint32_t s)
+{
+    ui.part = (uint8_t)s;
+    chain_cut();
+    live.mode = 0;
+    if (!section_jump(s) && !song.playing && !transport_busy())
+        transport_req = 1;
+}
+/* OCT-: the song again, from the row picked of the part (its first: KNOB 2) */
+static void parts_song(void)
+{
+    live.mode = 1;
+    ui.song_row = (uint8_t)part_row(ui.part, 0);
+    if (!chain_goto(ui.song_row, 0))
+        ui_message("THE SONG");
+}
+/* TIMELINE's PLAY: stopped, the cursor's row round and round; held, PLAY on it lets the song go on, on another row
+ * that row held; else (a song going on, a loop) 0: PLAY stops as anywhere */
+static int tl_play(void)
+{
+    uint32_t r = ui.song_row;
+    if (ui.home || !SONG_TRK(cur_page()) || seq_counting() || (song.playing && !(chain.running && chain.hold)))
+        return 0;
+    if (song.playing && chain.row == r && !chain.loop) {
+        fm1_irq_off();
+        chain.hold = 0;
+        sec_stage.ready = 0;                            /* (song_poll stages the next row) */
+        fm1_irq_on();
+        ui_message("THE SONG GOES ON");
+    } else if (!chain_goto(r, 1))
+        ui_message("LOOP ROW");
+    return 1;
+}
+/* TIMELINE's keys: F3..D4 T1..T6 muted / sounding in the cursor's row (its scene: none yet, the state now, as
+ * ARRANGE's SCENE; the row playing: at once), F4..B4 the ALGORITHM track's FROM A..D (its letter again: the row's own) */
+static __attribute__((noinline)) void tl_keys(uint32_t pressed)
+{
+    uint32_t k, p, r = ui.song_row;
+    for (k = 0; k < 27u; k++) {
+        if (!((pressed >> k) & 1u) || key_black(k))
+            continue;
+        p = key_place(k);
+        if (SONG_PARTS(cur_page()) || SONG_CLIPS(cur_page())) {
+            if (p < 4u && SONG_CLIPS(cur_page())) {      /* (V10.6s) CLIPS: the whole part, every track */
+                ui.part = (uint8_t)p;
+                clip_launch(NTRK, p);
+            } else if (p < 4u) parts_audition(p);
+            continue;
+        }
+        if (r >= chain_config.count)
+            continue;
+        if (p < NTRK) {
+            scene_t *sc = &song_idx.scene[song_cur][r];
+            uint32_t b;
+            if (!sc->on)
+                scene_capture(sc);
+            if (p < 4u) sc->mute ^= (uint8_t)(1u << p);
+            else sc->on ^= (uint8_t)(1u << (p - 3u));
+            b = p < 4u ? (sc->mute >> p) & 1u : (sc->on >> (p - 3u)) & 1u;
+            if (chain.running && !chain.loop && chain.row == r)
+                trk[p].p[P_MUTE] = (int16_t)b;
+            ui_message(b ? "MUTED IN THE ROW" : "PLAYS IN THE ROW");
+        } else if (p >= 7u && p <= 10u && !chain_busy()) {
+            uint32_t *m = &song_idx.tsrc[song_cur][r], sh = 3u * (song.sel % NTRK), v = p - 6u;
+            *m = (*m & ~(7u << sh)) | ((*m >> sh & 7u) == v || chain_config.row[r].slot == v - 1u ? 0u : v) << sh;
+        } else
+            continue;
+        song_idx_touch();
+    }
+}
+
 static void edit_param(uint32_t slot, int32_t steps)
 {
     int16_t *vp;
@@ -1276,6 +1458,10 @@ static void edit_param(uint32_t slot, int32_t steps)
         dx_knob(pg, slot, steps);
         return;
     }
+    if (pg->graph == GR_SWARM) {                          /* (V10.6z6) EDIT > SWARM: FAR / NEAR (ui_dx.c) */
+        sw_ui_knob(pg, slot, steps);
+        return;
+    }
     if (pg->graph == GR_FOCUS) {                          /* (0.8.5) EDIT > FOCUS */
         focus_knob(slot, steps);
         return;
@@ -1294,6 +1480,13 @@ static void edit_param(uint32_t slot, int32_t steps)
         dx_kit3_knob(slot, steps);
         return;
     }
+    if(pg->graph==GR_LYRSTEP) {
+        if(!slot) cursor_set((int32_t)ui.cursor+steps);
+        if(slot==1u) {lyric_word=(uint8_t)clamp((int32_t)lyric_word+steps,0,31);lyric_syl=1;}
+        if(slot==2u) lyric_syl=(uint8_t)clamp((int32_t)lyric_syl+steps,0,19);
+        return;
+    }
+    if(pg->graph==GR_TRACKGEN) {trackgen_knob(slot,steps);return;}
     if (pg->graph == GR_EVENTS) {                         /* AUTO LIST (ui_events.c) */
         ev_knob(slot, steps);
         return;
@@ -1304,33 +1497,38 @@ static void edit_param(uint32_t slot, int32_t steps)
         else if (slot == 3u) ui.act = steps > 0 ? 4u : 0u;
         return;
     }
-    if (SONG_TRK(pg)) {                                 /* (beta5) TIMELINE: ROW LANE, then the lane's two: SEC (the row's
-                                                         * section, its bars) or a track (FROM, VAR) */
+    if (SONG_PARTS(pg)) {                               /* (V10.6o) PARTS: KNOB 1 the part, 2 the song's row of it (OCT-
+                                                         * plays from there), 4 what PLAY plays (LOOP / SONG); 3 nothing */
+        if (slot == 0u)
+            ui.part = (uint8_t)clamp((int32_t)ui.part + steps, 0, 3);
+        else if (slot == 1u)
+            ui.song_row = (uint8_t)part_row(ui.part, steps);
+        else if (slot == 3u)
+            live.mode = steps > 0;
+        return;
+    }
+    if (SONG_CLIPS(pg)) {                               /* (V10.6s) CLIPS: KNOB 1 the track, 2 the part (the cell) */
+        if (slot == 0u)
+            track_select((uint32_t)clamp((int32_t)song.sel + steps, 0, NTRK - 1));
+        else if (slot == 1u)
+            ui.part = (uint8_t)clamp((int32_t)ui.part + steps, 0, 3);
+        return;
+    }
+    if (SONG_TRK(pg)) {                                 /* (V10.6o) TIMELINE: ROW, its SECT, its BARS, the VAR of the track
+                                                         * ALGORITHM picks (its mute: the keys) */
         chain_row_t *r;
-        uint32_t k, sh;
         if (slot == 0u) {
             ui.song_row = (uint8_t)clamp((int32_t)ui.song_row + steps, 0, chain_config.count ? chain_config.count - 1 : 0);
-            return;
-        }
-        if (slot == 1u) {
-            ui.song_tk = (uint8_t)clamp((int32_t)ui.song_tk + steps, 0, NTRK);
             return;
         }
         if (chain_busy()) { ui_message("SONG PLAYS: STOP IT TO EDIT"); return; }
         if (!chain_config.count) { ui_message("NO ROW"); return; }
         if (ui.song_row >= chain_config.count) ui.song_row = chain_config.count - 1u;   /* (ARRANGE's ADD / END) */
         r = &chain_config.row[ui.song_row];
-        k = ui.song_tk;
-        if (!k) {                                       /* SEC: the row's section, its bars */
-            if (slot == 2u) r->slot = (uint8_t)clamp((int32_t)r->slot + steps, 0, 3);
-            else r->bars = (uint8_t)clamp((int32_t)r->bars + steps, 1, (int32_t)CHAIN_BARS);
-        } else if (slot == 2u) {                        /* FROM: the row's own (0), A..D */
-            uint32_t *m = &song_idx.tsrc[song_cur][ui.song_row];
-            sh = 3u * (k - 1u);
-            *m = (*m & ~(7u << sh)) | (uint32_t)clamp((int32_t)(*m >> sh & 7u) + steps, 0, 4) << sh;
-        } else {                                        /* VAR */
-            uint32_t *w = &song_idx.tvar[song_cur][ui.song_row];
-            sh = 4u * (k - 1u);
+        if (slot == 1u) r->slot = (uint8_t)clamp((int32_t)r->slot + steps, 0, 3);
+        else if (slot == 2u) r->bars = (uint8_t)clamp((int32_t)r->bars + steps, 1, (int32_t)CHAIN_BARS);
+        else {
+            uint32_t *w = &song_idx.tvar[song_cur][ui.song_row], sh = 4u * (song.sel % NTRK);
             *w = (*w & ~(15u << sh)) | (uint32_t)clamp((int32_t)(*w >> sh & 15u) + steps, 0, RV_N - 1) << sh;
         }
         song_idx_touch();
@@ -1417,6 +1615,22 @@ static void edit_param(uint32_t slot, int32_t steps)
         ui.act = (uint8_t)(a + 1);
         return;
     }
+    if (SPLIT_PAGE(pg)) { split_edit(slot, steps); return; }
+    if (FIT_PAGE(pg) && (slot == 1u || slot == 2u)) {
+        uint32_t v = TSEL->seq_fit, span = fit_span(TSEL);
+        if (slot == 1u) span = (uint32_t)clamp((int32_t)span + steps, 1, 64);
+        else v = (v & 127u) | (steps > 0 ? 128u : 0u);
+        fit_ui_set(TSEL, (uint8_t)((v & 128u) | span));
+        ui.force = 1;
+        return;
+    }
+    if (pg->graph == GR_SONGSAVE && slot == 1u) {
+        song_save_loop = (uint8_t)clamp((int32_t)song_save_loop + steps, 0, 1); return;
+    }
+    if (pg->graph == GR_SONGSAVE && slot == 0u) {
+        song_save_target = (uint8_t)clamp((int32_t)song_save_target + steps, 0, NSONG_USE - 1);   /* ((UMBRA OBSCURA) 1..4) */
+        return;
+    }
     if (pg->graph == GR_SLOTS && save_on() && save_level() == SV_PROJ) {   /* (0.8.5) SAVE > PROJECT's SECTIONS: KNOB 1
                                                          * the section, KNOB 2 its name (shown; EDIT renames it) */
         if (slot == 1u) {                                 /* (V10.17) KNOB 2 ERASE: right picks it, left drops it */
@@ -1435,8 +1649,9 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
 sect:
     if (pg->graph == GR_SLOTS && slot == 0u) {            /* (0.6.12) KNOB 1 the project: its sections, the music kept */
-        int32_t n = clamp((int32_t)song_cur + (steps > 0 ? 1 : -1), 0, (int32_t)NSONG_USE - 1);
-        if ((uint32_t)n != song_cur) (void)song_open((uint32_t)n);
+        int32_t n = clamp((int32_t)(song_draft ? song_save_target : song_cur) + (steps > 0 ? 1 : -1), 0, (int32_t)NSONG_USE - 1);
+        if (song_draft) song_save_target = (uint8_t)n;
+        else if ((uint32_t)n != song_cur) (void)song_open((uint32_t)n);
         return;
     }
     if (pg->graph == GR_USER) {                           /* KNOB 1 the slot */
@@ -1465,16 +1680,29 @@ sect:
         mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, 3);
         return;
     }
+    if (pg->graph == GR_MOD && slot == 2u) {
+        int16_t *dst = &TSEL->p[P_M1DST + 3u * mod_ui_slot];
+        *dst = (int16_t)mod_dst_turn(TSEL, *dst, steps);
+        knob_cap(TSEL, P_M1DST + 3u * mod_ui_slot);
+        return;
+    }
+    if (pg->id[0] == G_MIDI && pg->scope == SC_GLOBAL) {   /* (V10.6z8, a Discord user) GLO > SYSTEM 2 shows, edits nothing */
+        ui_message("EDIT: MENU > BLUETOOTH");
+        str_cpy(ui.msg2, "HOLD HOME, TAB SYSTEM", sizeof ui.msg2);
+        return;
+    }
     d = page_desc(pg, slot, &vp);
     if (!d || !vp || d->max == d->min)
         return;
     v = param_turn(d, *vp, accel(EN_K1 + slot, steps, d->fmt == F_ENUM ? 0 : d->max - d->min));
     {
         int32_t was = *vp;
-        *vp = (int16_t)v;
+        if ((TSEL->seq_fit & 128u) && (vp == &TSEL->p[P_SLEN] || vp == &TSEL->p[P_SDIV]))
+            fit_ui_edit(TSEL, vp, (int16_t)v);
+        else *vp = (int16_t)v;
         excite_turn(TSEL, vp, was);
     }
-    if (vp >= sc_v && vp < sc_v + 3) {                  /* (V10.25) SCENE's SCENE TRACK ROLE */
+    if (vp >= sc_v && vp < sc_v + 4) {                  /* (V10.25) SCENE's SCENE TRACK ROLE; (V10.6j) PATTERN STYLE */
         sc_put((uint32_t)(vp - sc_v), v);
         return;
     }
@@ -1503,6 +1731,8 @@ sect:
     if (!mom_on && pg->scope != SC_GLOBAL && vp >= TSEL->p && vp < TSEL->p + P_COUNT)   /* (0.7.6: SCL's ALL TR is a
                                                          * global; 0.9.9-seq2e: MOMENTARY records nothing) */
         knob_cap(TSEL, (uint32_t)(vp - TSEL->p));
+    else if (vp >= song.g && vp < song.g + G_COUNT)
+        mo_knob(7, (uint32_t)(vp - song.g));            /* (V10.6z3) a global: NRPN 1 on channel 16 (MIDI OUT ALL) */
 }
 
 
@@ -1523,11 +1753,12 @@ static void tools_arm(void)
 }
 /* OCT+ on an action page: the picked action. A load stays picked (browse and load again); the others
  * are dropped once done. Flash writes only while stopped; over the user's data: the dialog */
-static void act_do(void)
+static __attribute__((noinline)) void act_do(void)
 {
     uint32_t c = act_col(), id, k = (uint32_t)song.g[G_SLOT] - 1u;
     if (!c--)
         return;
+    if(cur_page()->graph==GR_TRACKGEN) {trackgen_make();return;}
     if (cur_page()->graph == GR_MOTION) {
         if (chain_busy()) { ui_message("SONG PLAYS: STOP IT TO EDIT"); return; }
         confirm_open(CF_CLEAR_MOTION, song.sel);
@@ -1535,6 +1766,17 @@ static void act_do(void)
     }
     if (cur_page()->graph == GR_LYRIC) {                /* (0.8.5) WORDS: the lyric, typed (the NAME screen) */
         name_open(NK_LYRIC, song.sel);
+        return;
+    }
+    if(cur_page()->graph==GR_LYRSTEP) {
+        char label[20];uint32_t pos=lyric_pick(label);
+        if(chain_busy()) {ui_message("SONG PLAYS: STOP IT TO EDIT");return;}
+        if(!label[0]) {ui_message("TYPE A LYRIC FIRST");return;}
+        undo_mark();
+        uint32_t err=motion_set_lock(TSEL,ui.cursor,P_E0,(int16_t)pos);
+        if(err) {ui_message(err==2u?"AUTOMATION FULL":"CANNOT PLACE LYRIC");return;}
+        TSEL->p[P_VLYR]=LYR_FIXED;
+        ui_message(pos?"SYLLABLE PLACED":"AUTO ADVANCE PLACED");
         return;
     }
     if (cur_page()->graph == GR_PUNCH) {                /* (0.6.99) the punch-in lane cleared (a dialog) */
@@ -1548,18 +1790,28 @@ static void act_do(void)
     }
     if (cur_page()->graph == GR_TOOLS)                   /* (V10.24) OCT+ held: tools_arm, on the press */
         return;
-    if (cur_page()->graph == GR_SONG) {                 /* (0.8.5) SAVE > PROJECT's ARRANGE: OCT+ adds a row after the
-                                                         * last (its section and bars), the new one selected; PLAY plays */
-        chain_row_t *r;
+    if (SONG_PARTS(cur_page())) {                       /* (V10.6o) PARTS: the part picked loops */
+        parts_audition(ui.part);
+        return;
+    }
+    if (SONG_CLIPS(cur_page())) {                       /* (V10.6s) CLIPS: the cell in on the next bar */
+        clip_launch(song.sel, ui.part);
+        return;
+    }
+    if (cur_page()->graph == GR_SONG) {                 /* (0.8.5) SAVE > PROJECT's ARRANGE: OCT+ adds a row; (V10.6o) after
+                                                         * the one picked, a copy of it (its scene, tracks, variations; on
+                                                         * ADD / END: of the last; none: A, 4 bars), the new one selected */
+        uint32_t n = chain_config.count, c = ui.song_row < n ? ui.song_row : n - 1u, i;
         if (chain_busy()) { ui_message("SONG PLAYS: STOP IT TO EDIT"); return; }
-        if (chain_config.count >= CHAIN_ROWS) { ui_message("16 ROWS"); return; }
-        r = &chain_config.row[chain_config.count];
-        r->slot = chain_config.count ? chain_config.row[chain_config.count - 1u].slot : 0u;
-        r->bars = chain_config.count ? chain_config.row[chain_config.count - 1u].bars : 4u;
-        memset(&song_idx.scene[song_cur][chain_config.count], 0, sizeof song_idx.scene[0][0]);   /* (no scene yet) */
-        song_idx.tsrc[song_cur][chain_config.count] = 0;
-        song_idx.tvar[song_cur][chain_config.count] = 0;
-        ui.song_row = chain_config.count++;
+        if (n >= CHAIN_ROWS) { ui_message("16 ROWS"); return; }
+        if (!n) {
+            row_copy(0, CHAIN_ROWS);                    /* (no scene yet) */
+            c = (uint32_t)-1;
+        } else
+            for (i = n; i > c; i--)
+                row_copy(i, i - 1u);
+        ui.song_row = (uint8_t)(c + 1u);
+        chain_config.count++;
         song_idx_touch();
         ui_message("ROW ADDED");
         return;
@@ -1589,13 +1841,34 @@ static void act_do(void)
             name_open(NK_USER_SAVE, ui.uslot);
         return;
     }
+    if (cur_page()->graph == GR_SONGSAVE) {
+        char title[13];
+        ui.act = 0;
+        if (transport_busy()) ui_message("STOP TO SAVE");
+        else if (lib_scan(song_save_target, title) || ((!song_draft || song_save_target != song_cur) && song_idx.rows[song_save_target].count))
+            confirm_open(CF_OVR_SONG, song_save_target);
+        else name_open(NK_SONG_SAVE, song_save_target);
+        return;
+    }
+    if (cur_page()->graph == GR_SLOTS && save_level() == SV_LIB) {
+        uint32_t target = song_draft ? song_save_target : song_cur;
+        if (c == 1u) {
+            ui.act = 0;
+            if (transport_busy()) ui_message("STOP TO ERASE");
+            else confirm_open(CF_ERASE_SONG, target);
+        } else if (c == 2u && song_draft) (void)song_select(target);
+        else if (c == 3u) nav_put(SEC_SAVE, "SAVE SONG AS");
+        else goto slot_action;
+        return;
+    }
     if (cur_page()->graph == GR_SLOTS && c == 1u) {     /* (V10.17) SECTIONS: ERASE, the dialog first */
         ui.act = 0;
         if (transport_busy()) ui_message("STOP TO ERASE");
         else if (!project_used(k)) ui_message("EMPTY SECTION");
-        else confirm_open(CF_ERASE_SECT, k);
+        else confirm_open(CF_ERASE_SECT, (song_cur << 2u) | (k & 3u));
         return;
     }
+slot_action:
     id = cur_page()->id[c & 3u];
     if (id != G_LOAD)
         ui.act = 0;
@@ -1618,10 +1891,49 @@ static void act_do(void)
         break;
     default:                                              /* G_INITSND */
         set_engine(TSEL->eng_req);                        /* engine defaults + its first preset (the steps stay) */
+        vel_at_route(TSEL);                               /* (V10.6z6: the keys' pressure audible, vel.c) */
         ui_message("SOUND INIT");
         ui.force = 1;
         break;
     }
+}
+
+/* (V10.6z4) the expression keys (seq.c kx_block): OCT- / OCT+ pressed while a key's note sounds (MENU > AUDIO > OCT
+ * BEND not OFF), where OCT would change the octave: the tracks the keys hold notes of vibrato / bend while it is held,
+ * the octave as it was; with no note held, the octave as ever. Both held so: no UPDATE MODE (main.c) */
+static const uint8_t XB_SEMI[8] = {0, 1, 2, 3, 4, 5, 7, 12};
+static uint8_t kx_recd KX_BSS;                          /* the selected track's gates as last recorded */
+/* OCT- / OCT+ pressed where they are the octave: the octave (both: back to 0), or with a note held the expression */
+static __attribute__((noinline)) void oct_key(uint32_t b, uint32_t both)
+{
+    uint32_t k, m = 0;
+    for (k = 0; k < 27u; k++)
+        if (kb_on[k])
+            m |= 1u << (kb_trk[k] % NTRK);
+    if (kx_semi && m) {
+        kx_g[b == B_OCTUP] |= (uint8_t)m;
+        return;
+    }
+    if ((fm1_in.buttons & both) == both)
+        song.octave = 0;
+    else
+        song.octave += b == B_OCTDN ? (song.octave > -3 ? -1 : 0) : (song.octave < 3 ? 1 : 0);
+    if (drum_track(TSEL) && !song.grid)         /* (0.8.5) the kit's octaves: what this one does */
+        ui_message(drum_oct_label(TSEL,song.octave));
+}
+/* a frame: OCT let go ends its gates; recording, the selected track's into its automation (motion.c) */
+static __attribute__((noinline)) void kx_frame(void)
+{
+    uint32_t g, i = song.sel;
+    kx_semi = XB_SEMI[(oct_xp ^ 2u) & 7u];
+    for (g = 0; g < 2u; g++)
+        if (!((fm1_in.buttons >> panel.btn[g ? B_OCTUP : B_OCTDN]) & 1u))
+            kx_g[g] = 0;
+    g = ((kx_g[0] >> i) & 1u) | ((kx_g[1] >> i) & 1u) << 1 | (uint32_t)(vs.atl[i % NTRK] >> 4) << 2;   /* (V10.6z6: and
+                                                         * the keys' pressure, 0..7, seq.c kx_block) */
+    if (g != kx_recd && rec_on(TSEL) && !drum_track(TSEL))   /* (only recording: else it would become the base) */
+        (void)motion_capture(TSEL, P_XPR, (int16_t)(127 - (int32_t)g));
+    kx_recd = (uint8_t)g;
 }
 
 /* OCT- / OCT+ where they answer (the dialogs, the menu, action pages): on release, and only a press
@@ -1731,7 +2043,7 @@ static void ent_knob(uint32_t k, int32_t s)
     else ui.ent_oct = (uint8_t)clamp(ui.ent_oct + d, 1, 3);
     ent_message();
 }
-static void ent_commit(void)
+static __attribute__((noinline)) void ent_commit(void)
 {
     track_t *t = TSEL;
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, cur = ui.cursor, i, j, n = 0, span;
@@ -2259,6 +2571,7 @@ static void ui_input_frame(void)
     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
     if (UMB_ON)
         umt_check();                                    /* (UMBRA OBSCURA) TOTALITY: over once a page is chosen */
+    sc_beat();                                          /* (V10.6j) SCENE's DRUM: a key's beat into the kit */
     mom_poll();                                         /* (0.9.9-seq2e) MOMENTARY's glide back, its header tag */
     {   /* (JIANT 0.6.5) RESO's PITCH and FOLW live in PRE's and DAMP's slots: into RESO a ROOM's values become theirs
          * (DAMP past FOLW's T6: OFF; PRE past 14: 14), out of it the reverb's own defaults back */
@@ -2358,6 +2671,7 @@ static void ui_input_frame(void)
             oct |= 2u;                                  /* (the dialog's OK, below, this frame) */
         }
     }
+    kx_frame();                                         /* (V10.6z4) the expression keys let go, recorded */
     layer_masks();                                      /* seq.c: keys pressed with a layer's button are its own */
     live_frame();                                       /* (p2) GLO > LIVE: MANO's keys, OCT- held, the modifiers */
     {   /* (0.6.67) a button held + SELECT (rule 5): its dice (HOME the generator, GEN; EDIT the sound, SEQ the sequence,
@@ -2509,25 +2823,30 @@ static void ui_input_frame(void)
         name_input(notes, oct);
         return;
     }
-    if (save == BT_TAP && !dlg_on())                    /* SAVE let go (not its layer's: that tap is layer_tap's) */
-        open_family(FAM_SAVE);
+    if (save == BT_TAP && !dlg_on())
+        layer_tap(LAYER_SAVE);
     if (dlg_on()) {                                     /* OCT- cancels, OCT+ does it; nothing else reacts (GEN: a page,
                                                          * below) */
         if (oct & 2u) {
             uint32_t kind = ui.confirm;
             ui.confirm = 0;
             ui.force = 1;
-            if (kind != CF_OVR_PROJ && kind != CF_OVR_USER && kind != CF_ERASE_USER && kind != CF_ERASE_SECT && kind != CF_DICE_ALL &&
+            if (kind != CF_OVR_PROJ && kind != CF_OVR_USER && kind != CF_ERASE_USER && kind != CF_ERASE_SECT && kind != CF_OVR_SONG && kind != CF_ERASE_SONG && kind != CF_DICE_ALL &&
                 !dice_kind(kind) && kind != CF_DEL_ROW && kind != CF_CLEAR_SONG && !chain_busy())
                 undo_mark();                            /* (0.6.21) the music before a clear, INIT, RECALL, pattern */
             if (kind == CF_OVR_PROJ) {                  /* overwrite: the NAME screen writes it */
                 name_open(NK_PROJ_SAVE, ui.confirm_trk & 3u);
+            } else if (kind == CF_OVR_SONG) {
+                name_open(NK_SONG_SAVE, ui.confirm_trk);
             } else if (kind == CF_OVR_USER) {
                 name_open(NK_USER_SAVE, ui.confirm_trk);
             } else if (kind == CF_ERASE_USER) {
                 up_ui(1u, ui.confirm_trk);
+            } else if (kind == CF_ERASE_SONG) {
+                song_erase_parts(ui.confirm_trk, 0);
             } else if (kind == CF_ERASE_SECT) {
-                project_erase(ui.confirm_trk & 3u);
+                if ((ui.confirm_trk >> 2u) == song_cur) project_erase(ui.confirm_trk & 3u);
+                else ui_message("PROJECT CHANGED");
             } else if (dice_kind(kind)) {               /* (0.6.65) OK: the diced part stays */
                 ui_message(dk.msg);
             } else if (kind == CF_LOAD_PAT) {
@@ -2540,15 +2859,9 @@ static void ui_input_frame(void)
             } else if (kind == CF_DEL_ROW) {
                 uint32_t r = ui.confirm_trk;
                 if (!chain_busy() && r < chain_config.count) {
-                    for (; r + 1u < chain_config.count; r++) {
-                        chain_config.row[r] = chain_config.row[r + 1u];
-                        song_idx.scene[song_cur][r] = song_idx.scene[song_cur][r + 1u];   /* (its scene with it) */
-                        song_idx.tsrc[song_cur][r] = song_idx.tsrc[song_cur][r + 1u];     /* (.. and its tracks') */
-                        song_idx.tvar[song_cur][r] = song_idx.tvar[song_cur][r + 1u];
-                    }
-                    memset(&song_idx.scene[song_cur][r], 0, sizeof(scene_t));
-                    song_idx.tsrc[song_cur][r] = 0;
-                    song_idx.tvar[song_cur][r] = 0;
+                    for (; r + 1u < chain_config.count; r++)
+                        row_copy(r, r + 1u);            /* (its scene, its tracks' with it) */
+                    row_copy(r, CHAIN_ROWS);
                     song_idx_touch();
                     chain_config.count--;
                     if (ui.song_row > chain_config.count) ui.song_row = chain_config.count;
@@ -2604,12 +2917,11 @@ static void ui_input_frame(void)
                     }
                     ui_message(drum_track(TSEL) && drum_elsewhere(TSEL) ? "INIT, KIT KEPT" : "SOUND INIT");
                 }
-            } else if (kind == CF_RECALL_SOUND) {       /* the section's stored sound (ui_layer.c EDIT) */
-                if (!chain_busy()) {
-                    int sl = project_recall_slot();
-                    if (sl < 0 || project_recall_sound((uint32_t)sl, song.sel)) ui_message("NOTHING SAVED");
-                    else ui_message("SOUND RECALLED");
-                }
+            } else if (kind == CF_RECALL_SOUND) {       /* the section's stored sound (ui_layer.c EDIT); (V10.6z8) a song
+                                                         * playing too: the track's sound follows the sections again */
+                int sl = project_recall_slot();
+                if (sl < 0 || project_recall_sound((uint32_t)sl, song.sel)) ui_message("NOTHING SAVED");
+                else ui_message("SOUND RECALLED");
             } else {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
                 load_begin(t, LOAD_PAT);
@@ -2664,12 +2976,13 @@ static void ui_input_frame(void)
         b = panel_btn_of(id);
         switch (b) {
         case B_PLAY:
-            if (layer_play())                           /* (GLO held: RESTART) */
+            if (layer_play() || tl_play())              /* (GLO held: RESTART; V10.6o TIMELINE: the row loops) */
                 break;
             if (song.playing || chain_busy() || seq_counting())   /* (a count-in: PLAY stops it) */
                 transport_req = 2;
-            else if ((!ui.home && cur_page()->graph == GR_SONG) || live.mode ||   /* (the song layer's SONG mode) */
-                     (UMB_ON && umt.on && umt.song)) {
+            else if ((!ui.home && cur_page()->graph == GR_SONG && !SONG_PARTS(cur_page()) && !SONG_CLIPS(cur_page())) ||
+                     live.mode || (UMB_ON && umt.on && umt.song)) {   /* (the song layer's SONG mode; PARTS: as KNOB 4
+                                                         * says; (UMBRA OBSCURA) TOTALITY's song) */
                 uint32_t sp = !ui.home && cur_page()->graph == GR_SONG;
                 chain_play_ui();
                 if (UMB_ON && sp && chain_busy())       /* (UMBRA OBSCURA) TIMELINE, ARRANGE: the song in TOTALITY */
@@ -2723,8 +3036,9 @@ static void ui_input_frame(void)
                 break;
             }
             if (!ui.home && !ui.menu && !ui.confirm && cur_page()->graph == GR_SHAPE) {   /* (V10.25) STRETCH: NUDGE's */
-                ndg_step = b == B_OCTUP;                /* mode, OCT- the sequence (blue), OCT+ the step (red) */
-                ui_message(ndg_step ? "NUDGE: THE STEP'S MICRO TIMING" : "NUDGE: THE WHOLE SEQUENCE");
+                ndg_step = b != B_OCTUP ? 0u : ndg_step == 1u ? 2u : 1u;   /* mode, OCT- the sequence (blue), OCT+ the
+                                                         * step's MICRO (red), OCT+ again the step itself (V10.7.4) */
+                ui_message(ndg_step == 2u ? "NUDGE: THE STEP" : ndg_step ? "NUDGE: THE STEP'S MICRO TIMING" : "NUDGE: THE WHOLE SEQUENCE");
                 ui.force = 1;
                 break;
             }
@@ -2733,12 +3047,7 @@ static void ui_input_frame(void)
                                                          * (V10.16) MUTATE: a mutation now, back to the anchor */
                 break;
             }
-            if ((fm1_in.buttons & both) == both)
-                song.octave = 0;
-            else
-                song.octave += b == B_OCTDN ? (song.octave > -3 ? -1 : 0) : (song.octave < 3 ? 1 : 0);
-            if (drum_track(TSEL) && !song.grid)         /* (0.8.5) the kit's octaves: what this one does */
-                ui_message(drum_oct_name(song.octave));
+            oct_key(b, both);                           /* (V10.6z4: a note held, the expression keys) */
             break;
         }
         default:                                        /* page buttons (GLO SCL ENV LFO EDIT ARP): when let go */
@@ -2762,7 +3071,7 @@ static void ui_input_frame(void)
         if (b & 1u)
             page_tap(panel_btn_of(id));
     if (gen_on() && (oct & 2u)) {                       /* (0.9.2) GEN, HOME's pages: OCT+ the piece (the screen stays, */
-        if (!chain_busy()) gen_press();                 /* OCT+ again: another), OCT- back to ECO */
+        gen_press();                 /* OCT+ again: another), OCT- back to ECO */
     } else if (gen_on() && (oct & 1u)) {
         nav_go(SEC_HOME, 0, 0);
     } else if (act_cols() && (oct & 2u)) {              /* action pages: OCT+ does the picked action, */
@@ -2770,6 +3079,10 @@ static void ui_input_frame(void)
     } else if (act_cols() && (oct & 1u)) {              /* OCT- drops it, or (none picked) goes HOME; PHRASES: back to */
         if (cur_page()->graph == GR_PATS && !ui.home)   /* the SEQ page it was opened on */
             nav_go(SEC_SEQ, nav_cur(), 0);
+        else if (SONG_PARTS(cur_page()))                 /* (V10.6o) PARTS: back to the song */
+            parts_song();
+        else if (SONG_CLIPS(cur_page()))                 /* (V10.6s) CLIPS: the track stops on the next bar */
+            clip_launch(song.sel, 4u);
         else if (cur_page()->graph == GR_SONG) {         /* (V10.4) ARRANGE, TIMELINE: OCT+ adds a row, OCT- deletes
                                                          * the one picked (DELETE ROW?, as TOOLS) */
             if (chain_busy()) ui_message("SONG PLAYS: STOP IT TO EDIT");
@@ -2787,6 +3100,8 @@ static void ui_input_frame(void)
         gco_keys(notes);
     } else if (ckeys_on()) {                            /* (seq2g) SEQ > COMP: the keys pick the step */
         comp_keys(notes);
+    } else if (skeys_on()) {                            /* (V10.6o) PARTS, TIMELINE: theirs */
+        tl_keys(notes);
     } else if (song.grid && song.grid != 3u) {         /* (p2: 3, LIVE's MANO: its board, ui_live.c) */
         grid_keys(notes);
     } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* STEP (not CHANCE: its knobs only) */
@@ -2874,7 +3189,7 @@ static void ui_input_frame(void)
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_MSEQ || pg->graph == GR_PATS || BAR_PAGE(pg)) &&
              k == 0u)
-            || pg->graph == GR_SONG || pg->graph == GR_DXSND || pg->graph == GR_FOCUS || pg->graph == GR_STAGE ||
+            || FIT_PAGE(pg) || SPLIT_PAGE(pg) || pg->graph == GR_SONG || pg->graph == GR_DXSND || pg->graph == GR_SWARM || pg->graph == GR_FOCUS || pg->graph == GR_STAGE ||
             pg->graph == GR_GCOMP || pg->graph == GR_LIVE) {   /* (not an empty column) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40, ui.knob_ms = fm1_ms;
@@ -2983,4 +3298,6 @@ timeout:
 }
 
 #include "ui_dx.c"                                  /* EDIT > SOUND / SOUND 2: the DRUM-X kit */
+
+
 

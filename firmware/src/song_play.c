@@ -4,33 +4,64 @@
 /* The song, the audio ISR's part (song_chain.c: what it is). Included at the end of seq.c. */
 static uint32_t chain_bar(void) { return 16u * div_samples(2); }        /* a 4/4 bar: 16 steps of 1/16 (DIV 2) */
 
+/* (V10.6z8) track k's sound as snd_held sees it (k NTRK: the DRUM-X kit); FM6's SLOT left out (song_poll's
+ * fm6_adopt sets it after a section) */
+static uint32_t snd_sig(uint32_t k)
+{
+    const track_t *t = &trk[k];
+    uint32_t h = 0, j;
+    if (k >= NTRK)
+        return as_mix(h, dx_kit, sizeof dx_kit);
+    for (j = 0; j < P_COUNT; j++)
+        if (!param_kept(j) && (j != P_E7 || t->eng_req != ENGI_FM6))
+            h = h * 31u + (uint16_t)t->p[j];
+    return as_mix(h + t->eng_req * 977u + t->preset, fm6_patch[k], FP_SIZE);
+}
+/* .. the player's: changed since the section before put it in */
+static uint32_t snd_own(uint32_t k)
+{
+    if ((snd_seen >> k & 1u) && snd_sig(k) != snd_h[k])
+        snd_held |= (uint8_t)(1u << k);
+    return snd_held >> k & 1u;
+}
 /* the staged section in: every track from its step 0 (seq_tick: chain.carry samples into it) */
 static void sec_apply(void)
 {
-    uint32_t i, j;
+    uint32_t i, j, own;
+    if (!chain.running)
+        snd_held = snd_seen = 0;                      /* (a live jump, CLIPS: the parts as stored) */
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
         const sec_trk_t *s = &sec_stage.t[i];
         seq_release(t);
-        motion_restore(t);
-        if (t->eng_req != s->engine)
-            panic_req |= (uint8_t)(1u << i);              /* (another engine: what the keys hold ends too) */
-        t->eng_req = s->engine;
-        t->preset = s->preset;
-        t->user = 0;
+        motion_restore(t);                            /* (the sound's own values, not the motion's: snd_own) */
+        own = snd_own(i);
+        if (!own) {
+            if (t->eng_req != s->engine)
+                panic_req |= (uint8_t)(1u << i);          /* (another engine: what the keys hold ends too) */
+            t->eng_req = s->engine;
+            t->preset = s->preset;
+            t->user = 0;
+            memcpy(fm6_patch[i], s->fm6, FP_SIZE + 1u);
+            fm6_pgen[i]++;
+        }
+        t->seq_fit = sec_stage_fit[i];
         for (j = 0; j < P_COUNT; j++)
-            t->p[j] = s->p[j];
+            if (!own || param_kept(j))
+                t->p[j] = s->p[j];
         memcpy(t->step, s->step, sizeof t->step);
-        memcpy(fm6_patch[i], s->fm6, FP_SIZE + 1u);
-        fm6_pgen[i]++;
         t->seq_idx = (uint16_t)(t->p[P_SLEN] - 1);
         t->seq_pos = 0x7FFFFFFFu;
         t->ext = 0;
         t->rh_n = t->rskip_n = 0;
         t->rat_left = 0;
+        snd_h[i] = snd_sig(i);
     }
     motion = sec_stage.motion;
-    memcpy(dx_kit, sec_stage.dx, sizeof dx_kit);
+    if (!snd_own(NTRK))
+        memcpy(dx_kit, sec_stage.dx, sizeof dx_kit);
+    snd_h[NTRK] = snd_sig(NTRK);
+    snd_seen = chain.running ? 0xFFu : 0u;
     dx_mute_set(sec_stage.dx_mute);
     memcpy(pfx_lane, sec_stage.pfx_lane, sizeof pfx_lane);
     memcpy(&song.g[G_SLMODE], sec_stage.slg, sizeof sec_stage.slg);   /* (0.6.3) the SLICER's bus as the section has it */
@@ -86,6 +117,7 @@ static void srec_finish(void)
     for (i = 0; i < live.nrec; i++)
         if (live.rec[i].bars) {
             live.rec_scene[n] = live.rec_scene[i];
+            rec_src[n] = rec_src[i];
             live.rec[n++] = live.rec[i];
         }
     live.rec_done = (uint8_t)(n ? n : 0xFFu);
@@ -100,6 +132,7 @@ static void srec_add(uint32_t s)
     }
     live.rec[live.nrec].slot = (uint8_t)(s & 3u);
     live.rec[live.nrec].bars = 0;
+    rec_src[live.nrec] = sec_stage.src;          /* (V10.6s: CLIPS' tracks from other parts) */
     scene_capture(&live.rec_scene[live.nrec]);       /* (JIANT: the row's scene, as it begins) */
     live.nrec++;
 }
@@ -137,8 +170,8 @@ static void chain_start(void)                         /* (seq_start) */
     if (!chain.armed)
         return;
     chain.armed = 0;
-    if (!sec_stage.ready || sec_stage.row != 0u)
-        return;                                       /* (cannot happen: chain_prepare staged row 0) */
+    if (!sec_stage.ready || sec_stage.row >= CHAIN_ROWS)
+        return;                                       /* (cannot happen: chain_prepare staged its first row) */
     chain.rec = song.rec;
     song.rec = 0;                                     /* a song plays, it does not record */
     chain.running = 1;
@@ -149,6 +182,7 @@ static void chain_stop(void)                          /* (seq_stop) */
 {
     chain.armed = 0;
     chain.armed_bar = 0;
+    chain.hold = 0;
     live.req = -1;
     srec_stop();
     if (!chain.running)
@@ -171,7 +205,7 @@ static void chain_tick(uint32_t n)
     chain.carry = chain.bar_pos;
     srec_bar();
     if (chain.running) {
-        uint32_t next = chain.row + 1u;
+        uint32_t next = chain.row + !chain.hold;      /* (V10.6o: held, the same row again) */
         if (chain.remaining > 1u) {
             chain.remaining--;
             return;
@@ -193,7 +227,8 @@ static void chain_tick(uint32_t n)
         }
         return;
     }
-    if (chain.armed_bar && sec_stage.ready && sec_stage.row == 0u) {   /* a quick chain from this bar */
+    if (chain.armed_bar && sec_stage.ready && sec_stage.row < CHAIN_ROWS) {   /* a quick chain (V10.6o: a song's row) from
+                                                         * this bar */
         chain.armed_bar = 0;
         chain.running = 1;
         chain.rec = song.rec;
@@ -210,3 +245,4 @@ static void chain_tick(uint32_t n)
             srec_add(live.cur);
     }
 }
+

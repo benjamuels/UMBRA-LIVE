@@ -4,7 +4,7 @@
  * part a line a bar (the notes by name, '=' held, '.' rest, a chord's notes joined by '/'), each section of a FORM
  * (its key). Optionally the piece heard: a WAV of it playing (its song, with PARTS or SONG), SECONDS long.
  *   cc -O1 -w -Ibuild/gen -Ifirmware/src -Itests -o build/host/gen_dump tests/gen_dump.c -lm
- *   build/host/gen_dump GENRE SEED [ENERGY [FORM [OUT.wav SECONDS]]]      (GENRE 1..43, 0 every genre; FORM 0 1 2) */
+ *   build/host/gen_dump GENRE SEED [ENERGY [FORM [OUT.wav SECONDS]]]      (GENRE 1..NGENRE, NGENRE + 1 EXPLORE, 0 every genre; FORM 0 1 2) */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"
 static const char *NS[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -73,7 +73,7 @@ static void dump_track(const track_t *t, uint32_t r, uint32_t bars)
         if (s->time == ST_NOTE && s->n) {
             for (j = 0; j < s->n; j++) { nname(b, s->note[j]); printf("%s%s", j ? "/" : "", b); }
             if (!gin_mode(s->note[0] - dump_lift)) printf("!");
-            printf(" ");
+            printf(s->flags & SF_SLIDE ? "~ " : s->flags & SF_ACCENT ? "^ " : " ");   /* (V10.6p: a slide, an accent) */
         } else printf(s->time == ST_TIE ? "= " : ". ");
     }
     printf("\n");
@@ -137,6 +137,22 @@ int main(int argc, char **argv)
             printf("song:");
             for (k = 0; k < chain_config.count; k++) printf(" %c x%u", 'A' + chain_config.row[k].slot, chain_config.row[k].bars);
             printf("\n");
+            for (k = 0; k < chain_config.count; k++) {   /* (V10.6m) each row: its scene (who plays), where from, its VAR */
+                const scene_t *sc = &song_idx.scene[song_cur][k];
+                uint32_t t2;
+                printf("  row %2u  %c x%-2u  plays:", k + 1u, 'A' + chain_config.row[k].slot, chain_config.row[k].bars);
+                for (t2 = 0; t2 < NTRK; t2++) {
+                    uint32_t mu = sc->on ? (t2 < 4u ? (sc->mute >> t2) & 1u : (sc->on >> (t2 - 3u)) & 1u) : 0u;
+                    if (!mu && gs.act[gs.role[t2]]) printf(" %s", RLN[gs.role[t2]]);
+                    else if (!mu && gs.role[t2] == RL_TEX && t2 == gs.trk_of[RL_TEX]) printf(" (TEX)");
+                    if (row_src(k, t2, chain_config.row[k].slot) != chain_config.row[k].slot)
+                        printf("<%c", 'A' + row_src(k, t2, chain_config.row[k].slot));
+                    if (row_var(k, t2)) printf("[%s]", RV_NAME[row_var(k, t2)]);
+                }
+                if (sc->mute >> 4) printf("  drum groups out: %s%s%s%s", sc->mute & 0x10u ? "K" : "", sc->mute & 0x20u ? "S" : "",
+                                          sc->mute & 0x40u ? "H" : "", sc->mute & 0x80u ? "P" : "");
+                printf("\n");
+            }
             for (s = 1; s < 4u; s++) {
                 uint32_t m = 0, mel = 0;
                 if (!((dice_secs >> s) & 1u) || !proj_import(&p, &proj_slot[s], sizeof(project_store_t))) continue;
@@ -148,7 +164,7 @@ int main(int argc, char **argv)
                 for (k = 0; k < NTRK; k++) {
                     track_t tt;
                     uint32_t r = gs.role[k];
-                    if (r == RL_DRUM || !gs.act[r] || p.t[k].p[P_MUTE] || (r == RL_TEX && k != gs.trk_of[RL_TEX])) continue;
+                    if (!gs.act[r] ? !(r == RL_TEX && s == 2u && k == gs.trk_of[RL_TEX]) : (p.t[k].p[P_MUTE] && r != RL_DRUM) || (r == RL_TEX && k != gs.trk_of[RL_TEX])) continue;   /* (V10.6m: the drums too, the build's riser) */
                     memset(&tt, 0, sizeof tt);
                     memcpy(tt.step, p.t[k].step, sizeof tt.step);
                     proj_steps(tt.step);

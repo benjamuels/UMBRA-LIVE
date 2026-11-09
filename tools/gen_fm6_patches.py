@@ -55,11 +55,11 @@ INIT = voice("INIT VOICE", 1, [op(ol=99)] + [op() for _ in range(5)], lpms=3)
 # OP1..OP6. Algorithm 5 = three pairs (1<-2, 3<-4, 5<-6 with the feedback), 32 = six carriers.
 PATCHES = [
     ("TINE EP", voice("TINE EP", 5, [
-        op(r=(96, 25, 25, 67), l=(99, 75, 0, 0), ol=98, kvs=2, rs=3),
-        op(r=(95, 50, 35, 78), l=(99, 75, 0, 0), ol=58, kvs=7, rs=3),
-        op(r=(95, 20, 20, 50), l=(99, 95, 0, 0), ol=90, kvs=2, det=8, rs=2),
+        op(r=(96, 25, 25, 67), l=(99, 75, 0, 0), ol=92, kvs=2, rs=3),   # (the carriers 6 steps down, ~4.5 dB:
+        op(r=(95, 50, 35, 78), l=(99, 75, 0, 0), ol=58, kvs=7, rs=3),   # it sat ~7 dB over FM6's others)
+        op(r=(95, 20, 20, 50), l=(99, 95, 0, 0), ol=84, kvs=2, det=8, rs=2),
         op(r=(97, 62, 40, 60), l=(99, 60, 0, 0), ol=68, fc=14, kvs=6, rs=3),
-        op(r=(95, 30, 20, 60), l=(99, 90, 0, 0), ol=78, det=6, kvs=1),
+        op(r=(95, 30, 20, 60), l=(99, 90, 0, 0), ol=72, det=6, kvs=1),
         op(r=(95, 40, 30, 60), l=(99, 80, 0, 0), ol=52, kvs=3)],
         fb=3, lfs=34, lfd=33, lfw=4, lpms=2)),
     ("BELL", voice("GLASS BELL", 5, [

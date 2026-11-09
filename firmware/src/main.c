@@ -9,6 +9,8 @@ extern uint32_t _c1t_start[], _c1t_end[], _c1t_load[];   /* (0.6.71) the second 
 extern uint32_t _hot_start[], _hot_end[], _hot_load[];   /* (0.6.78) core 0's hottest audio code (app.ld .hot_text) */
 extern uint32_t _low_start[], _low_end[];                /* (0.6.78) main-loop buffers below the RAM code (app.ld) */
 #endif
+extern char _etext[];                                    /* (V10.6z5) .text's end: their load images from here, */
+#include "boot_lz4.h"                                    /* packed (tools/build.py, app.ld PACKED) */
 
 
 /* TIMER5 outranks ALNK0, so the scan keeps its 100 us pace while a half buffer renders: before,
@@ -162,7 +164,7 @@ static void fm1_fault(const fm1_crash_t *c)
     fault_tail(c, b);
 }
 
-/* power-on: the parts with their power-on sounds (0.9.9: T1 DRUM-X, T2 VOICE, T3 ANIMAL, T4 LOFI, T5 ANALOG, T6 FM6,
+/* power-on: the parts with their power-on sounds (V10.6d: T1 DRUM-X, T2 ANALOG, T3 PHASE, T4 FM6, T5 VOICE, T6 ANIMAL,
  * engines.c TRK_DEF; as INIT SYSTEM: ui.c power_sound_of); the sequencers empty. RESTORE LAST ON brings the last session back after (autosave_boot) */
 static void felucca_init(void)
 {
@@ -361,7 +363,11 @@ static void fm1_main(void)
      * would enter UBOOT), or it was given up / beside a crash since power-on (hal/fm1_multicore.h fm1_mc_bar). Its entry
      * word is in the protected top of RAM: opened for it, interrupts off (up to 20 ms: under the splash) */
     mc_off = (uint8_t)((fm1_in.buttons >> panel.btn[B_REC]) & 1u);
-    if (!mc_off && !bootguard.failed && !fm1_mc_barred() && !(cpu_cfg & CPU_1CORE)) {   /* (p1: MENU > CPU CORES) */
+    if (!mc_off && !bootguard.failed && !fm1_mc_barred() && !(cpu_cfg & CPU_1CORE) && fm1_power_ready) {
+                                                /* (p1: MENU > CPU CORES) (V10.6z) and only on the stock supplies
+                                                 * (fm1_power_init read back; not after a SAFE START): with the radio
+                                                 * on and only the two core levels raised, some units' second core
+                                                 * jumps to addresses with bits 23/24 set (fm1-dock src/cpu1.c) */
         fm1_irq_off();
         fm1_guard_unlock_top();
         fm1_mc_start();
@@ -413,6 +419,10 @@ static void fm1_main(void)
                 song.batt_raw = song.batt_raw ? song.batt_raw + (b - song.batt_raw) / 32 : b;
         }
         master_poll();
+#ifdef VD_NK
+        vd_poll();                                      /* (V10.6z5) the velocity diagnostic's last press, when on */
+        vel_poll();                                     /* (V10.6z6) key velocity and pressure: the settings, the sampling */
+#endif
 #if FELUCCA_DUAL_CORE
         said = cpu_lost(said);                          /* (p1) the second core given up: 1 CORE for good */
 #endif
@@ -421,7 +431,7 @@ static void fm1_main(void)
              * go cancels it */
             static uint32_t t0;
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
-            if ((fm1_in.buttons & both) != both) {
+            if ((fm1_in.buttons & both) != both || kx_g[0] || kx_g[1]) {   /* (V10.6z4: on a note, the expression keys) */
                 if (ui.uboot) {
                     ui.uboot = 0;
                     ui.force = 1;                       /* what the countdown covered */
@@ -504,7 +514,7 @@ static void fm1_main(void)
 
 void fm1_cstart(void)
 {
-    uint32_t *s, *d, p3, src, wdt;
+    uint32_t *d, p3, src, wdt;
     fm1_time_init();
     fm1_reset_reason();
     p3 = fm1_boot.p3_rst;
@@ -544,16 +554,15 @@ void fm1_cstart(void)
         *d = 0;
     for (d = _low_start; d < _low_end; d++)
         *d = 0;
-    for (s = _data_load, d = _data_start; d < _data_end; s++, d++)
-        *d = *s;
-    for (s = _rt_load, d = _rt_start; d < _rt_end; s++, d++)
-        *d = *s;                                /* flash driver code that must run from RAM */
-#if FELUCCA_DUAL_CORE
-    for (s = _c1t_load, d = _c1t_start; d < _c1t_end; s++, d++)
-        *d = *s;                                /* (0.6.71) the second core's waiting loop (hal/fm1_multicore.h) */
+    {                                           /* (V10.6z5) unpacked, not copied (boot_lz4.h): from _etext on (the */
+        const uint8_t *z = (const uint8_t *)_etext;     /* image's end), one LZ4 block each, in this order (build.py) */
+        z = boot_lz4(z, (uint8_t *)_rt_start, (uint8_t *)_rt_end);     /* flash driver code that must run from RAM */
+#if FELUCCA_DUAL_CORE                                                  /* (0.6.71) the second core's waiting loop */
+        z = boot_lz4(z, (uint8_t *)_c1t_start, (uint8_t *)_c1t_end);   /* (hal/fm1_multicore.h; without it no block) */
 #endif
-    for (s = _hot_load, d = _hot_start; d < _hot_end; s++, d++)
-        *d = *s;                                /* (0.6.78) core 0's hottest audio code (core.h HOTRAM) */
+        z = boot_lz4(z, (uint8_t *)_hot_start, (uint8_t *)_hot_end);   /* (0.6.78) core 0's hottest audio code */
+        boot_lz4(z, (uint8_t *)_data_start, (uint8_t *)_data_end);
+    }
     if (pw_crumb == PW_CR_START || pw_crumb == PW_CR_SKIP)
         pw_crumb = PW_CR_SKIP;                  /* (V10.46) the last start hung here or before the UI: not again */
     else {

@@ -313,20 +313,36 @@ static void wheel_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
 }
 
 static const preset_t WHEEL_PRESETS[] = {
-    /* name, {REG, SUB, BODY, TOP, PERC, CLICK, DRIVE, ROTR}, {A D S R}, fenv, mono */
-    {"FULL ORGAN", {15, 0, 0, 0, 0, 30, 20, 1}, {0, 64, 127, 45}, 0, TAG(KEYS), FX(0, 0, 10, 35), PAT(5)},
-    {"JAZZ PERC", {4, 0, 0, 0, 2, 50, 8, 1}, {0, 64, 127, 40}, 0, TAG(KEYS), FX(0, 0, 0, 25), PAT(3)},
-    {"GOSPEL", {6, 0, 0, 0, 1, 60, 40, 2}, {0, 64, 127, 45}, 0, TAG(KEYS), FX(0, 0, 0, 40), PAT(6)},
-    {"SOFT FLUTE", {1, 0, -2, 0, 0, 10, 0, 1}, {0, 64, 127, 55}, 0, TAG(LEAD), FX(0, 20, 15, 55), PAT(5)},
-    {"ROCK DRIVE", {7, 0, 0, 0, 0, 70, 100, 2}, {0, 64, 127, 40}, 0, TAG(KEYS), FX(35, 0, 10, 25), PAT(4)},
+    /* name, {REG, SUB, BODY, TOP, PERC, CLICK, DRIVE, ROTR}, {A D S R}, fenv, mono. (V10.6i) the movement an organist
+     * plays: the mod wheel to the fast rotor (ROTOR +63: past half way SLOW goes FAST), aftertouch or the wheel into the
+     * drive; CUT here is the part's filter. GEN picks 1, 2, 8 by number (gen_tables.c RECIPE); browsed: WHEEL_ORDER */
+    {"FULL ORGAN", {15, 0, 0, 0, 0, 30, 20, 1}, {0, 64, 127, 45}, 0, TAG(KEYS), FX(0, 0, 10, 35), PAT(5),
+     MODS(MMOD(1, PS_MODW, PD_E(7), 63))},
+    {"JAZZ PERC", {4, 0, 0, 0, 2, 50, 8, 1}, {0, 64, 127, 40}, 0, TAG(KEYS), FX(0, 0, 0, 25), PAT(3),
+     MODS(MMOD(1, PS_MODW, PD_E(7), 63))},
+    {"GOSPEL", {6, 0, 0, 0, 1, 60, 40, 2}, {0, 64, 127, 45}, 0, TAG(KEYS), FX(0, 0, 0, 40), PAT(6),
+     MODS(MMOD(1, PS_AT, PD_E(6), 24))},                                        /* lean on it: it growls */
+    {"SOFT FLUTE", {1, 0, -2, 0, 0, 10, 0, 1}, {6, 64, 127, 55}, 0, TAG(LEAD), FX(0, 20, 15, 55), PAT(5),
+     MODS(P_LRATE, 86, P_LD_PIT, 1, P_LFADE, 60)},                              /* a vibrato that comes in */
+    {"ROCK DRIVE", {7, 0, 0, 0, 0, 70, 100, 2}, {0, 64, 127, 40}, 0, TAG(KEYS), FX(35, 0, 10, 25), PAT(4),
+     MODS(MMOD(1, PS_MODW, PD_E(6), 16))},
     /* (0.7.0) a chapel, a tops organ with a soft percussion, a bass register; (V10.42) a pedal bass and a
      * driven lead where a dub organ and soft keys were */
     {"PEDAL BASS", {0, 6, 0, -8, 0, 30, 15, 0}, {0, 64, 127, 25}, 0, 1 | TAG(BASS), FX(0, 0, 0, 10), PAT(2)},
-    {"DRIVE LEAD", {13, 0, 0, 3, 2, 60, 80, 1}, {0, 64, 127, 35}, 0, 1 | TAG(LEAD), FX(10, 0, 30, 30), PAT(4)},
-    {"CHURCH", {12, 0, 0, 0, 0, 0, 0, 0}, {15, 64, 127, 70}, 0, TAG(KEYS), FX(0, 15, 10, 80), PAT(5)},
-    {"WAVE ORGAN", {8, 0, 0, 2, 3, 35, 15, 2}, {0, 64, 127, 35}, 0, TAG(KEYS), FX(0, 20, 25, 35), PAT(3)},
-    {"REED BASS", {14, 2, 0, -4, 0, 20, 10, 0}, {0, 64, 127, 30}, 0, 1 | TAG(BASS), FX(0, 0, 0, 5), PAT(2)},
+    {"DRIVE LEAD", {13, 0, 0, 3, 2, 60, 80, 1}, {0, 64, 127, 35}, 0, 1 | TAG(LEAD), FX(10, 0, 30, 30), PAT(4),
+     MODS(P_GLIDE, 15, MMOD(1, PS_MODW, PD_E(7), 63))},
+    /* (V10.6i, was CHURCH) the chapel's bars breathing over two bars (the top ones in as the sub goes out), an old
+     * instrument's dust, the wheel to the fast rotor */
+    {"DUST CHAPEL", {12, 0, 0, 0, 0, 0, 0, 1}, {15, 64, 127, 70}, 0, TAG(KEYS), FX(0, 15, 10, 80), PAT(5),
+     MODS(P_WDUST, 100, MLFO(LW_TRI, -2, 0, 0), P_LPHASE, -1, MMOD(1, PS_LFO, PD_E(3), 20), MMOD(2, PS_LFO, PD_E(1), -12),
+          MMOD(3, PS_MODW, PD_E(7), 63))},
+    {"WAVE ORGAN", {8, 0, 0, 2, 3, 35, 15, 2}, {0, 64, 127, 35}, 0, TAG(KEYS), FX(0, 20, 25, 35), PAT(3),
+     MODS(MMOD(1, PS_MODW, PD_E(6), 20))},
+    {"INIT ORGAN", {4, 0, 0, 0, 0, 0, 0, 0}, {0, 64, 127, 20}, 0, TAG(KEYS), FX(0, 0, 0, 0)},   /* (V10.6i, was REED BASS) bare */
 };
+/* (V10.6i) browsing: to play, the experiment, bare */
+static const uint8_t WHEEL_ORDER[] = {0, 1, 2, 8, 4, 3, 6, 5, 7, 9};
+_Static_assert(sizeof WHEEL_ORDER == NELEM(WHEEL_PRESETS), "WHEEL's browsing order: every preset once");
 
 static const engine_t ENG_WHEEL = {
     .name = "WHEEL",

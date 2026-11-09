@@ -8,7 +8,7 @@ static void midi_test_reset(void)
 {
     ui_power_on();
     memset(midi_ch, 0, sizeof midi_ch); memset(midi_sel_on, 0, sizeof midi_sel_on);
-    memset(midi_owners, 0, sizeof midi_owners); memset(midi_bend_q8, 0, sizeof midi_bend_q8);
+    memset(midi_owners, 0, sizeof midi_owners); memset(&midi_map, 0, sizeof midi_map); memset(split_cfg, 0, sizeof split_cfg); memset(midi_bend_q8, 0, sizeof midi_bend_q8);
     memset(midi_bend_target, 0, sizeof midi_bend_target); memset(&midi_clock, 0, sizeof midi_clock);
     memset(&um, 0, sizeof um); memset(midi_in_source, 0, sizeof midi_in_source);
     mi_r = mi_w = 0; midi_in_overflow = 0; midi_beat_samples = 0;
@@ -288,8 +288,8 @@ static int cc_map_test(void)
     };
     int bad = 0, ok = 1; uint32_t i, e; int16_t before[P_COUNT];
     midi_test_reset();
-    bad += check("power-on parts: ANALOG, FM6, LOFI, DRUM", trk[0].eng_req == 0u && trk[1].eng_req == ENGI_FM6 &&
-                 trk[2].eng_req == 3u && trk[3].eng_req == ENGI_DRUM);
+    bad += check("power-on parts: ANALOG, FM6, ANALOG (V10.6h: LOFI PULSE LD's), DRUM", trk[0].eng_req == 0u && trk[1].eng_req == ENGI_FM6 &&
+                 trk[2].eng_req == 0u && trk[3].eng_req == ENGI_DRUM);
     for (i = 0; i < NELEM(COMMON); i++) {
         queued(0xB0, COMMON[i].cc, 127, 1);
         ok &= trk[0].p[COMMON[i].id] == TP[COMMON[i].id].max;
@@ -413,9 +413,64 @@ static int clock_steady_test(void)
     }
     return bad;
 }
+static int split_test(void)
+{
+    int bad = 0;
+    midi_test_reset();
+    bad += check("SPLIT defaults OFF", !split_cfg[0]);
+    split_cfg[0]=1; split_cfg[2]=0; split_cfg[3]=1; split_cfg[4]=(uint8_t)-1; split_cfg[5]=1;
+    split_cfg[6]=9; split_cfg[7]=60;
+    queued(0x99,48,100,1); queued(0x99,72,100,1);
+    bad += check("MIDI split: channel 10 reaches independent tracks and octaves", mn_get(9,48)==1 && mn_get(9,72)==2 && midi_note_held(&trk[0],36) && midi_note_held(&trk[1],84));
+    queued(0xB9,64,127,1); queued(0x89,48,0,1); queued(0x89,72,0,1);
+    bad += check("MIDI split: sustain holds both zones", (mn_get(9,48)&8) && (mn_get(9,72)&8));
+    split_cfg[0]=0; split_cfg[2]=3; split_cfg[3]=2; split_cfg[4]=2; split_cfg[5]=0;
+    queued(0xB9,64,0,1);
+    bad += check("MIDI split: original notes release after settings change and split OFF", !mn_get(9,48) && !mn_get(9,72) && !midi_note_held(&trk[0],36) && !midi_note_held(&trk[1],84));
+    split_cfg[0]=1; split_cfg[6]=0; split_cfg[2]=0; split_cfg[3]=1; split_cfg[4]=(uint8_t)-4; split_cfg[5]=4;
+    queued(0x90,0,100,1); queued(0x90,12,100,1); queued(0x90,127,100,1);
+    bad += check("MIDI split: clamped notes retain separate owners", midi_mapped(0,0,0)==0 && midi_mapped(0,12,0)==0 && midi_note_held(&trk[1],127));
+    queued(0x80,0,0,1);
+    bad += check("MIDI split: first duplicate release retains the other owner", mn_get(0,12) && midi_note_held(&trk[0],0));
+    queued(0xB0,123,0,1);
+    bad += check("MIDI split: CC123 releases both zones", !midi_note_held(&trk[0],0) && !midi_note_held(&trk[1],127));
+    queued(0x90,48,100,1); queued(0x90,72,100,1); queued(0xB0,120,0,1);
+    bad += check("MIDI split: CC120 clears both zones and ownership", !midi_owners[0] && !midi_owners[1] && !midi_note_held(&trk[0],0) && !midi_note_held(&trk[1],120));
+    split_cfg[4]=0; split_cfg[5]=0;
+    song.sel=2; midi_bend_target[2]=0;
+    queued(0xE0,127,127,1);
+    bad += check("MIDI split: bend reaches both configured zones, not an unrelated selected track", midi_bend_target[0]==512 && midi_bend_target[1]==512 && !midi_bend_target[2]);
+    queued(0xB0,1,91,1);queued(0xD0,73,0,1);
+    bad += check("MIDI split: wheel and aftertouch reach both zones only", trk[0].mw==91 && trk[1].mw==91 && trk[0].at==73 && trk[1].at==73 && !trk[2].mw && !trk[2].at);
+    midi_test_reset();
+    split_cfg[0]=1;split_cfg[3]=1;split_cfg[4]=split_cfg[5]=1;
+    for(uint32_t n=1;n<=100;n++) queued(0x90,n,100,1);
+    split_cfg[6]=1;
+    for(uint32_t n=1;n<=29;n++) queued(0x91,n,100,1);
+    bad += check("MIDI split: remap capacity refuses extra presses without corrupting owners", midi_map.n==128 && !mn_get(1,29));
+    queued(0x80,1,0,1);queued(0x91,29,100,1);
+    bad += check("MIDI split: a released remap is reused safely", midi_map.n==128 && mn_get(1,29));
+    queued(0xB0,123,0,1);queued(0xB1,123,0,1);
+    bad += check("MIDI split: all bounded remaps release after channel changes", !midi_map.n && !midi_owners[0] && !midi_owners[1]);
+    midi_test_reset();
+    split_cfg[0]=1;split_cfg[2]=0;split_cfg[3]=1;split_cfg[4]=(uint8_t)-1;split_cfg[5]=1;
+    scn_on=1; /* split has priority over SCENE for normal keyboard notes */
+    fm1_in.notes=(1u<<7)|(1u<<19); events_block(CTL);
+    bad += check("physical split: independent tracks, octaves, SCENE priority", kb_trk[7]==0 && kb_trk[19]==1 && kb_note[7]==48 && kb_note[19]==84 && !scn_keys);
+    split_cfg[2]=2; split_cfg[3]=3; split_cfg[4]=2; split_cfg[0]=0;
+    fm1_in.notes=0;events_block(CTL);
+    bad += check("physical split: changing split keeps original note-off ownership", !kb_on[7] && !kb_on[19]);
+    scn_on=0;
+    for(uint32_t i=0;i<NPAGES;i++) if(PAGES[i].graph==GR_SPLIT) {ui.home=0;ui.page=i;break;}
+    edit_param(0,1);edit_param(1,1);edit_param(2,1);edit_param(3,1);
+    bad += check("split page knobs configure ON, tracks and physical cut", split_cfg[0]==1 && split_cfg[2]==3 && split_cfg[3]==4 && split_cut(0)==14);
+    midi_test_reset();
+    return bad;
+}
 int main(void)
 {
-    int bad = controls_test() + sustain_test() + ownership_test() + clock_test(1) + clock_test(2) + clock_arp_and_boundaries() +
+    int bad = split_test() + controls_test() + sustain_test() + ownership_test() + clock_test(1) + clock_test(2) + clock_arp_and_boundaries() +
               arp_ext_stop_test() + usb_burst_test() + route_test() + cc_map_test() + clock_steady_test();
     printf("%s\n", bad ? "MIDI CONTROL/CLOCK TEST FAILED" : "MIDI control/clock integration tests passed"); return bad != 0;
 }
+

@@ -336,7 +336,7 @@ static void fx_dots(uint32_t n, uint32_t k, const char *a, const char *b)
     GFX_HOOK_ALIGN(0, 3, 0, 12, AL_V | AL_PASS, "FX lens set name");
     cv_text_r(234, 3, &AF_X, s, T_DIM, T_SURF);
 }
-static void graph_fx_lz(const track_t *t, const page_t *pg)
+static __attribute__((noinline)) void graph_fx_lz(const track_t *t, const page_t *pg)
 {
     uint32_t lv = fx_level();
     if (lv == FXL_TRACK) {

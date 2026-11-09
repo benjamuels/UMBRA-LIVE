@@ -18,7 +18,8 @@
 #define ST_PAYLOAD_MAX (ST_SECTOR - ST_PAYLOAD_OFF)
 
 /* flash map (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000.., FL_AUTO 0xE5000..0xE6FFF, FL_VBANK 0xE7000): settings 0xFC000, projects
- * 0x97000..0x9EFFF, 0xA0000..0xDBFFF free (Felucca's user sample slots: JIANT's songs, docs/TONIC-SONG-PLAN.md 4d),
+ * 0x97000..0x9EFFF, 0xA0000..0xDBFFF free (Felucca's user sample slots: JIANT's songs, docs/TONIC-SONG-PLAN.md 4d;
+ * V10.6p: 0xC8000..0xD7FFF the drum sample bank's, FL_SAMPLES),
  * user preset banks 0xDC000..0xDFFFF (upreset.c),
  * the user presets' FM6 patches (up_fm6.c, since 1.0.3): copy A 0x9F000, copy B 0xFE000; the autosave (project.c,
  * 1.2): A 0xE5000, B 0xE6000, above the OTA staging (0xE0000..0xE4FFF), in the margin the stock firmware's own update
@@ -31,14 +32,21 @@
  * commit record of the same kind (type OBJ_FM6VB, not an st_load object); a new bank is first staged in the
  * autosave's older copy (fm6_vbank.c). */
 enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_UPFM6,
-       OBJ_AUTOSAVE, OBJ_SONGIDX, OBJ_SONG1, OBJ_COUNT = OBJ_SONG1 + 7 * 4 };
+       OBJ_AUTOSAVE, OBJ_SONGIDX, OBJ_SONG1, OBJ_COUNT = OBJ_SONG1 + 5 * 4 };
 /* JIANT's songs (song_chain.c): song 1's four sections are the four project slots (OBJ_PROJECT0..3, 0x97000..), songs
- * 2..8 four objects each (OBJ_SONG1 + (song - 1) * 4 + section) at 0xA0000..0xD7FFF, the song index (the songs' rows,
- * the current song) at 0xD8000 / 0xD9000; 0xDA000..0xDBFFF free */
-#define OBJ_FM6VB 64u                          /* the voice bank's commit records (fm6_vbank.c; >= OBJ_COUNT, 39 with
+ * 2..6 four objects each (OBJ_SONG1 + (song - 1) * 4 + section) at 0xA0000..0xC7FFF, the song index (the songs' rows,
+ * the current song) at 0xD8000 / 0xD9000; 0xDA000..0xDBFFF free.
+ * (V10.6p) songs 7 and 8 (8 songs before: their objects were OBJ_COUNT..OBJ_COUNT + 7, at 0xC8000..0xD7FFF) are gone:
+ * that flash is reserved for the drum sample bank (FL_SAMPLES, 64 KiB), written by nothing yet; an older JIANT's song
+ * objects there are only looked at once (song_main.c song_retired) */
+#define FL_SAMPLES 0xC8000u                    /* (V10.6p) the drum sample bank's flash, reserved: 16 sectors */
+#define FL_SAMPLES_SIZE (16u * 4096u)
+#define OBJ_FM6VB 64u                          /* the voice bank's commit records (fm6_vbank.c; >= OBJ_COUNT, 31 with
                                                 * the songs: st_load never takes one, no object takes its sector.
-                                                * Felucca's 32 is a song object here) */
+                                                * Felucca's 32 was a song object here) */
 _Static_assert(OBJ_FM6VB >= OBJ_COUNT, "the voice bank's record type is no object's");
+_Static_assert(0xA0000u + (OBJ_COUNT - OBJ_SONG1) * 2u * ST_SECTOR == FL_SAMPLES && FL_SAMPLES + FL_SAMPLES_SIZE == 0xD8000u,
+               "the sample bank: songs 7, 8's sectors, up to the song index");
 
 typedef struct {
     uint32_t magic;

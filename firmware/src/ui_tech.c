@@ -157,7 +157,8 @@ static BTAPP_FN void tech_eq(int32_t x, int32_t y, int32_t w, int32_t h)
  * count, USB / TRS by its source; out: USB's and Bluetooth's queue), Bluetooth's state and, linked or in AIR, PROX */
 static uint32_t sp_in, sp_out, sp_trs;
 static uint8_t sp_lit[4];
-static BTAPP_FN void tech_ports(void)
+/* (V10.6z5) back in the app (the segment's room for the drift of its other code; still drawn only with the segment) */
+static __attribute__((noinline)) void tech_ports(void)
 {
     static const char *const N[3] = {"USB", "TRS", "BT"};
     uint32_t i, b = (uint32_t)bt_get();

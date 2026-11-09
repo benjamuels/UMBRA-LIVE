@@ -157,6 +157,9 @@ static void hw_scan_take(uint32_t b)
     pdu = &bb.rx[b].buf[HW_SWHDR - 2u];
     pdu[0] = (uint8_t)ah;                                  /* Core layout: type, ChSel, TxAdd, RxAdd */
     pdu[1] = n;
+#ifdef BLE_HW_ADV_TAP
+    BLE_HW_ADV_TAP(pdu, n + 2u, CB->rssi, b, ch);          /* (JIANT SWARM: every report, any kind) */
+#endif
     hw_scan_backoff(type);
     ble_ll_hw_adv_report(pdu, (uint8_t)(n + 2u), rssi, ch);
 }

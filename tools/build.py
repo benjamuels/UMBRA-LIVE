@@ -102,6 +102,7 @@ def generate():
     tools = SRC / "tools"
     cmds = [[tools / "gen_aa_font.py", GEN / "ui_fonts.h", "--preset", "jiant-lab", "--kern-min", "4"],   # (snd7: pairs under 1/4 px dropped)   # (gen_aa_font.UI_PRESET),
             [tools / "gen_px_font.py", GEN / "ui_font_x.h"],
+            [tools / "gen_about.py", GEN / "about_notices.h", FW / "src" / "ui_menu.c"],
             [tools / "gen_aa_icons.py", GEN / "ui_icons.h"],
             [tools / "gen_aa_keycaps.py", GEN / "ui_keycaps.h"],
             [tools / "gen_ui_palettes.py", GEN / "ui_palettes.h"],
@@ -290,12 +291,16 @@ def layout_record(mapt, syms, reach):
 # (0.9.9-gen1) main-loop code placed after the sound (never in the holes before its pinned runs): the song generator's
 # functions (firmware/src/gen.c), so it can change size without moving the sound and without the UI's room before it.
 # Only UI code ('-' rows): they leave the recorded order and land with the code not in the layout, past the tables
-LATE_SRC = ("gen.c", "favorites.c")   # (0.9.9-snd5: favorites.c fav_rows_new, once)
+LATE_SRC = ("gen.c", "favorites.c", "gen_track.c")   # movable main-loop generators
 
 
 def late_fns():
     # REC arming is UI-only; keep its undo checkpoint out of the pinned DSP gaps.
-    names = {"rec_tap", "ly_keyname"}
+    names = {"rec_tap", "ly_keyname", "ag", "text_w",
+             # Only the overflowing UI gaps move: keep all audio addresses pinned without wasting large holes.
+             "fm1_irq_on", "large_kind", "draw_confirm", "vx_analog", "toast_clear", "draw_text_box", "as_mix",
+             "ed_bk_r32", "set_engine", "step_lanes", "song_copy_section", "palette_from_stored",
+             "proj_steps", "splash_sig", "up_name_ok", "song_idx_touch", "song_end_row"}
     for f in LATE_SRC:
         names |= set(re.findall(r"^static [^;=()]*?\b(\w+)\((?![^)]*\)\s*;)", (FW / "src" / f).read_text(), flags=re.M))
     return names
@@ -319,7 +324,8 @@ def layout_ld(rows, fills=None):
     out, k, late = [], 0, late_fns()
     for off, flag, name in rows:
         if flag == "@":
-            out += [f"*(.rodata.n.{f})" for f in (fills or {}).get(k, [])]
+            out += [f"*(.text.{f[1:]})" if f.startswith("@") else f"*(.rodata.n.{f})"
+                    for f in (fills or {}).get(k, [])]
             out += [f"_lay_gap{k} = .;", f". = {off:#x};"]
             k += 1
         if flag in "@a" or (flag == "-" and name not in late):
@@ -327,11 +333,23 @@ def layout_ld(rows, fills=None):
     LAYOUT_LD.write_text("\n".join(out) + "\n")
 
 
-def layout_fills(rows, symt, ins, aligns):
+def layout_fills(rows, symt, ins, aligns, reach=()):
     """the holes before the pinned runs filled with the UI's tables, largest first (best fit)"""
     pins = [off for off, flag, _ in rows if flag == "@"]
     holes = [(k, symt[f"_lay_gap{k}"], APP_XIP + off) for k, off in enumerate(pins) if f"_lay_gap{k}" in symt]
     items = sorted(((sz, n[10:]) for n, a, sz, o in ins if n.startswith(".rodata.n.")), reverse=True)
+    recorded = {name for _, flag, name in rows if flag in "@a-"}
+    cold = size_fns.size_names() - set(reach)
+    # Main-loop functions omitted from the recorded order can use stranded
+    # gaps too. Code read by an ISR, hot RAM and fixed audio tables never enter
+    # this candidate set. A four-byte boundary satisfies pi32v2 text alignment.
+    late_code = late_fns()
+    for section, address, size, obj in ins:
+        name = section[6:] if section.startswith(".text.") else ""
+        if name in cold and (name not in recorded or name in late_code) and obj.endswith("felucca.o"):
+            key = "@" + name
+            items.append((size, key)); aligns[key] = 4
+    items.sort(reverse=True)
     fills, used, lost = {}, set(), 0
     for k, lo, hi in holes:
         pos = lo
@@ -348,6 +366,24 @@ def layout_fills(rows, symt, ins, aligns):
     return fills, sum(hi - lo for _, lo, hi in holes), lost
 
 
+def layout_room(rows, objs):
+    """Report all grown pinned gaps before linking, without changing any addresses or guards."""
+    headers = tc("common/bin/objdump", "-h", *objs)
+    sections = {name: int(size, 16) for name, size in re.findall(
+        r"^\s*\d+\s+(\.text\.\S+)\s+([0-9a-fA-F]+)\s+", headers, re.M)}
+    pos, ui, late = 0, [], late_fns()
+    for off, flag, name in rows:
+        if flag == "@":
+            if pos > off:
+                print(f"layout gap: {name} exceeds pinned address by {pos - off} B; preceding UI: {', '.join(ui)}", flush=True)
+            pos, ui = off, []
+        if flag in "@a" or (flag == "-" and name not in late):
+            pos = (pos + 1) & ~1
+            pos += sections.get(".text." + name, 0)
+            if flag == "-" and ".text." + name in sections:
+                ui.append(name)
+
+
 def layout_check(rows, mapt, symt):
     sect = {n[6:]: a for n, a, sz, o in map_inputs(mapt) if n.startswith(".text.")}
     moved = []
@@ -360,7 +396,7 @@ def layout_check(rows, mapt, symt):
 
 def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
-    for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
+    for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC", "FELUCCA_CONSOLE_VERBOSE",
                  "FELUCCA_UART", "FELUCCA_UAC", "FELUCCA_UAC_TONE", "FELUCCA_UAC_48K", "FELUCCA_ICONS", "FELUCCA_SLICE", "FELUCCA_FM4",
                  "FELUCCA_CDC_DEFAULT", "FELUCCA_BT"):
         v = os.environ.get(flag)    # unset: the default in firmware/src/felucca.c
@@ -436,7 +472,13 @@ def build_app():
                 # (0.9.9-gen1) a generator table the layout has not recorded: out of .rodata too, unless the
                 # compiler merges it with the small constants (4 8 16 32 B: the sound's are checked after them)
                 ty = re.search(r" constant (\[[^\]]*(?:\][^\]]*)*?\]|i\d+) ", m.group(1) + " ")
-                if m.group(2) not in late or (ty and ir_bytes(ty[1]) in (4, 8, 16, 32)):   # (snd5: a struct's too)
+                # Long UI-only strings also fill otherwise stranded gaps. The
+                # ISR/global closure and every recorded audio table stay put;
+                # explicit sections (including BTAPP) were excluded above.
+                ui_string = (m[2].startswith(".str") and m[2] not in reach and ty and
+                             re.fullmatch(r"\[\d+ x i8\]", ty[1]) and ir_bytes(ty[1]) >= 24)
+                ui_string |= m[2].startswith("AF_") and m[2].endswith(("_PACK", "_HC")) and m[2] not in reach
+                if not ui_string and (m.group(2) not in late or (ty and ir_bytes(ty[1]) in (4, 8, 16, 32))):   # (snd5: a struct's too)
                     return m.group(0)
             aligns[m.group(2)] = int(m.group(4))
             return f'{m.group(1)}, section ".rodata.n.{m.group(2)}"{m.group(3)}'
@@ -455,9 +497,19 @@ def build_app():
             # addresses recorded anew: the sound moves by what grew before it, not by the compiler's new order (=1: the
             # compiler's order, which a change elsewhere can reshuffle by tens of KB)
             keep = [n for _, f, n in layout_read() if f in "@a-"] if repin == "keep" and LAYOUT.exists() else []
+            if keep and (FW / "src" / "seq_fit.c").exists():
+                # FIT's new out-of-line clock is called from RAM audio code: keep it near seq_step,
+                # not among new functions after the tables, beyond pi32v2's short-call reach.
+                clocks = ["fit_valid", "fit_value_span", "fit_span", "fit_step_samples", "step_samples"]
+                keep = [name for name in keep if name not in clocks]
+                at = keep.index("seq_step") if "seq_step" in keep else 0
+                keep[at:at] = clocks
             compile_hot([])
             LAYOUT_LD.write_text("".join(f"*(.text.{n})\n" for n in keep) + "*(.text*)\n")
-            mapt, syms = link()
+            # This preliminary link has not packed UI tables into the audio
+            # layout's holes yet. Use the same enlarged probe as below; the
+            # final link and package budgets still enforce the real app slot.
+            mapt, syms = link(probe=True)
             layout_record(mapt, syms, reach)
             rows = layout_read()          # (the merged constants' place once the UI's tables have left .rodata)
             compile_hot(rows)
@@ -468,9 +520,12 @@ def build_app():
             layout_write([f"{(symt[n] - APP_XIP) if f in 'cr' and n in symt else o:06x} {f} {n}" for o, f, n in rows])
         rows = layout_read()
         aligns = compile_hot(rows)
+        layout_room(rows, objs)
         layout_ld(rows)
         mapt, syms = link(probe=True)
-        fills, hole, lost = layout_fills(rows, sym_table(syms), map_inputs(mapt), aligns)
+        fills, hole, lost = layout_fills(rows, sym_table(syms), map_inputs(mapt), aligns, reach)
+        print(f"layout packing: {hole} B gaps, {lost} B padding, {sum(map(len, fills.values()))} UI tables/strings packed", flush=True)
+        print("UI string candidates:", sum(1 for n in aligns if n.startswith(".str")), flush=True)
         layout_ld(rows, fills)
         mapt, syms = link()
         moved = layout_check(rows, mapt, sym_table(syms))
@@ -502,17 +557,28 @@ def build_app():
     img = bytearray((OUT / "text.bin").read_bytes())
     # .ram_text, .c1_text (0.6.71: the second core's loop), .hot_text (0.6.78: core 0's hot audio code) and .data follow .text at their load addresses; crt0 copies
     # them by words
-    for sect, lname in (("ramtext.bin", "_rt_load"), ("c1text.bin", "_c1t_load"), ("hottext.bin", "_hot_load"),
-                        ("data.bin", "_data_load")):
-        load = symv(lname)
-        if load % 4:
-            raise SystemExit(f"{lname} {load:#x} is not word aligned")
+    # (V10.6z5) packed: app.ld links their load images outside the flash (PACKED); here one LZ4 block each
+    # (tools/lz4blk.py compress_small), one after the other from _etext on (the end of .text), in this order; main.c
+    # fm1_cstart unpacks them into their sections (firmware/src/boot_lz4.h). Each block is unpacked here as boot_lz4
+    # does it and must give its section back byte for byte
+    load = symv("_etext")
+    if load % 4 or load - APP_XIP != len(img):
+        raise SystemExit(f"_etext {load:#x}: not word aligned or not the end of .text")
+    stream, raw_total = bytearray(), 0
+    for sect, lo, hi in (("ramtext.bin", "_rt_start", "_rt_end"), ("c1text.bin", "_c1t_start", "_c1t_end"),
+                         ("hottext.bin", "_hot_start", "_hot_end"), ("data.bin", "_data_start", "_data_end")):
         blob = (OUT / sect).read_bytes() if (OUT / sect).exists() else b""
-        if blob:
-            if load - APP_XIP < len(img):
-                raise SystemExit(f"{lname} overlaps the image")
-            img += b"\xff" * (load - APP_XIP - len(img))
-            img += blob
+        if len(blob) != symv(hi) - symv(lo):
+            raise SystemExit(f"{sect}: {len(blob)} B, its section {lo}..{hi} {symv(hi) - symv(lo)} B")
+        at = len(stream)
+        stream += lz4blk.compress_small(blob) if blob else b""
+        back, end = lz4blk.boot_unpack(bytes(stream), at, len(blob))
+        if back != blob or end != len(stream):
+            raise SystemExit(f"{sect}: its LZ4 block does not unpack to it (boot_lz4)")
+        raw_total += len(blob)
+    (OUT / "boot_lz4.bin").write_bytes(stream)   # (tests/boot_lz4_test.c unpacks it with boot_lz4.h)
+    img += stream
+    print(f"boot: RAM code and data {raw_total} B packed to {len(stream)} B (LZ4, unpacked by fm1_cstart)")
     img += b"\xff" * (-len(img) % 4)
     bt_segment(img, symv)
     (OUT / "felucca.bin").write_bytes(img)
@@ -725,6 +791,7 @@ def check(img, syms, dis, rt):
     pool = sym("_pool_end") - sym("_pool_start")
     pool_top = max(sym("_pool_end"), sym("_c1_stack_hi"))   # (the second core's stacks after the pool)
     notes.append(f"image {len(img)} B of the {APP_SLOT} B slot ({APP_SLOT - len(img)} B free); RAM .data+.bss {bss} B of 98304; pool {pool} B, spare {POOL_END - pool_top} B")
+    notes.append(f"LOWBUF {sym('_low_end') - sym('_low_start')} B of 32768 B (linker-enforced)")
     if bss > 96 * 1024:
         errors.append("RAM region overflow")
     if POOL_END - pool_top < 8192:                # keep >= 8 KiB of the pool spare
@@ -864,3 +931,5 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+

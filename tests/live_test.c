@@ -439,10 +439,11 @@ static int pages(void)
     press(B_GLO); frame();
     ok = str_eq(cur_page()->title, "MIXER");
     turn(EN_SELECT, -1); frame();
-    ok &= str_eq(cur_page()->title, "RIELES") && crumb_is("GLO \xB7 LIVE \xB7 RIELES", "2/9");
+    ok &= str_eq(cur_page()->title, "RIELES") && crumb_is("GLO \xB7 LIVE \xB7 RIELES", "2/11");   /* (e3c9e26, 2026-11-04: KEY
+                                                         * SPLIT and KEY SPLIT 2 under SYSTEM, 11 pages; was 9) */
     turn(EN_SELECT, -1); frame();
     turn(EN_SELECT, -1); frame();
-    ok &= str_eq(cur_page()->title, "MANO") && crumb_is("GLO \xB7 LIVE \xB7 MANO", "1/9") && tabs_lit(&k) == 5u && !k &&
+    ok &= str_eq(cur_page()->title, "MANO") && crumb_is("GLO \xB7 LIVE \xB7 MANO", "1/11") && tabs_lit(&k) == 5u && !k &&
           song.grid == 3;
     bad += check("GLO: MIXER at power-on; SELECT back RIELES, MANO (the chain's first, LIVE · five tabs)", ok);
     ui_power_on();

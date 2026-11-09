@@ -268,7 +268,7 @@ static void eco_draw(int32_t x0, int32_t y0, int words)
                        hud ? T_TEXT : T_MID, T_SURF);   /* (0.9.0 HUD: TEXT, over the beings; 0.9.7: a mutation, white) */
     }
 words:
-    if (UMB_ON && words && !ui.hset[0] && !umw_gone()) {   /* (UMBRA OBSCURA) WELCOME: its page in the middle of what the
+    if (UMB_ON && words && !ui.hset[0] && !umw_hid()) {   /* (UMBRA OBSCURA) WELCOME: its page in the middle of what the
                                                          * header and the footer leave, every skin (COLORS: in the panel,
                                                          * under the bare row; HUD, AIR: on the screen's y), outlined over the
                                                          * plate (ui_umbra_welcome.c) */
@@ -321,7 +321,7 @@ static void being_fig(uint32_t c, int32_t cx, int32_t cy, int32_t k)
     else
         being_lines(g, &f, cx * 16, cy * 16, 30 * k * (256 + eco.en[c] / 3) / 256, eco.en[c], eco.tm[c] + c * 20000u);
 }
-static void graph_home_being(void)
+static __attribute__((noinline)) void graph_home_being(void)
 {
     uint32_t c = song.sel % NTRK, k;
     int32_t cx = 120, cy = 68;

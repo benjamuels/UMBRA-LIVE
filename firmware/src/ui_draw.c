@@ -1299,7 +1299,7 @@ static __attribute__((noinline)) void comp_columns(void)
             return;
         }
         text_column(0, "ACTION", CA_NAMES[a], a ? VAL(0u) : T_DIM);
-        if (a && a != CA_JUMP) {
+        if (a) {
             fmt_int(val, (int32_t)gc->len + 1);
             hot_unit_column(1, "LENGTH", val, "ST");   /* (gen3: "32 ST" in M) */
         } else
@@ -1321,9 +1321,9 @@ static __attribute__((noinline)) void comp_columns(void)
         uint32_t a = comp_view(), k = comp_slot(), c = CO_COND(k ? cs->comp2 : cs->comp), l = cs->clen[k & 1u];
         char lb[10], un[8];
         text_column(0, k ? "ACTION 2" : "ACTION", CA_NAMES[a], a ? VAL(0u) : T_DIM);
-        if (a && a != CA_JUMP) {
+        if (a) {
             fmt_int(val, (int32_t)(l < CL_MAX ? l + 1u : 1u));
-            hot_unit_column(1, "LENGTH", val, "ST");
+            hot_unit_column(1, "LENGTH", val, a == CA_RAMP && (comp_arg(cs) & CV_RAMP_BARS) ? "BAR" : "ST");
         } else
             text_column(1, "LENGTH", "-", T_DIM);
         if (a) {
@@ -1387,6 +1387,11 @@ static void draw_columns(void)
         }
         return;
     }
+    if (cur_page()->graph == GR_SWARM) {               /* (V10.6z6) EDIT > SWARM, SWARM 2 (ui_dx.c) */
+        if (bt_hw_seg())
+            sw_ui_cards_bt(cur_page());
+        return;
+    }
     if (cur_page()->graph == GR_LIVE) {                /* (p2) GLO > LIVE (ui_live.c) */
         live_cards();
         return;
@@ -1428,32 +1433,44 @@ static void draw_columns(void)
         dx_kit3_cards();
         return;
     }
-    if (SONG_TRK(cur_page())) {                        /* (beta5) TIMELINE: ROW LANE, then SECT BARS or FROM VAR */
-        uint32_t row = ui.song_row < chain_config.count ? ui.song_row : chain_config.count - 1u, k = ui.song_tk, s, v;
+    if (SONG_PARTS(cur_page())) {                      /* (V10.6o) PARTS: PART, its ROW in the song, its loop's BARS, PLAY */
+        uint32_t s = ui.part & 3u, r = ui.song_row;
+        val[0] = (char)('A' + s); val[1] = 0;
+        hot_text_column(0, "PART", val);
+        if (r < chain_config.count && chain_config.row[r].slot == s) fmt_frac(val, (int32_t)r + 1, (int32_t)chain_config.count);
+        else str_cpy(val, "--", sizeof val);
+        text_column(1, "ROW", val, val[0] != '-' ? VAL(1u) : T_DIM);
+        if (song_bars(s)) fmt_int(val, (int32_t)song_bars(s));
+        else str_cpy(val, "--", sizeof val);
+        text_column(2, "BARS", val, T_DIM);
+        text_column(3, "PLAY", live.mode ? "SONG" : "LOOP", VAL(3u));
+        return;
+    }
+    if (SONG_CLIPS(cur_page())) {                      /* (V10.6s) CLIPS: TRACK, PART (the cell), SONG REC */
+        val[0] = 'T'; val[1] = (char)('1' + song.sel % NTRK); val[2] = 0;
+        hot_text_column(0, "TRACK", val);
+        val[0] = (char)('A' + (ui.part & 3u)); val[1] = 0;
+        text_column(1, "PART", val, VAL(1u));
+        empty_column(2);
+        text_column(3, "REC", live.srec ? "ON" : "OFF", live.srec ? T_ACCENT : T_DIM);
+        return;
+    }
+    if (SONG_TRK(cur_page())) {                        /* (V10.6o) TIMELINE: ROW, SECT, BARS, the ALGORITHM track's VAR */
+        uint32_t row = ui.song_row < chain_config.count ? ui.song_row : chain_config.count - 1u, v;
         if (!chain_config.count) {
             hot_text_column(0, "ROW", "--");
             empty_column(1); empty_column(2); empty_column(3);
             return;
         }
-        s = chain_config.row[row].slot & 3u;
         fmt_frac(val, (int32_t)row + 1, (int32_t)chain_config.count);
         hot_text_column(0, "ROW", val);
-        if (!k) str_cpy(val, "SEC", sizeof val);
-        else { val[0] = 'T'; val[1] = (char)('0' + k); val[2] = 0; }
-        text_column(1, "LANE", val, VAL(1u));
-        if (!k) {
-            val[0] = (char)('A' + s); val[1] = 0;
-            text_column(2, "SECT", val, VAL(2u));
-            fmt_int(val, chain_config.row[row].bars);
-            text_column(3, "BARS", val, VAL(3u));
-            return;
-        }
-        v = song_idx.tsrc[song_cur][row] >> (3u * (k - 1u)) & 7u;
-        if (!v) { str_cpy(val, "ROW ", sizeof val); val[4] = (char)('A' + s); val[5] = 0; }
-        else { val[0] = (char)('A' + v - 1u); val[1] = 0; }
-        text_column(2, "FROM", val, v ? VAL(2u) : T_DIM);
-        v = row_var(row, k - 1u);
-        text_column(3, "VAR", RV_NAME[v < RV_N ? v : 0], v ? VAL(3u) : T_DIM);
+        val[0] = (char)('A' + (chain_config.row[row].slot & 3u)); val[1] = 0;
+        text_column(1, "SECT", val, VAL(1u));
+        fmt_int(val, chain_config.row[row].bars);
+        text_column(2, "BARS", val, VAL(2u));
+        v = row_var(row, song.sel % NTRK);
+        val[0] = 'T'; val[1] = (char)('1' + song.sel % NTRK); str_cpy(val + 2, " VAR", 5);
+        text_column(3, val, RV_NAME[v < RV_N ? v : 0], v ? VAL(3u) : T_DIM);
         return;
     }
     if (cur_page()->graph == GR_SONG) {
@@ -1493,7 +1510,10 @@ static void draw_columns(void)
         else if (r) { val[0] = 'x'; fmt_int(val + 1, r); }
         else str_cpy(val, "TO 64", sizeof val);
         gauge_column(1, "REPEAT", val, r != 1 ? VAL(1u) : T_DIM, (int32_t)shp_r * 1000 / 8);
-        if (ndg_step) {                                  /* (V10.25) red: the cursor step's MICRO (64ths) */
+        if (ndg_step == 2u) {                            /* (V10.7.4) the cursor step moved by steps */
+            val[0] = 'S'; fmt_int(val + 1, (int32_t)(ui.cursor % NSTEP) + 1);
+            text_column(2, "NUDGE", val, T_REC);
+        } else if (ndg_step) {                           /* (V10.25) red: the cursor step's MICRO (64ths) */
             int32_t m = ST_MICRO(&TSEL->step[ui.cursor % NSTEP]);
             val[0] = m > 0 ? '+' : 0;
             fmt_int(val + (m > 0), m);
@@ -1640,6 +1660,41 @@ static void draw_columns(void)
         empty_column(3);
         return;
     }
+    if(cur_page()->graph==GR_LYRSTEP) {
+        char label[20];uint32_t pos=lyric_pick(label);
+        fmt_int(val,(int32_t)ui.cursor+1);hot_text_column(0,"STEP",val);
+        hot_text_column(1,"WORD",label[0]?label:"NO TEXT");
+        fmt_int(val,lyric_syl);hot_text_column(2,"SYLLABLE",pos?val:"AUTO");
+        draw_act_column(3,"PLACE",T_THEME,ICON_AUTO);
+        return;
+    }
+    if(cur_page()->graph==GR_TRACKGEN) {trackgen_cards();return;}
+    if (SPLIT_PAGE(cur_page())) {
+        static const char *const labels[8] = {"SPLIT", "LOW TRK", "HIGH TRK", "KEY CUT", "LOW OCT", "HIGH OCT", "MIDI CH", "MIDI CUT"};
+        for (uint32_t c = 0; c < 4; c++) {
+            uint32_t x = (cur_page()->graph == GR_SPLIT2 ? 4u : 0u) + c, f = split_field(c);
+            int32_t v = split_value(f) + (f == 1u || f == 2u || f == 3u || f == 6u);
+            fmt_int(val, v);
+            hot_text_column(c, labels[x], f ? val : split_cfg[0] ? "ON" : "OFF");
+        }
+        return;
+    }
+    if (FIT_PAGE(cur_page())) {
+        pf_column(0, "LEN", &TP[P_SLEN], TSEL->p[P_SLEN], T_TEXT, ICON_AUTO);
+        fmt_int(val, (int32_t)fit_span(TSEL));
+        hot_gauge_column(1, "SPAN", val, (int32_t)(fit_span(TSEL) - 1u) * 1000 / 63);
+        hot_text_column(2, "FIT", TSEL->seq_fit & 128u ? "ON" : "OFF");
+        pf_column(3, "DIV", &TP[P_SDIV], TSEL->p[P_SDIV], T_TEXT, ICON_AUTO);
+        return;
+    }
+    if (cur_page()->graph == GR_SONGSAVE) {
+        fmt_int(val, (int32_t)song_save_target + 1);
+        hot_gauge_column(0, "DEST", val, song_save_target * 1000 / (NSONG_USE - 1u));
+        text_column(1, "SCOPE", song_save_loop ? "LOOP" : "SONG", T_TEXT);
+        empty_column(2);
+        draw_act_column(3, "SAVE", T_THEME, ICON_AUTO);
+        return;
+    }
     if (cur_page()->graph == GR_SLOTS) {                 /* (0.6.12) PROJECT, SECT A-D, then LOAD and SAVE */
         uint32_t k = (uint32_t)song.g[G_SLOT] - 1u;
         int used = graph_project_used(k);
@@ -1648,12 +1703,11 @@ static void draw_columns(void)
             hot_gauge_column(0, "SECT", val, (int32_t)(k & 3u) * 1000 / 3);
             draw_act_column(1, "ERASE", used ? T_THEME : T_DIM, ICON_AUTO);   /* (V10.17; the name: the card) */
         } else {
-            fmt_int(val, (int32_t)song_cur + 1);
-            hot_gauge_column(0, "PROJECT", val, (int32_t)song_cur * 1000 / (int32_t)(NSONG_USE - 1u));
-            val[0] = (char)('A' + (k & 3u)); val[1] = 0;
-            hot_gauge_column(1, "SECT", val, (int32_t)(k & 3u) * 1000 / 3);
+            fmt_int(val, (int32_t)(song_draft ? song_save_target : song_cur) + 1);
+            hot_gauge_column(0, "PROJECT", val, (int32_t)(song_draft ? song_save_target : song_cur) * 1000 / (int32_t)(NSONG_USE - 1u));
+            draw_act_column(1, "ERASE", T_THEME, ICON_AUTO);
         }
-        draw_act_column(2, "LOAD", used ? T_THEME : T_DIM, ICON_AUTO);
+        draw_act_column(2, "LOAD", used || (save_level() == SV_LIB && song_draft) ? T_THEME : T_DIM, ICON_AUTO);
         draw_act_column(3, "SAVE", T_THEME, ICON_AUTO);
         return;
     }
@@ -1710,7 +1764,7 @@ static void draw_columns(void)
         fmt_int(val, (int32_t)mod_ui_slot + 1);
         draw_column(0, "SLOT", val, "/4", VAL(0u), (int32_t)mod_ui_slot * 1000 / 3, mod_src_icon(MS_OFF));   /* (the mod icon) */
         text_column(1, "SRC", N_MSRC[clamp(s, 0, MS_N - 1)], s ? VAL(1u) : T_DIM);
-        text_column(2, "DEST", mod_dst_name(t, d), d ? VAL(2u) : T_DIM);
+        text_column(2, mod_dst_scope(t, d) == 'M' ? "MASTER" : mod_dst_scope(t, d) == 'V' ? "VOICE" : "TRACK", mod_dst_name(t, d), d ? VAL(2u) : T_DIM);
         pf_column(3, "AMT", &TP[id + 2u], a, a ? VAL(3u) : T_DIM, mod_src_icon(MS_OFF));
         return;
     }
@@ -1739,7 +1793,7 @@ static void draw_columns(void)
     }
     if (cur_page()->scope == SC_STEP && drum_track(TSEL)) {   /* the grid: STEP LANE HIT ACC */
         const step_t *st = &seq_steps(TSEL)[ui.cursor];
-        uint32_t b = 1u << ui.lane, on = (step_lanes(st) & b) != 0u, ac = (step_accents(st) & b) != 0u;
+        uint32_t b = 1u << ui.lane, on = (step_lanes_of(TSEL,st) & b) != 0u, ac = (step_accents_of(TSEL,st) & b) != 0u;
         char sn[8], sl[8];
         fmt_int(sn, (int32_t)ui.cursor + 1);
         str_cpy(sl, "/", 8);
@@ -1883,127 +1937,23 @@ static void draw_columns(void)
 #define SPL_TY 186                                  /* the two lines under it */
 static const char *const SPLASH_LINES[] = {FELUCCA_VERSION, "by Juan Jiant"};
 static uint8_t spl_anim;                            /* main.c: 1 = the signature to be written (splash_write) */
-static int32_t sig_seg(uint32_t i)                  /* segment i -> i + 1's length, px (0: a stroke starts at i + 1) */
+/* (V10.6k) the logo (ui_signature.h, tools/gen_logo.py: "jiant fm" in the owner's pen, a point every ~3 px) up to point
+ * n (>= SIG_N: whole), a round pen 5 px wide, solid, in the thermal scale as it is written (violet to red, orange,
+ * yellow), the pen's tip white while it writes (V10.6n: was an outline filled at the end). Nothing computed but
+ * the colour: no curves, no creatures (the 0.5.2 signature and its beings were ~1.9 KB) */
+static uint16_t sig_col(uint32_t i)                 /* the thermal scale along the writing: violet, red, orange, yellow */
 {
-    int32_t dx = SIG_PTS[2u * i + 2u] - SIG_PTS[2u * i], dy = (SIG_PTS[2u * i + 3u] & 127) - (SIG_PTS[2u * i + 1u] & 127);
-    if (SIG_PTS[2u * i + 3u] & 128u)                /* (y's bit 7: a stroke starts) */
-        return 0;
-    dx = dx < 0 ? -dx : dx;
-    dy = dy < 0 ? -dy : dy;
-    return dx > dy ? dx + dy / 2 : dy + dx / 2;
+    return ux.mono || settings.palette == UI_BW_INDEX ? T_TEXT : heat_col(24 + (int32_t)(i * 220u / SIG_N));
 }
-static int32_t sig_len(void)
+static void splash_sig(uint32_t n)
 {
-    static int32_t n;
     uint32_t i;
-    if (!n)
-        for (i = 0; i + 1u < SIG_N; i++)
-            n += sig_seg(i);
-    return n;
-}
-/* (0.5.2) the stroke point j of the signature, smoothed (1 4 6 4 1 over its neighbours inside its stroke [s, e],
- * the ends kept), Q4 */
-static void sig_pt(uint32_t j, uint32_t s, uint32_t e, int32_t *x, int32_t *y)
-{
-    static const uint8_t W[5] = {1, 4, 6, 4, 1};
-    int32_t k, sx = 0, sy = 0;
-    if (j == s || j == e) {
-        *x = SIG_PTS[2u * j] * 16;
-        *y = (SIG_PTS[2u * j + 1u] & 127) * 16;
-        return;
-    }
-    for (k = -2; k <= 2; k++) {
-        int32_t i = (int32_t)j + k;
-        uint32_t m = (uint32_t)(i < (int32_t)s ? (int32_t)s : i > (int32_t)e ? (int32_t)e : i);
-        sx += W[k + 2] * SIG_PTS[2u * m];
-        sy += W[k + 2] * (SIG_PTS[2u * m + 1u] & 127);
-    }
-    *x = sx;                                            /* (/16 x 16: Q4) */
-    *y = sy;
-}
-/* (0.5.2) the splash's creatures: three beings swimming in from outside, round the signature, warmer as it is
- * written (w 0..256), pulsing once it is; granules of cytoplasm drifting. Nothing kept: all from ms */
-static void splash_beings(uint32_t ms, int32_t w)
-{
-    static const uint8_t SP[3] = {0, 1, 7};
-    uint32_t k, in = ms < 500u ? ms * 256u / 500u : 256u;
-    int32_t pulse = ms > SPL_WRITE ? bg_sin((ms - SPL_WRITE) * 200u) >> 8 : 0;   /* (+-128 once written) */
-    for (k = 0; k < 18u; k++) {                         /* the cytoplasm */
-        uint32_t h = k * 2654435761u;
-        int32_t gx = (int32_t)(((h >> 8) % 240u + ms * (1u + (h >> 29)) / 40u) % 240u);
-        int32_t gy = 4 + (int32_t)(((h >> 16) % 112u) + (uint32_t)(bg_sin(ms * 90u + h) >> 13) + 8u) % 116;
-        cv_rect(gx, gy, 1 + (int32_t)(h >> 31), 1 + (int32_t)(h >> 31), ux_mix(T_BG, T_THEME, 18 + (int32_t)(h >> 29) * 4));
-    }
-    for (k = 0; k < 3u; k++) {
-        const genome_t *g = &GENOME[SP[k]];
-        uint32_t a = ms * (44u + k * 9u) + k * 21845u;  /* (round the signature, each its own speed) */
-        int32_t far = 256 + (int32_t)(256u - in) * 3 / 2;   /* (from outside the screen, in the first 0.5 s) */
-        int32_t cx = 120 * 16 + ((((108 * 16) * bg_sin(a + 0x4000u)) >> 15) * far >> 8);   /* (round the edges) */
-        int32_t cy = 62 * 16 + ((((54 * 16) * bg_sin(a)) >> 15) * far >> 8) + (bg_sin(ms * 260u + k * 9000u) >> 11);
-        int32_t r = (6 + (int32_t)k) * 16, en = w * 60 / 256 + (pulse > 0 ? pulse / 2 : 0);   /* (small, cool: behind) */
-        bfeat_t f = {g->k0 + g->kk / 2, 110 + pulse / 3, 90, g->lob, 1 + (int32_t)(k & 1u), 90, 0, 40};
-        r = r * (256 + (bg_sin(ms * 180u + k * 15000u) >> 10) + en / 3) / 256;   /* (it breathes, it swells) */
-        being_lines(g, &f, cx, cy, r, en, ms * 220u + k * 20000u);
-    }
-}
-/* the signature up to px of its length (>= sig_len(): whole) at ms after the start: beings behind it; each stroke a
- * smooth curve (Catmull-Rom through its smoothed points, 4 steps a span), the pen round, thin at a stroke's ends and
- * full in its middle; the pen's tip a glowing nucleus (0.5.2: it was straight segments of a 2 px pen) */
-static void splash_sig(int32_t px, uint32_t ms)
-{
-    int32_t tot = sig_len(), acc = 0, x0 = (240 - SIG_W) / 2 * 16, y0 = 6 * 16, tipx = -1, tipy = 0;
-    uint32_t s = 0, e, j, q;
-    int mono = ux.mono || settings.palette == UI_BW_INDEX;
     cv_begin(240, SIG_H + 12, T_BG);
-    if (!mono)
-        splash_beings(ms, px >= tot ? 256 : px * 256 / (tot ? tot : 1));
-    while (s < SIG_N && acc < px) {
-        for (e = s + 1u; e < SIG_N && !(SIG_PTS[2u * e + 1u] & 128u); e++) {}
-        e--;                                            /* the stroke: points s .. e */
-        for (j = s; j < e && acc < px; j++) {
-            int32_t L = sig_seg(j), p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, lx, ly;
-            sig_pt(j > s ? j - 1u : j, s, e, &p0x, &p0y);
-            sig_pt(j, s, e, &p1x, &p1y);
-            sig_pt(j + 1u, s, e, &p2x, &p2y);
-            sig_pt(j + 2u <= e ? j + 2u : e, s, e, &p3x, &p3y);
-            lx = p1x;
-            ly = p1y;
-            for (q = 1; q <= 4u; q++) {                  /* Catmull-Rom, t = q / 4 (Q8) */
-                int32_t t = (int32_t)q * 64, t2 = t * t >> 8, t3 = t2 * t >> 8, part = acc + L * (int32_t)q / 4;
-                int32_t cxp = (2 * p1x * 256 + (p2x - p0x) * t + (2 * p0x - 5 * p1x + 4 * p2x - p3x) * t2 +
-                               (3 * p1x - p0x - 3 * p2x + p3x) * t3) >> 9;
-                int32_t cyp = (2 * p1y * 256 + (p2y - p0y) * t + (2 * p0y - 5 * p1y + 4 * p2y - p3y) * t2 +
-                               (3 * p1y - p0y - 3 * p2y + p3y) * t3) >> 9;
-                int32_t u = (int32_t)(j - s) * 256 / (int32_t)(e - s ? e - s : 1u) + (int32_t)q * 64 / (int32_t)(e - s ? e - s : 1u);
-                int32_t wd = 6 + (bg_sin((uint32_t)u * 128u) * 13 >> 15);   /* (half width, Q4: thin ends, full middle) */
-                int32_t dx = cxp - lx, dy = cyp - ly, dl = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
-                uint16_t c = mono ? T_TEXT : heat_col(24 + (part < px ? part : px) * 220 / (tot ? tot : 1));
-                if (part > px)                          /* (the pen is here) */
-                    q = 4u;
-                if (dl) {
-                    int32_t nx = -dy * wd / dl, ny = dx * wd / dl;
-                    og_line(x0 + lx, y0 + ly, x0 + cxp, y0 + cyp, c);
-                    if (wd > 3) {
-                        og_line(x0 + lx + nx, y0 + ly + ny, x0 + cxp + nx, y0 + cyp + ny, c);
-                        og_line(x0 + lx - nx, y0 + ly - ny, x0 + cxp - nx, y0 + cyp - ny, c);
-                    }
-                }
-                lx = cxp;
-                ly = cyp;
-            }
-            acc += L;
-            if (acc > px) {
-                tipx = x0 + lx;
-                tipy = y0 + ly;
-            }
-        }
-        s = e + 1u;
-    }
-    if (tipx >= 0 && !mono) {                           /* the pen's tip: a nucleus, glowing */
-        bg_ring(tipx, tipy, 48, heat_col(200));
-        bg_ring(tipx, tipy, 24, heat_col(250));
-    } else if (tipx >= 0) {
-        cv_rrect(tipx / 16 - 2, tipy / 16 - 2, 5, 5, 2, T_TEXT, T_BG);
+    for (i = 0; i < SIG_N && i < n; i++) {             /* the pen (a rounded square, 5 px), solid as it writes */
+        int32_t x = (240 - SIG_W) / 2 + SIG_PTS[2u * i], y = 6 + (SIG_PTS[2u * i + 1u] & 127);
+        uint16_t c = i + 1u == n && n < SIG_N ? T_TEXT : sig_col(i);
+        cv_rect(x - 2, y - 1, 5, 3, c);
+        cv_rect(x - 1, y - 2, 3, 5, c);
     }
     cv_blit(0, SPL_SY);
 }
@@ -2021,7 +1971,10 @@ static void draw_splash(void)
     for (k = 0; k < 2u; k++)
         cv_text_in(0, (int32_t)k * 16, 240, &AF_S, SPLASH_LINES[k], k ? T_DIM : T_MID, T_BG);
     cv_blit(0, SPL_TY);
-    splash_sig(spl_anim && !(ui_prefs & PREF_ANIM_OFF) ? 0 : 0x7FFFFFFF, SPL_WRITE);
+    if (spl_anim && !(ui_prefs & PREF_ANIM_OFF))
+        splash_sig(0);
+    else
+        splash_sig(SIG_N);
     lcd_sync();
 }
 /* main.c's splash loop: the signature as written ms after the start */
@@ -2032,7 +1985,7 @@ static void splash_write(uint32_t ms)
     if (!UMB_SPLASH)
         umb_welcome(ms);                            /* (UMBRA OBSCURA) */
     else
-        splash_sig(ms >= SPL_WRITE ? 0x7FFFFFFF : (int32_t)((int64_t)sig_len() * ms / SPL_WRITE), ms);
+        splash_sig(ms >= SPL_WRITE ? SIG_N : SIG_N * ms / SPL_WRITE);   /* (V10.6n: solid as it writes, the owner) */
     lcd_sync();
 }
 
@@ -2065,7 +2018,7 @@ static void draw_uboot(void)
  * PLAY stops it. Drawn again on each beat (seq.c's state; the header stays live) */
 #define CI_Y 88                                       /* the cells: 4 x 48 px, 8 px apart, 72 tall */
 #define CI_H 72
-static void draw_countin(void)
+static __attribute__((noinline)) void draw_countin(void)
 {
     static uint32_t shown;
     uint32_t total = cin_total, e = total - cin_left, j, sig = total * 64u + e + 1u;
@@ -2133,6 +2086,12 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "CLEAR TRACK 1?", 24);
         a[12] = (char)('1' + k % NTRK);
         break;
+    case CF_OVR_SONG:
+        str_cpy(a, "OVERWRITE PROJECT ", 24);
+        fmt_int(a + str_len(a), (int32_t)k + 1);
+        str_cpy(a + str_len(a), "?", 2);
+        str_cpy(b, song_save_loop ? "LOOP A; CLEAR B-D" : "ALL A-D + ARRANGEMENT", 24);
+        break;
     case CF_OVR_PROJ:
         str_cpy(a, "OVERWRITE PROJECT A?", 24);
         a[18] = (char)('A' + (k & 3u));
@@ -2189,6 +2148,10 @@ static void confirm_text(char *a, char *b)
         up_slot_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
         up_name(k, b);                               /* the sound stored there */
+        break;
+    case CF_ERASE_SONG:
+        str_cpy(a, "ERASE PROJECT ", 24); fmt_int(a + str_len(a), (int32_t)k + 1); str_cpy(a + str_len(a), "?", 2);
+        str_cpy(b, "ALL A-D + ARRANGEMENT", 24);
         break;
     case CF_ERASE_SECT:                              /* (V10.17) SAVE > SECTIONS > ERASE */
         str_cpy(a, "ERASE SECT A?", 24);
@@ -2575,4 +2538,5 @@ static void ui_draw_body(uint32_t counting)
         draw_tabs();
     ui.force = 0;
 }
+
 

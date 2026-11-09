@@ -252,14 +252,15 @@ static void __attribute__((noinline)) formant_word_render(track_t *t, voice_t *v
         a = (int32_t)((mac2_64(r4.a, a + (fz << 6), r4.b, y7) + mul64(r4.c, y8) + (1 << 29)) >> 30);
         y8 = y7;
         y7 = clamp(a, -(1 << 28), 1 << 28);
-        s = soft_knee(clamp((int32_t)(mac2_64(y7, og, y7 - y8, ogk) >> 21), -200000, 200000), 24000);
+        s = soft_knee(clamp((int32_t)(mac2_64(y7, og, y7 - y8, ogk) >> 23), -200000, 200000), 24000);   /* (V10.6y: as
+                                                         * formant_render's, a quarter: under the knee) */
         ph += incj;
         if (ph < incj) {                                /* a glottal period begins (the glottis shut: no step) */
             jr = (nz * jd) >> 15;
             incj = inc + (uint32_t)(incq * jr);
             shim = 32768 + (jr << 7);
         }
-        out[i] += voice_amp(s, m, i) << 1;
+        out[i] += voice_amp(s, m, i) * 23 >> 3;   /* (V10.6y: x 2.875, formant_render's) */
     }
     v->ph[0] = ph;
     v->ph[1] = (uint32_t)y7;
@@ -413,9 +414,12 @@ static void formant_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, con
         a = (int32_t)((mac2_64(r4.a, a, r4.b, y7) + mul64(r4.c, y8) + (1 << 29)) >> 30);
         y8 = y7;
         y7 = clamp(a, -(1 << 28), 1 << 28);             /* int32 state stays far from overflow */
-        s = soft_knee(clamp((int32_t)(mac2_64(y7, og, y7 - y8, ogk) >> 21), -200000, 200000), 24000);
+        /* (V10.6y, alex.knip: "AH" clipped) a quarter before the knee (>> 23, was >> 21: an open A at C4 reached 2.3x
+         * the knee, a third of its samples saturated) and x 2.875 after it (was x 2): a sung vowel peaks as ANALOG's
+         * first preset, -8.7 dB (was ~+9 dB over the other engines), no sample in the knee but CHANT's high notes */
+        s = soft_knee(clamp((int32_t)(mac2_64(y7, og, y7 - y8, ogk) >> 23), -200000, 200000), 24000);
         ph += inc;
-        out[i] += voice_amp(s, m, i) << 1;
+        out[i] += voice_amp(s, m, i) * 23 >> 3;
     }
     v->ph[0] = ph;
     v->ph[1] = (uint32_t)y7;
@@ -431,27 +435,47 @@ static void formant_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, con
 }
 
 static const preset_t FORMANT_PRESETS[] = {
-    /* VOWEL VOWL2 TALK SHIFT | BUZZ BREATH Q RAND */
-    {"CHOIR AAH", {0, 0, 0, 0, 40, 22, 60, 0}, {85, 90, 115, 95}, 0, TAG(VOX), FX(0, 70, 15, 90), PAT(5)},
-    {"VOX LEAD", {32, 0, 0, 2, 90, 8, 72, 0}, {6, 70, 105, 55}, 0, 1 | TAG(VOX), FX(0, 20, 45, 40), PAT(4)},
-    {"WOW BASS", {95, 0, 68, 0, 100, 0, 80, 0}, {0, 70, 70, 30}, 0, 1 | TAG(BASS), FX(10, 0, 10, 10), PAT(8)},
-    {"WHISPER", {0, 95, 88, 3, 50, 120, 50, 0}, {50, 90, 110, 90}, 0, TAG(VOX), FX(0, 40, 30, 70), PAT(5)},
-    /* (0.7.0) an OOH pad, a chant an octave down, a talk box lead */
-    {"OOH PAD", {80, 100, 50, 0, 55, 25, 55, 0}, {70, 90, 115, 95}, 0, TAG(VOX), FX(0, 60, 25, 85), PAT(5)},
-    {"CHANT", {20, 60, 100, -12, 70, 15, 65, 10}, {30, 90, 110, 80}, 0, TAG(VOX), FX(0, 30, 35, 75), PAT(5)},
-    {"TALK BOX", {10, 110, 40, 0, 110, 4, 85, 0}, {2, 65, 95, 40}, 0, 1 | TAG(VOX), FX(10, 10, 35, 30), PAT(4)},
+    /* VOWEL VOWL2 TALK SHIFT | BUZZ BREATH Q RAND. (V10.6i, reworked in place: the stored numbers kept, PROGRAM CHANGE
+     * too; browsed in VOICE_ORDER) LANG OFF: ENV / LFO -> FILTER and MOD CUT move the vowel (A E I O U), SHP the BUZZ */
+    {"CHOIR AAH", {0, 0, 0, 0, 40, 22, 60, 0}, {85, 90, 115, 95}, 0, TAG(VOX), FX(0, 70, 15, 90), PAT(5),
+     MODS(P_LWAVE, LW_DRIFT, P_LRATE, 36, P_LD_FLT, 6, MMOD(1, PS_MODW, PD_CUT, 40))},   /* the vowel breathes; MODW: OOH */
+    {"VOX LEAD", {32, 0, 0, 2, 90, 8, 72, 0}, {6, 70, 105, 55}, 0, 1 | TAG(VOX), FX(0, 20, 45, 40), PAT(4),
+     MODS(P_LRATE, 88, P_LFADE, 70, MMOD(1, PS_MODW, PD_VIB, 2))},          /* the wheel brings a vibrato in */
+    {"WOW BASS", {95, 0, 68, 0, 100, 0, 80, 0}, {0, 60, 80, 28}, 0, 1 | TAG(BASS), FX(10, 0, 10, 10), PAT(8),
+     MODS(P_GLIDE, 18, MMOD(1, PS_VEL, PD_SHP, 30))},                                     /* a harder note buzzes */
+    {"INIT VOWEL", {0, 64, 0, 0, 64, 10, 64, 0}, {2, 64, 127, 30}, 0, TAG(VOX), FX(0, 0, 0, 0)},
+    {"OOH PAD", {80, 100, 50, 0, 55, 25, 55, 0}, {70, 90, 115, 95}, 0, TAG(VOX), FX(0, 60, 25, 85), PAT(5),
+     MODS(P_LWAVE, LW_TRI, P_LRATE, 30, P_LD_FLT, 10, MMOD(1, PS_AT, PD_SHP, 40))},       /* O .. U, slowly; AT: buzz */
+    {"CHANT", {20, 60, 100, -12, 70, 15, 65, 10}, {30, 90, 110, 80}, 0, TAG(VOX), FX(0, 30, 35, 75), PAT(5),
+     MODS(P_LWAVE, LW_SH, P_LRATE, -5, P_LD_FLT, 18, MMOD(1, PS_RAND, PD_PAN, 30))},     /* a new vowel each beat */
+    {"TALK BOX", {10, 110, 40, 0, 110, 4, 85, 0}, {2, 65, 95, 40}, 0, 1 | TAG(VOX), FX(10, 10, 35, 30), PAT(4),
+     MODS(P_GLIDE, 12, MMOD(1, PS_MODW, PD_CUT, -40))},                                   /* MODW: the mouth */
     /* (0.8.5) WORDS (sing.c): LANG and LYRIC in WORDS(); the EDIT values POS THEME ARTIC SHIFT | BUZZ BREATH Q LOOP.
      * (0.9.8) the singers' REL longer (~190 ms to -40 dB, was ~70): a syllable's vowel carries on into the next note's
-     * consonant, as sung, not cut off by the step's gate; their ATK ~5 ms (was ~1.5): a voice's onset, no tick */
-    {"CANTOR ES", {0, 64, 0, 0, 80, 6, 72, 0}, {24, 70, 112, 72}, 0, 1 | TAG(VOX), FX(0, 10, 30, 35), PAT(4), WORDS(LG_ES, 1)},
-    {"CANTORA ES", {0, 0, 0, 4, 70, 10, 74, 0}, {26, 70, 112, 72}, 0, 1 | TAG(VOX), FX(0, 15, 30, 45), PAT(4), WORDS(LG_ES, 2)},
-    {"SINGER EN", {0, 64, 0, 0, 84, 6, 72, 0}, {24, 70, 112, 72}, 0, 1 | TAG(VOX), FX(0, 10, 30, 35), PAT(4), WORDS(LG_EN, 3)},
-    {"UTA JA", {0, 48, 0, 5, 76, 8, 74, 0}, {24, 70, 112, 70}, 0, 1 | TAG(VOX), FX(0, 15, 30, 40), PAT(4), WORDS(LG_JA, 4)},
-    {"WORD CHOIR", {0, 64, 16, 0, 45, 20, 62, 0}, {60, 90, 115, 85}, 0, TAG(VOX), FX(0, 70, 15, 90), PAT(5), WORDS(LG_ES, 5)},
-    {"SCAT EN", {0, 64, 0, 0, 96, 4, 76, 0}, {16, 60, 100, 60}, 0, 1 | TAG(VOX), FX(0, 0, 35, 30), PAT(4), WORDS(LG_EN, 17)},
-    {"ROBOT EN", {0, 64, 0, -3, 127, 0, 90, 0}, {2, 65, 120, 56}, 0, 1 | TAG(VOX), FX(10, 10, 35, 30), PAT(4), WORDS(LG_EN, 6)},
-    {"WHISPER JA", {0, 64, 0, 3, 50, 120, 52, 0}, {40, 90, 110, 80}, 0, TAG(VOX), FX(0, 40, 30, 70), PAT(5), WORDS(LG_JA, 7)},
+     * consonant, as sung, not cut off by the step's gate; their ATK ~5 ms (was ~1.5): a voice's onset, no tick.
+     * (V10.6i) their own vibrato kept (none on PITCH from here): AT / MODW on the voice (BUZZ BREATH Q) */
+    {"CANTOR ES", {0, 64, 0, 0, 80, 6, 72, 0}, {24, 70, 112, 72}, 0, 1 | TAG(VOX), FX(0, 10, 30, 35), PAT(4), WORDS(LG_ES, 1),
+     MODS(MMOD(1, PS_AT, PD_SHP, 30))},
+    {"CANTORA ES", {0, 0, 0, 4, 70, 10, 74, 0}, {26, 70, 112, 72}, 0, 1 | TAG(VOX), FX(0, 15, 30, 45), PAT(4), WORDS(LG_ES, 2),
+     MODS(MMOD(1, PS_MODW, PD_E(5), 40))},
+    {"SINGER EN", {0, 64, 0, 0, 84, 6, 72, 0}, {24, 70, 112, 72}, 0, 1 | TAG(VOX), FX(0, 10, 30, 35), PAT(4), WORDS(LG_EN, 3),
+     MODS(MMOD(1, PS_AT, PD_SHP, 30))},
+    {"UTA JA", {0, 48, 0, 5, 76, 8, 74, 0}, {24, 70, 112, 70}, 0, 1 | TAG(VOX), FX(0, 15, 30, 40), PAT(4), WORDS(LG_JA, 4),
+     MODS(MMOD(1, PS_MODW, PD_E(6), 40))},
+    {"WORD CHOIR", {0, 64, 16, 0, 45, 20, 62, 0}, {60, 90, 115, 85}, 0, TAG(VOX), FX(0, 70, 15, 90), PAT(5), WORDS(LG_ES, 5),
+     MODS(MMOD(1, PS_RAND, PD_PAN, 40))},   /* each note elsewhere */
+    {"SCAT EN", {0, 64, 0, 0, 96, 4, 76, 0}, {16, 60, 100, 60}, 0, 1 | TAG(VOX), FX(0, 0, 35, 30), PAT(4), WORDS(LG_EN, 17),
+     MODS(MMOD(1, PS_RAND, PD_SHP, 20))},   /* each syllable its colour */
+    {"ROBOT EN", {0, 64, 0, -3, 127, 0, 90, 0}, {2, 65, 120, 56}, 0, 1 | TAG(VOX), FX(10, 10, 35, 30), PAT(4), WORDS(LG_EN, 6),
+     MODS(P_LWAVE, LW_SH, P_LRATE, -10, MMOD(1, PS_LFO, PD_SHP, 30), MMOD(2, PS_LFO, PD_PAN, 30))},   /* S&H 1/16 */
+    {"WHISPER JA", {0, 64, 0, 3, 50, 120, 52, 0}, {40, 90, 110, 80}, 0, TAG(VOX), FX(0, 40, 30, 70), PAT(5), WORDS(LG_JA, 7),
+     MODS(MMOD(1, PS_RAND, PD_PAN, 40), MMOD(2, PS_RAND, PD_REV, 30))},                  /* each word elsewhere */
 };
+/* (V10.6i) the browsing order: to play, then the experiments, then INIT */
+static const uint8_t VOICE_ORDER[] = {0, 4, 1, 6, 2, 7, 8, 9, 10,   /* to play */
+                                      11, 5, 12, 13, 14,            /* experiments */
+                                      3};                           /* INIT */
+_Static_assert(sizeof VOICE_ORDER == NELEM(FORMANT_PRESETS), "VOICE's browsing order: every preset once");
 
 static const engine_t ENG_FORMANT = {
     .name = "VOICE",

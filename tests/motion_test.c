@@ -101,10 +101,10 @@ static int compact_project(void)
         for (uint32_t j = 0; j < NSTEP; j++) memcpy(&old.t[k].step[j], &before.t[k].step[j], sizeof(step10_t));
     }
     old.chain = before.chain; old.sum = proj_hash(&old, sizeof old - 4u);
-    bad += check("real FUN6 disk image migrates with FM defaults/100% chance/no motion", proj_import(&after, &old, sizeof old) &&
-        after.t[0].p[P_E0] == before.t[0].p[P_E0] && after.t[0].p[P_ED_FLT] == -50 &&
-        after.t[0].p[P_FM1_LEVEL] == 127 && !after.motion.count && step_chance(&after.t[0].step[3]) == 100u);
-    bad += check("migrated FUN6 can be written as fixed-size FUN7", proj_pack(&packed, &after));
+    memset(&after, 0x5A, sizeof after);
+    bad += check("real FUN6 disk image (retired, V10.6s) is refused, the slot untouched", !proj_import(&after, &old, sizeof old) &&
+        ((const uint8_t *)&after)[0] == 0x5Au && ((const uint8_t *)&after)[sizeof after - 1u] == 0x5Au);
+    bad += check("the project itself is written as fixed-size FUNC", proj_pack(&packed, &before));
     project_save(1); motion_clear(t); t->p[P_FM1_LEVEL] = 127; step_set_chance(&t->step[3], 100);
     project_load(1);
     bad += check("actual project save/load restores motion, chance and operator settings", motion_count(t) == 1u &&
@@ -156,6 +156,8 @@ static int fun7_89(void)
             int16_t e[8];                                          /* (DRUM's E5, ACC then, FM now: 0; LOFI's and ANALOG's */
             for (i = 0; i < 8u; i++) e[i] = before.t[k].p[P_E0 + i];   /* E values as 0.4's: core.h sound_v04) */
             sound_v04(before.t[k].engine, e);
+            if (before.t[k].engine == 3u && e[1] >= 5)            /* (0.5.4's MOTION as written, GRIT 0: project.c; V10.6d: */
+                e[4] = 64, e[5] = 0;                               /* MATH's WAVE is BYTE or FLOAT) */
             for (i = 0; i < 8u; i++)
                 ok &= after.t[k].p[P_E0 + i] == (i == 5u && trk[k].engine == ENGI_DRUM ? 0 : e[i]);
         }
@@ -826,7 +828,7 @@ static int auto_list(void)
         str_eq(ui.msg, "AUTOMATION FULL") && !act_ready());
     motion_clear(&trk[1]);
     for (i = 0; i < P_COUNT; i++)                        /* names: an id each, none of DIGITAL's, lanes on DRUM only */
-        if (ev_id_ok(t, i) && ((i >= P_FM1_ATK && i <= P_FM4_LEVEL && i != P_TCHAN && i != P_MORPH && i != P_CLEN && i != P_DXIMG && i != P_HVEL && i != P_HTIM && i != P_HGAT && i != P_HRQ) || (i >= P_LN0 && i <= P_LN7) ||
+        if (ev_id_ok(t, i) && ((i >= P_FM1_ATK && i <= P_FM4_LEVEL && i != P_TCHAN && i != P_MORPH && i != P_CLEN && i != P_DXIMG && i != P_HVEL && i != P_HTIM && i != P_HGAT && i != P_HRQ && i != P_TVEL) || (i >= P_LN0 && i <= P_LN7) ||
                                !motion_param(i)))       /* (0.6.37: SHIFT's CHANCE in DIGITAL's OP1 DEC slot) */
             break;
     bad += check("  KNOB 3's list: what motion records and the sound has (no OP ENV, no DRUM lanes off DRUM)", i == P_COUNT &&

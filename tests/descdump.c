@@ -41,7 +41,8 @@ static void js_desc(const param_desc_t *d)
         for (i = 0; i <= d->max - d->min; i++) {
             if (i)
                 putchar(',');
-            js_str(d->names[i]);
+            js_str(d->names[d->min + i]);   /* (as editor.c ED_DESC and param_format: names[] by the value itself;
+                                             * names[i] read MATH's WAVE 5..6 as "-", "-") */
         }
         putchar(']');
     } else {
@@ -227,15 +228,18 @@ int main(void)
             int32_t v = d->def, n;
             if (d->fmt != F_ENUM || !d->names || d->max <= d->min)
                 continue;
-            for (n = 0; n < 64; n++)
+            /* (G_DTIME's names grew past 64 (the ms times): a cap of 64 left a trailing comma, desc.json no JSON, and
+             * test_web.mjs stopped there; the whole range now, a comma between names) */
+            for (n = 0; n < d->max - d->min + 1; n++)
                 v = param_turn(d, v, -1);
             printf("%s[%d,%d,[", e++ ? "," : "", k < (uint32_t)P_E0 ? 0 : 1, k < (uint32_t)P_E0 ? (int)k : (int)(k - P_E0));
-            for (n = 0; n < 64; n++) {
+            for (n = 0; n < d->max - d->min + 1; n++) {
                 int32_t w = param_turn(d, v, 1);
-                js_str(d->names[v - d->min]);
+                if (n)
+                    putchar(',');
+                js_str(d->names[v]);
                 if (w == v)
                     break;
-                putchar(',');
                 v = w;
             }
             printf("]]");

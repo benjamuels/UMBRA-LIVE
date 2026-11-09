@@ -201,27 +201,51 @@ static void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
 }
 
 static const preset_t PHASE_PRESETS[] = {
-    /* name, {WAVE, WAVE2, DCW, ENV, DTN, LINE, SUB, -}, {A D S R}, fenv, mono */
-    {"BRASS", {0, 0, 30, 90, 0, 0, 0, 0}, {8, 70, 90, 40}, 0, TAG(LEAD), FX(0, 20, 20, 40), PAT(6)},
-    {"ORGAN", {3, 0, 40, 0, 0, 0, 0, 0}, {0, 127, 127, 30}, 0, TAG(KEYS), FX(0, 40, 0, 30), PAT(6)},
-    {"STRING", {0, 4, 50, 40, 12, 0, 0, 0}, {40, 90, 100, 70}, 0, TAG(PAD), FX(0, 50, 20, 60), PAT(5)},
-    {"RESO", {5, 0, 60, 60, 0, 0, 0, 0}, {0, 70, 30, 60}, 0, TAG(PLUCK), FX(0, 0, 40, 40), PAT(1)},
-    {"BELL", {6, 0, 80, 50, 0, 0, 0, 0}, {0, 95, 0, 90}, 0, TAG(BELL), FX(0, 0, 30, 70), PAT(7)},
-    {"WIRE", {4, 7, 70, 40, 7, 0, 0, 0}, {10, 80, 80, 60}, 0, TAG(LEAD), FX(15, 30, 30, 40), PAT(4)},
+    /* name, {WAVE, WAVE2, DCW, ENV, DTN, LINE, SUB, FB}, {A D S R}, fenv, mono. (V10.6i, reworked in place: the stored
+     * numbers kept, PROGRAM CHANGE and GEN's roles too: 1 2 6..10 13..15) the CZ sounds to play (the bend's brightness
+     * by velocity, MODW a vibrato that comes in late, AT on the bend), the experiments moved by the matrix (RESO DROPS
+     * BELL TOWER WIRE), a bare INIT SAW (browsed in PHASE_ORDER). The track's CUT / SHP / FILTER ENV move DCW here */
+    {"BRASS", {0, 0, 32, 90, 6, 0, 0, 0}, {20, 70, 95, 42}, 0, TAG(LEAD), FX(0, 20, 20, 40), PAT(6),
+     MODS(P_LRATE, 88, P_LFADE, 74, MMOD(1, PS_MODW, PD_VIB, 2), MMOD(2, PS_VEL, PD_CUT, 16))},
+    {"ORGAN", {3, 0, 40, 0, 0, 0, 0, 0}, {2, 40, 64, 28}, 0, TAG(KEYS), FX(0, 40, 0, 30), PAT(6),
+     MODS(P_LRATE, 70, P_LD_SHP, 3, MMOD(1, PS_MODW, PD_LRATE, 20))},          /* MODW: the rotor fast */
+    {"STRING", {0, 4, 50, 40, 12, 0, 0, 0}, {55, 90, 110, 80}, 0, TAG(PAD), FX(0, 50, 20, 60), PAT(5),
+     MODS(P_LRATE, 30, P_LD_SHP, 5, MMOD(1, PS_AT, PD_CUT, 20))},
+    {"RESO DROPS", {5, 0, 55, 90, 0, 0, 0, 0}, {0, 70, 12, 60}, 0, TAG(PLUCK), FX(0, 10, 50, 50), PAT(1),
+     MODS(MMOD(1, PS_RAND, PD_CUT, 30), MMOD(2, PS_RAND, PD_PAN, 40), MMOD(3, PS_VEL, PD_E(3), 30))},   /* each drop its
+                                                         * own resonance and place */
+    {"BELL TOWER", {6, 0, 80, 60, 9, 0, 0, 0}, {0, 95, 0, 95}, 0, TAG(BELL), FX(0, 0, 35, 70), PAT(7),
+     MODS(MENV2(0, 20, 0, 10), MMOD(1, PS_ENV2, PD_PITCH, 6), MMOD(2, PS_RAND, PD_REV, 30), MMOD(3, PS_KEY, PD_CUT, -20))},
+    {"WIRE", {4, 7, 70, 40, 7, 0, 0, 0}, {10, 80, 80, 60}, 0, TAG(LEAD), FX(15, 30, 30, 40), PAT(4),
+     MODS(P_LWAVE, LW_SH, P_LRATE, -10, P_LD_SHP, 14, MMOD(1, PS_RAND, PD_PAN, 30), MMOD(2, PS_MODW, PD_E(7), 40))},   /* S&H
+                                                         * 1/16 on the bend, MODW: the feedback */
     /* (JIANT 0.4) FB: the phase fed back */
-    {"GROWL", {0, 0, 70, 80, 0, 0, 40, 55}, {2, 70, 90, 40}, 0, 1 | TAG(BASS), FX(20, 10, 30, 30), PAT(4)},
-    {"FB BASS", {1, 0, 45, 60, 0, 0, 70, 35}, {0, 60, 60, 25}, 0, 1 | TAG(BASS), FX(10, 0, 10, 10), PAT(2)},
-    /* (0.7.0) the CZ side of it: a piano, a glass pad, a digital stab (RING), a synth bass, a vowel pad, a harp,
-     * a lead, ring keys */
-    {"CZ PIANO", {3, 0, 55, 85, 0, 0, 15, 0}, {0, 78, 30, 55}, 0, TAG(KEYS), FX(0, 20, 25, 40), PAT(6)},
-    {"GLASS PAD", {6, 5, 45, 35, 14, 0, 0, 0}, {60, 90, 115, 95}, 0, TAG(PAD), FX(0, 60, 30, 75), PAT(5), BREATHE(18, 1, 1)},
-    {"DIGI STAB", {4, 2, 75, 70, 0, 1, 0, 0}, {0, 55, 20, 40}, 0, TAG(KEYS), FX(5, 10, 45, 40), PAT(6)},
-    {"SYN BASS", {1, 0, 50, 70, 0, 0, 60, 0}, {0, 58, 50, 25}, 0, 1 | TAG(BASS), FX(8, 0, 10, 5), PAT(2)},
-    {"VOX PAD", {5, 4, 35, 30, 10, 0, 0, 0}, {70, 95, 115, 100}, 0, TAG(PAD), FX(0, 55, 25, 70), PAT(5), BREATHE(14, 0, 0)},
-    {"HARP", {3, 0, 70, 90, 0, 0, 0, 0}, {0, 85, 0, 70}, 0, TAG(PLUCK), FX(0, 15, 40, 55), PAT(3)},
-    {"PD LEAD", {0, 2, 65, 55, 9, 0, 20, 10}, {4, 70, 95, 45}, 0, 1 | TAG(LEAD), FX(10, 10, 40, 30), PAT(4)},
-    {"RING KEYS", {2, 4, 60, 60, 0, 1, 0, 0}, {0, 75, 25, 60}, 0, TAG(KEYS), FX(0, 25, 35, 50), PAT(6)},
+    {"GROWL", {0, 0, 70, 80, 0, 0, 40, 50}, {2, 70, 90, 40}, 0, 1 | TAG(BASS), FX(20, 10, 30, 30), PAT(4),
+     MODS(MMOD(1, PS_VEL, PD_E(7), 24))},                                     /* played hard: the feedback snarls */
+    {"FB BASS", {1, 0, 45, 60, 0, 0, 70, 35}, {0, 60, 60, 25}, 0, 1 | TAG(BASS), FX(10, 0, 10, 10), PAT(2),
+     MODS(MMOD(1, PS_VEL, PD_CUT, 18), P_GLIDE, 12)},
+    /* (0.7.0) the CZ side of it: a piano, a glass pad, a digital stab (RING), a vowel pad, a harp, a lead, ring keys */
+    {"CZ PIANO", {3, 0, 55, 85, 0, 0, 15, 0}, {0, 78, 30, 55}, 0, TAG(KEYS), FX(0, 20, 25, 40), PAT(6),
+     MODS(MMOD(1, PS_VEL, PD_CUT, 24), MMOD(2, PS_KEY, PD_CUT, -16))},
+    {"GLASS PAD", {6, 5, 45, 35, 14, 0, 0, 0}, {60, 90, 115, 95}, 0, TAG(PAD), FX(0, 60, 30, 75), PAT(5), BREATHE(18, 1, 1),
+     MODS(MMOD(1, PS_MODW, PD_CUT, 20))},
+    {"DIGI STAB", {4, 2, 75, 70, 0, 1, 0, 0}, {0, 55, 20, 40}, 0, TAG(KEYS), FX(5, 10, 45, 40), PAT(6),
+     MODS(MMOD(1, PS_VEL, PD_CUT, 20))},
+    {"INIT SAW", {0, 0, 64, 0, 0, 0, 0, 0}, {0, 64, 66, 20}, 0, TAG(LEAD), FX(0, 0, 0, 0)},   /* (was SYN BASS) */
+    {"VOX PAD", {5, 4, 35, 30, 10, 0, 0, 0}, {70, 95, 115, 100}, 0, TAG(PAD), FX(0, 55, 25, 70), PAT(5), BREATHE(14, 0, 0),
+     MODS(MMOD(1, PS_AT, PD_E(2), 16))},                                       /* AT: the vowel opens */
+    {"HARP", {3, 0, 70, 90, 0, 0, 0, 0}, {0, 85, 0, 70}, 0, TAG(PLUCK), FX(0, 15, 40, 55), PAT(3),
+     MODS(MMOD(1, PS_VEL, PD_CUT, 22))},
+    {"PD LEAD", {0, 2, 65, 55, 9, 0, 20, 10}, {6, 70, 100, 45}, 0, 1 | TAG(LEAD), FX(10, 10, 40, 30), PAT(4),
+     MODS(P_LRATE, 88, P_LFADE, 76, MMOD(1, PS_MODW, PD_VIB, 2), P_GLIDE, 14)},
+    {"RING KEYS", {2, 4, 60, 60, 0, 1, 0, 0}, {0, 75, 25, 60}, 0, TAG(KEYS), FX(0, 25, 35, 50), PAT(6),
+     MODS(MMOD(1, PS_VEL, PD_CUT, 18))},
 };
+/* (V10.6i) browsed: to play (the power-on pad first), the experiments, INIT */
+static const uint8_t PHASE_ORDER[] = {9, 12, 2, 8, 1, 15, 10, 13, 7, 6, 0, 14,   /* to play */
+                                      3, 4, 5,                                   /* experiments */
+                                      11};                                       /* INIT */
+_Static_assert(sizeof PHASE_ORDER == NELEM(PHASE_PRESETS), "PHASE's browsing order: every preset once");
 
 static const engine_t ENG_PHASE = {
     .name = "PHASE",

@@ -46,6 +46,8 @@ static void setup(int32_t pi, const int16_t *e)
 {
     uint32_t i;
     memset(trk, 0, sizeof trk);
+    tf_on[0] = 0;                                       /* (V10.6i: the part's FILTER from rest, a preset's F.CUT) */
+    tf_ic1[0] = tf_ic2[0] = 0;
     host_tracks_init();
     host_preset(&trk[0], eng_of(EG), pi < 0 ? 0 : (uint32_t)pi);
     if (e)
@@ -424,12 +426,14 @@ static void presets(const engine_t *e)
         ok &= r > 0.01;
         dc &= fabs(mean) < 0.01;
         for (i = 0; i < 2048u; i++) again[i] = Y[i];
-        setup((int32_t)pi, 0);
-        voice_render(48, 0.0, Y, 2048);
-        for (i = 0; i < 2048u; i++) same &= Y[i] == again[i];
         trk_note_off(&trk[0], 48);
         for (i = 0; i < (uint32_t)(FS * 8 / CTL); i++) track_render(&trk[0], b, CTL);
         for (i = 0; i < NVOICE; i++) ends &= !trk[0].v[i].active;
+        /* (V10.6i: a preset's movement, its LFO and the part's FILTER, carries its state over a held note: the same
+         * twice from silence, after the release; setup: the FILTER from rest) */
+        setup((int32_t)pi, 0);
+        voice_render(48, 0.0, Y, 2048);
+        for (i = 0; i < 2048u; i++) same &= Y[i] == again[i];
         if (r <= 0.01 || fabs(mean) >= 0.01)
             printf("  %s %s: RMS %.4f mean %+.4f\n", e->name, e->presets[pi].name, r, mean);
     }

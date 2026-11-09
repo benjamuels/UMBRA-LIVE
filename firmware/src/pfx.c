@@ -119,6 +119,7 @@ static __attribute__((noinline)) void pfx_fire(track_t *t, int arp)
 /* the values DEC- / DEC+ took out (pfx_end puts them back) */
 static int16_t pfx_keep[NTRK][4];   /* DEC, REL (DRUM: DECY); ATK; SUS (DEC-) */
 static uint32_t pfx_qon;            /* (JIANT) the effects in (quantized to the 1/16) */
+static volatile uint32_t pfx_lnow;  /* (V10.6z3) the effect the punch-in lane plays now (PF bit; the editor's PUNCH push) */
 
 static int pfx_rec_ok(void);          /* seq.c: REC armed, not a song playing */
 static uint8_t pfx_rh, pfx_rs0, pfx_rst, pfx_rold;   /* recording the lane: a press on, its first step, the step being
@@ -185,6 +186,7 @@ static __attribute__((noinline)) void pfx_block(uint32_t n, uint32_t held)
                 lane = PF_BIT(PF_OCTD + k - 1u);
         }
     }
+    pfx_lnow = lane;                                    /* (V10.6z3: the editor's PUNCH push) */
     if (!held && !pfx_any && !lane && !nw)
         return;
     pfx_any = 0;

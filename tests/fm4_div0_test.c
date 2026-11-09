@@ -10,9 +10,12 @@
  * 1. the same values: fm4_convert against the guarded form as it was (fm4_convert_ref below, as 1.0.3 had it):
  *    the patch, the returned FM6 preset and the values it leaves in p, over every INDEX x FLT ENV x a SUS / ATK
  *    grid (every ALG, op envelopes varied), then random values over every parameter's whole range.
- * 2. a 0.9 project (FUN3, as 0.9-beta stored it) with DIGITAL tracks (ORGAN, then each other DIGITAL preset)
- *    imports as FM6 with the patches the guarded form gives.
+ * 2. a project with DIGITAL tracks (ORGAN, then each other DIGITAL preset) imports as FM6 with the patches the
+ *    guarded form gives (V10.6s: FUN3, 0.9's format, is retired; the project as the RAM slot holds it).
+ * (V10.6s) The firmware no longer converts (fm4_convert.c FM4_CONVERT 0: the init patch); the conversion stays in the
+ * tree and is built here (FM4_CONVERT 1).
  * Run by tests/run_tests.sh (needs build/gen from one firmware build). */
+#define FM4_CONVERT 1
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -248,33 +251,35 @@ int main(void)
     check("random values over every parameter's range: the same as before", !diff);
     printf("    %u inputs, %u with INDEX + FLT ENV == 0\n", n_cmp, n_zero);
 
-    /* 2. 0.9 projects with DIGITAL tracks (FUN3: P_E0 at 49, no OP ENV values or matrix yet) */
+    /* 2. projects with DIGITAL tracks (the values a 0.9 FUN3 held: no OP ENV values or matrix) */
     for (k = 0; k < FM4_NPRESETS; k += PROJ_LT) {
-        static project_v3_t v3;
-        static project_t q;
+        static project_t v3, q;
         int16_t full[PROJ_LT][P_COUNT], ref[P_COUNT];
         uint8_t v[FP_SIZE + 1u], pk[FM6_PACKED];
         uint32_t t, pr, n;
         int ok;
         memset(&v3, 0, sizeof v3);
-        v3.magic = PROJ_MAGIC_V3;
+        v3.magic = PROJ_MAGIC;
         v3.size = sizeof v3;
+        chain_defaults(&v3.chain);
         for (i = 0; i < G_COUNT; i++)
             v3.g[i] = GP[i].def;
-        v3.parts = NPART;
+        v3.parts = NPART; v3.phys = PROJ_PHYS;
+        for (t = 0; t < NTRK; t++) {
+            for (i = 0; i < P_COUNT; i++)
+                v3.t[t].p[i] = param_desc_of(0, i)->def;
+            memcpy(v3.fm6[t], FM6_INIT, FM6_PACKED);
+        }
         for (t = 0; t < PROJ_LT; t++) {                   /* ORGAN PAD MARIMBA FUNK KEY, then E.PIANO BELL BASS BRASS */
             n = (k + t + 4u) % FM4_NPRESETS;
             defaults(full[t]);
             fm4_preset_values(full[t], n);
-            for (i = 0; i <= P_SLDEPTH; i++)
-                v3.t[t].p[i] = full[t][i];
-            for (i = 0; i < 8u; i++)
-                v3.t[t].p[49u + i] = full[t][P_E0 + i];
+            memcpy(v3.t[t].p, full[t], sizeof full[t]);
             v3.t[t].engine = ENGI_DIGITAL;
             v3.t[t].preset = (uint8_t)n;
         }
-        v3.sum = proj_hash(&v3, sizeof v3 - 4u);
-        ok = sizeof v3 == 2584u && proj_import(&q, &v3, (int)sizeof v3) && proj_ok(&q);
+        v3.sum = proj_sum(&v3);
+        ok = proj_import(&q, &v3, (int)sizeof v3) && proj_ok(&q);
         for (t = 0; t < PROJ_LT && ok; t++) {
             memcpy(ref, full[t], sizeof ref);
             pr = fm4_convert_ref(ref, v);
@@ -285,8 +290,8 @@ int main(void)
         if (!k)
             check("ORGAN: INDEX + FLT ENV is 0 (#61's divisor)", str_eq(DIGITAL_PRESETS[4].name, "ORGAN") &&
                   full[0][P_E4] == 0 && full[0][P_ED_FLT] == 0);
-        check(k ? "a 0.9 project (FUN3), DIGITAL E.PIANO BELL BASS BRASS: FM6, the same patches as before"
-                : "a 0.9 project (FUN3), DIGITAL ORGAN PAD MARIMBA FUNK KEY: FM6, the same patches as before", ok);
+        check(k ? "a project, DIGITAL E.PIANO BELL BASS BRASS: FM6, the same patches as before"
+                : "a project, DIGITAL ORGAN PAD MARIMBA FUNK KEY: FM6, the same patches as before", ok);
     }
     return bad ? 1 : 0;
 }

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 // fm1backup.js against a simulated device: 7-bit packing, CRC, manifest checks, a full capture,
 // validation before the first write, restore order (live music last) and abort on a failed chunk.
-import { BACKUP_IDS, BACKUP_CMD, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup } from "./fm1backup.js";
+import { BACKUP_IDS, BACKUP_IDS_8, songsNotRestored, BACKUP_CMD, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup } from "./fm1backup.js";
 
 let fails = 0;
 const ok = (c, what) => { console.log(`${what.padEnd(72)} ${c ? "ok" : "FAIL"}`); if (!c) fails++; };
@@ -20,8 +20,8 @@ function device(objs, opt = {}) {
   const d = { objs: new Map(objs), log: [], staged: null };
   d.request = async ([cmd, a]) => {
     if (cmd === BACKUP_CMD.LIST) {
-      const out = [1, 0, BACKUP_IDS.length];
-      for (const id of BACKUP_IDS) { const v = d.objs.get(id) || new Uint8Array(0); out.push(id, ...bkU32(v.length), ...bkU32(v.length ? bkCrc(v) : 0)); }
+      const ids = opt.ids || BACKUP_IDS, out = [1, 0, ids.length];
+      for (const id of ids) { const v = d.objs.get(id) || new Uint8Array(0); out.push(id, ...bkU32(v.length), ...bkU32(v.length ? bkCrc(v) : 0)); }
       return out;
     }
     if (cmd === BACKUP_CMD.GET) {
@@ -31,7 +31,7 @@ function device(objs, opt = {}) {
     }
     if (cmd === BACKUP_CMD.PUT) {
       const [op, id] = a;
-      if (op === 0 && id > (opt.maxId ?? 71)) { d.log.push(`refused ${id}`); return [op, id, 1]; }   // (an older firmware)
+      if (op === 0 && id > (opt.maxId ?? 63)) { d.log.push(`refused ${id}`); return [op, id, 1]; }   // (an older firmware)
       if (op === 0) { d.staged = { id, size: bkR32(a, 2), crc: bkR32(a, 7), bytes: [] }; return [op, id, 0]; }
       if (op === 1) {
         if (opt.failChunk === id) return [op, id, 2];
@@ -73,10 +73,10 @@ const order = target.log.filter((x) => typeof x === "number");
 ok(order.at(-1) === 0 && order.at(-2) === 1 && order.indexOf(2) < order.indexOf(1), "backup: restore order: projects, banks, settings, live music last");
 ok([0, 1, 2, 6].every((id) => target.objs.get(id).every((v, i) => v === objs.find((o) => o[0] === id)[1][i])), "backup: restored objects equal the source");
 {   /* the FM6 patch bank (id 8) and the archives of firmware before it (8 objects, no id 8) */
-  ok(BACKUP_IDS.length === 43 && file.objects.some((o) => o.id === 8) && file.objects.some((o) => o.id === 9) &&
-     file.objects.some((o) => o.id === 10) && file.objects.filter((o) => o.id >= 40).length === 32 &&
-     !file.objects.some((o) => o.id >= 32 && o.id <= 34),
-     "backup: 43 objects: id 8 (the retired FM6 bank), 9 (user presets' FM6 patches), 10 the song index, 40..71 every song's sections");
+  ok(BACKUP_IDS.length === 35 && file.objects.some((o) => o.id === 8) && file.objects.some((o) => o.id === 9) &&
+     file.objects.some((o) => o.id === 10) && file.objects.filter((o) => o.id >= 40).length === 24 &&
+     !file.objects.some((o) => o.id >= 32 && o.id <= 34) && Math.max(...BACKUP_IDS) === 63,
+     "backup: 35 objects: id 8 (the retired FM6 bank), 9 (user presets' FM6 patches), 10 the song index, 40..63 the 6 songs");
   const v3 = JSON.parse(JSON.stringify(file)); v3.objects = v3.objects.filter((o) => o.id <= 9);
   ok(readBackup(v3).objects.length === 10, "backup: an archive of Felucca 1.0.3 .. JIANT 0.2 (10 objects, no songs) still reads");
   const v2 = JSON.parse(JSON.stringify(v3)); v2.objects = v2.objects.filter((o) => o.id !== 9);
@@ -136,6 +136,25 @@ ok([0, 1, 2, 6].every((id) => target.objs.get(id).every((v, i) => v === objs.fin
   await restoreBackup(to03.request, songs);
   ok(to03.objs.get(10).length === 1328 && to03.objs.get(45).every((v, i) => v === rnd(3840, 11)[i]),
     "backup: the song index (10) and a song's section (45: song 2, section B) restore");
+}
+{   /* (V10.6p) 6 songs: a device still on 8 (an older JIANT, before the update) backs up all 43 objects, songs 7-8
+     * included; that archive onto 6 songs: 1..6 restored, 7-8 refused (nothing written) and reported; onto 8 songs all */
+  const s7 = rnd(3840, 21), s8 = rnd(3840, 22), s6 = rnd(3840, 23);
+  const old8 = device([...objs, [10, rnd(1328, 10)], [60, s6], [65, s7], [71, s8]], { ids: BACKUP_IDS_8, maxId: 71 });
+  const f8 = await captureBackup(old8.request, "V10.6o");
+  ok(f8.objects.length === 43 && f8.objects.find((o) => o.id === 65).size === 3840 && readBackup(JSON.stringify(f8)).objects.length === 43,
+    "6 songs: a backup on 8-song firmware keeps all 43 objects, songs 7-8 included");
+  const to6 = device([]), r6 = await restoreBackup(to6.request, f8);
+  ok(to6.log.includes("refused 65") && to6.log.includes("refused 71") && !to6.objs.has(65) && to6.objs.get(60).every((v, i) => v === s6[i]) &&
+     to6.objs.has(10) && to6.log.at(-1) === 0 && JSON.stringify(r6.notRestored) === "[65,71]" &&
+     JSON.stringify(songsNotRestored(r6.notRestored)) === "[7,8]",
+    "6 songs: an 8-song archive restores songs 1-6, songs 7-8 refused and reported");
+  const to8 = device([], { maxId: 71 }), r8 = await restoreBackup(to8.request, f8);
+  ok(to8.objs.get(65).every((v, i) => v === s7[i]) && !r8.notRestored.length, "6 songs: the same archive onto 8-song firmware restores all");
+  const f6 = await captureBackup(device(objs).request, "V10.6p"), back8 = device([], { maxId: 71 });
+  await restoreBackup(back8.request, f6);
+  ok(f6.objects.length === 35 && back8.log.at(-1) === 0 && !songsNotRestored([10, 9]).length,
+    "6 songs: a 6-song archive (35 objects) restores onto 8-song firmware (a downgrade)");
 }
 const failing = device([], { failChunk: 2 });
 ok(await athrows(() => restoreBackup(failing.request, file)) && failing.log.includes("abort 2") && !failing.log.includes(0), "backup: a refused chunk aborts that object and stops before the live music");

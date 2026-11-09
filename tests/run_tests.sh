@@ -176,10 +176,14 @@ $CC -o "$OUT/storage_test" tests/storage_test.c
 run "flash storage (A/B, torn writes)" "$OUT/storage_test"
 
 $CC -o "$OUT/upreset_test" tests/upreset_test.c
-run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM and SAMPLE PERC -> DRUM, grid records, DIGITAL kept)" "$OUT/upreset_test"
+run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM kept, SAMPLE PERC -> DRUM, grid records, DIGITAL kept)" "$OUT/upreset_test"
 
 $CC -o "$OUT/input_test" tests/input_test.c
 run "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders" "$OUT/input_test"
+$CC -Ibuild/gen -Ifirmware/src -o "$OUT/vel_diag_test" tests/vel_diag_test.c
+run "velocity diagnostic (V10.6z5): the scan's ADC slots, MASTER kept, drive, presses and captures on synthetic traces" "$OUT/vel_diag_test"
+$CC -Ifirmware/src -o "$OUT/boot_lz4_test" tests/boot_lz4_test.c
+run "the boot's packed RAM code (V10.6z5): LZ4 blocks back byte for byte, the build's own too" "$OUT/boot_lz4_test"
 
 $CC -o "$OUT/midi_uart_test" tests/midi_uart_test.c
 run "TRS MIDI parser" "$OUT/midi_uart_test"
@@ -246,7 +250,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     mkdir -p build/tracks_demo
     run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/project_test" tests/project_test.c -lm
-    run "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6, SAMPLE PERC -> DRUM)" "$OUT/project_test"
+    run "project formats (FUN1..FUN6 refused; FUN7..FUNC; DIGITAL tracks -> FM6 init, SAMPLE -> ANALOG)" "$OUT/project_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/motion_test" tests/motion_test.c -lm
     run "motion, whole-step chance, FUN7 migration, song restore, ARP repeat and the 1.2 ARP modes" "$OUT/motion_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/djf_test" tests/djf_test.c -lm
@@ -313,6 +317,10 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "audio: overload protection, bounded fades and DMA diagnostics" "$OUT/audio_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/click_test" tests/click_test.c -lm
     run "metronome and count-in: beats sample for sample (internal and external clock), accent, level, MASTER, not in USB, count-in timing, notes onto step 1" "$OUT/click_test"
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fit_test" tests/fit_test.c -lm
+    run "FIT: exact loop spans, live controls, projects and arrangement" "$OUT/fit_test"
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/probability_component_test" tests/probability_component_test.c -lm
+    run "step probability with SEQ and STUTTER components" "$OUT/probability_component_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/persistence_test" tests/persistence_test.c -lm
     run "persistence: deferred settings, retry and failed-save rollback" "$OUT/persistence_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/startup_test" tests/startup_test.c -lm
@@ -322,6 +330,9 @@ if [ -f build/gen/felucca_tables.h ]; then
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/editor_test" tests/editor_test.c -lm
     run "editor: real C protocol, malformed transfers, queue recovery, MENU settings (writes build/host/menu.json)" \
         env MENU_JSON="$OUT/menu.json" "$OUT/editor_test"
+    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/app_contract_test" tests/app_contract_test.c -lm
+    run "app contract: the Stems app's requests vs golden replies, 1.0 pushes, engine ids, NRPN (docs/NRPN.md)" \
+        "$OUT/app_contract_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/robust_test" tests/robust_test.c -lm
     run "robustness: engine numbers, retained old projects, preset patterns, malformed requests" \
         "$OUT/robust_test"
@@ -358,7 +369,8 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
     $CC -O2 -w -pthread -Ibuild/gen -Ifirmware/src -o "$OUT/mc_thread_test" tests/mc_thread_test.c -lm
     run "mixer: serial, deferred, real thread, delays and lost job" python3 tests/mc_thread_test.py "$OUT/mc_thread_test"
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/descdump" tests/descdump.c -lm
+    # (FM4_CONVERT 1: the DIGITAL -> FM6 conversion the editor mirrors, kept in the tree; the firmware retired it in V10.6s)
+    $CC -w -DFM4_CONVERT=1 -Ibuild/gen -Ifirmware/src -o "$OUT/descdump" tests/descdump.c -lm
     echo "== parameter and engine tables as JSON (for the editor mock test)"
     "$OUT/descdump" > "$OUT/desc.json" || fail=1
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/filter_test" tests/filter_test.c -lm
@@ -475,3 +487,4 @@ else
 fi
 
 [ $fail -eq 0 ] && echo "ALL HOST TESTS PASSED" || { echo "HOST TESTS FAILED"; exit 1; }
+

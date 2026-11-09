@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+// Portions Copyright (C) 2026 Juan Ignacio Antonucci (Juan Jiant)
 // Local, complete musical archives. Requests name whitelisted objects, never flash addresses.
 // 8: the FM6 patch bank of 1.0..1.0.2 (listed empty since 1.0.3: a restore of an older archive's bank moves its patches
 // into the user presets restored before it); 9: the user presets' FM6 patches (1.0.3).
 // 32..34 were the user sample slots (JIANT has none): an older archive's entries for them are skipped on read.
 // JIANT: 10 the song index (every song's rows and scenes), 40..71 every song's sections (40 + 4 x song + section); the
 // sections of each song are restored by its number, after 2..5 (the current song's, as before).
+// (V10.6p) 6 songs: 40..63 (35 objects). A device on an older JIANT lists 8 (40..71, 43 objects): its backup keeps
+// them all; restored onto 6 songs, songs 7 and 8 (64..71) are refused at begin (rc 1, nothing written) and reported
+// (restoreBackup's notRestored, songsNotRestored).
 const BACKUP_IDS_V3 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];                    // Felucca 1.0.3 .. JIANT 0.2, and their archives
-export const BACKUP_IDS = [...BACKUP_IDS_V3, 10, ...Array.from({ length: 32 }, (_, i) => 40 + i)];
+export const BACKUP_IDS = [...BACKUP_IDS_V3, 10, ...Array.from({ length: 24 }, (_, i) => 40 + i)];
+export const BACKUP_IDS_8 = [...BACKUP_IDS, ...Array.from({ length: 8 }, (_, i) => 64 + i)];   // JIANT 0.3 .. V10.6o: 8 songs
 const BACKUP_RETIRED = (id) => Number.isInteger(id) && id >= 32 && id <= 34;
 const BACKUP_IDS_V2 = BACKUP_IDS_V3.filter((id) => id !== 9);           // 1.0..1.0.2, and their archives
 const BACKUP_IDS_V1 = BACKUP_IDS_V2.filter((id) => id !== 8);           // firmware before FM6, and its archives
-const idsOf = (n) => [BACKUP_IDS, BACKUP_IDS_V3, BACKUP_IDS_V2, BACKUP_IDS_V1].find((ids) => ids.length === n) || null;
+const idsOf = (n) => [BACKUP_IDS_8, BACKUP_IDS, BACKUP_IDS_V3, BACKUP_IDS_V2, BACKUP_IDS_V1].find((ids) => ids.length === n) || null;
+// the song numbers (1..8) of objects a restore left out (the ids of songs' sections only)
+export const songsNotRestored = (ids) => [...new Set((ids || []).filter((id) => id >= 40).map((id) => ((id - 40) >> 2) + 1))];
 export const BACKUP_CMD = { LIST: 65, GET: 66, PUT: 67 };
 const BACKUP_CHUNK = 256;
 export const bkU32 = (n) => Array.from({ length: 5 }, (_, i) => (n >>> (i * 7)) & (i === 4 ? 15 : 127));
@@ -88,14 +95,34 @@ export function readBackup(file) {
   if (!objects[0].size || !objects[1].size) throw new Error("Backup is missing the current music or settings");
   return { ...file, objects };
 }
-export async function captureBackup(request, firmware, onProgress = () => {}) {
-  const manifest = bkManifest(await request([BACKUP_CMD.LIST, []], { timeout: 3000, retries: 0 }));
+/* (0.9.11) a manifest as the device lists it, every object kept: the archive of another firmware (Felucca with its user
+ * samples 32..34, Skiff with its pattern bank 16..31), to restore with that firmware's own editor. Ids unique, current
+ * music (0) and settings (1) there, an object at most 3840 bytes (a user sample 81920) */
+export function bkManifestAll(a) {
+  if (a[0] !== 1) throw new Error("Unsupported archive protocol");
+  bkCheck(a[1]);
+  if (a.length !== 3 + a[2] * 11) throw new Error("Incomplete archive manifest");
+  const all = Array.from({ length: a[2] }, (_, i) => {
+    const p = 3 + i * 11, o = { id: a[p], size: bkR32(a, p + 1), crc: bkR32(a, p + 6) };
+    if (o.size > (BACKUP_RETIRED(o.id) ? 81920 : 3840) || (!o.size && o.crc)) throw new Error("Archive object too large");
+    return o;
+  });
+  if (new Set(all.map((o) => o.id)).size !== all.length || all[0]?.id !== 0 || all[1]?.id !== 1) throw new Error("Unexpected archive object");
+  all.skipped = 0;
+  return all;
+}
+/* opt.complete: every object the device lists (another firmware's archive, bkManifestAll), not only JIANT's */
+export async function captureBackup(request, firmware, onProgress = () => {}, opt = {}) {
+  /* (0.9.11) longer waits and a retry (LIST and GET only read): the LIST first stops playback and packs the music */
+  const manifest = (opt.complete ? bkManifestAll : bkManifest)(await request([BACKUP_CMD.LIST, []], { timeout: 8000, retries: 1 }));
   const objects = [], total = manifest.reduce((n, o) => n + o.size, 0); let done = 0;
   for (const o of manifest) {
     const bytes = new Uint8Array(o.size);
     for (let off = 0; off < o.size; off += BACKUP_CHUNK) {
       const size = Math.min(BACKUP_CHUNK, o.size - off);
-      const a = await request([BACKUP_CMD.GET, [o.id, ...bkU32(off), size & 127, size >>> 7]], { timeout: 1000, retries: 1 });
+      /* a late reply to an earlier try names another chunk: match skips it */
+      const match = (r) => r[0] === o.id && r.length >= 7 && (() => { try { return bkR32(r, 2) === off; } catch (_) { return false; } })();
+      const a = await request([BACKUP_CMD.GET, [o.id, ...bkU32(off), size & 127, size >>> 7]], { timeout: 2500, retries: 2, match });
       bkCheck(a[1]);
       if (a[0] !== o.id || bkR32(a, 2) !== off || (a[7] | a[8] << 7) !== size) throw new Error("Unexpected backup reply");
       bytes.set(bkUnpack(a.slice(9), size), off);
@@ -105,11 +132,12 @@ export async function captureBackup(request, firmware, onProgress = () => {}) {
     objects.push({ ...o, data: bkBase64(bytes) });
   }
   const file = { format: "felucca-backup", version: 1, firmware, created: new Date().toISOString(), objects };
-  readBackup(file); return file;
+  if (!opt.complete) readBackup(file);
+  return file;
 }
 export async function restoreBackup(request, file, onProgress = () => {}) {
   const archive = readBackup(file); // Validate every byte before the first destructive request.
-  const total = archive.objects.reduce((n, o) => n + o.size, 0); let done = 0;
+  const total = archive.objects.reduce((n, o) => n + o.size, 0); let done = 0, notRestored = [];
   const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
   const put = async (args) => { const a = await ask([BACKUP_CMD.PUT, args]); bkCheck(a[2]); return a; };
   // Restore live music last. Other objects commit individually; a disconnect can leave a partial restore.
@@ -117,7 +145,7 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
     if (o.id >= 9) {                     // firmware before 1.0.3 does not take id 9, before JIANT 0.3 the songs (10, 40..71):
                                          // rc 1 at begin, nothing written: skip it
       const a = await ask([BACKUP_CMD.PUT, [0, o.id, ...bkU32(o.size), ...bkU32(o.crc)]]);
-      if (a[2] === 1) { done += o.size; onProgress(done, total); continue; }
+      if (a[2] === 1) { if (o.size) notRestored.push(o.id); done += o.size; onProgress(done, total); continue; }
       bkCheck(a[2]);
     } else await put([0, o.id, ...bkU32(o.size), ...bkU32(o.crc)]);
     try {
@@ -129,24 +157,42 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
       await put([2, o.id]);
     } catch (e) { await put([3, o.id]).catch(() => {}); throw e; }
   }
-  return archive;
+  return { ...archive, notRestored };     // (V10.6p) ids with data the firmware refused (an older one's, songs 7-8 on 6)
 }
 
 // Installer connection: no editor page or watcher owns this input simultaneously.
+// (0.9.11) opt.retries: a request that timed out is sent again (only for requests that read); opt.match: a reply of the
+// command that fails it is not this request's (a late reply to an earlier try) and is skipped
 export class BackupConnection {
   constructor(input, output) {
     this.input = input; this.output = output; this.pending = null;
     input.onmidimessage = (e) => {
       const d = e.data;
       if (d.length < 6 || d[0] !== 240 || d[1] !== 125 || d[2] !== 70 || d[3] !== 76 || d.at(-1) !== 247) return;
-      if (this.pending?.cmd === d[4]) { const p = this.pending; this.pending = null; clearTimeout(p.timer); p.resolve(Array.from(d.slice(5, -1))); }
+      const p = this.pending;
+      if (p?.cmd !== d[4]) return;
+      const body = Array.from(d.slice(5, -1));
+      if (p.match && !p.match(body)) return;
+      this.pending = null; clearTimeout(p.timer); p.resolve(body);
     };
   }
-  async request([cmd, args], opt = {}) {
-    if (this.pending || this.closed || this.input.state === "disconnected" || this.output.state === "disconnected") throw new Error("Backup connection closed or busy");
+  async request(r, opt = {}) {
+    for (let k = 0; ; k++) {
+      try { return await this.once(r, opt); }
+      catch (e) {
+        if (!e.timeout || k >= (opt.retries || 0) || this.closed) throw e;
+        await new Promise((res) => setTimeout(res, 150 * (k + 1)));
+      }
+    }
+  }
+  once([cmd, args], opt) {
+    if (this.pending || this.closed || this.input.state === "disconnected" || this.output.state === "disconnected") return Promise.reject(new Error("Backup connection closed or busy"));
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending = null; reject(new Error("Backup timed out. Keep the FM-1 connected and stopped.")); }, opt.timeout || 1200);
-      this.pending = { cmd, timer, resolve, reject };
+      const timer = setTimeout(() => {
+        this.pending = null;
+        const e = new Error("Backup timed out. Keep the FM-1 connected and stopped."); e.timeout = true; reject(e);
+      }, opt.timeout || 1200);
+      this.pending = { cmd, timer, resolve, reject, match: opt.match };
       try { this.output.send([240, 125, 70, 76, cmd, ...args, 247]); }
       catch (e) { clearTimeout(timer); this.pending = null; reject(e); }
     });

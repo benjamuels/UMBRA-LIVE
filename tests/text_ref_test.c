@@ -20,6 +20,8 @@
 static void lcd_sync(void) {}
 static void lcd_power(uint32_t s) { (void)s; }   /* (MENU > SCREEN OFF: lcd.c) */
 static void lcd_wake_now(void) {}
+static void lcd_fill(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint16_t c)
+{ (void)x;(void)y;(void)w;(void)h;(void)c; }
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
 #include "../firmware/src/gfx.c"
@@ -77,8 +79,16 @@ static uint32_t ref_gi(const aafont_t *f, uint32_t ch)      /* the glyph's numbe
  * phase: offset - gh's (10 bits), bx + 1 (3), by (6), bw (7), bh (6) */
 static aag_t ref_entry(const aafont_t *f, uint32_t gi, uint32_t ph)
 {
+    if(!f->gp) {
+        const uint8_t *p=(const uint8_t*)f->gh+gi*5u;uint64_t v=0;
+        for(uint32_t k=0;k<5;k++) v|=(uint64_t)p[k]<<(8u*k);
+        aag_t g={(uint16_t)(v%4096u),(uint16_t)(v/4096u%512u),(int8_t)(v/2097152u%8u-1),
+                 (uint8_t)(v/16777216u%32u),(uint8_t)(v/536870912u%32u),(uint8_t)(v/17179869184ull%32u)};
+        return g;
+    }
     uint32_t v = f->gp[(gi << f->psh) + ph];
-    aag_t g = {(uint16_t)(f->gh[gi].off + v % 1024u), f->gh[gi].adv, (int8_t)((int)(v / 1024u % 8u) - 1),
+    const aagh_t *gh=f->gh;
+    aag_t g = {(uint16_t)(gh[gi].off + v % 1024u), gh[gi].adv, (int8_t)((int)(v / 1024u % 8u) - 1),
                (uint8_t)(v / 8192u % 64u), (uint8_t)(v / 524288u % 128u), (uint8_t)(v / 67108864u)};
     return g;
 }
@@ -97,6 +107,10 @@ static void ref_unpack(const aafont_t *f, const aag_t *g)
 {
     uint32_t n = (uint32_t)g->bw * g->bh, k = 0, pos = 0;
     const uint8_t *d = f->data + g->off;
+    if (f->bits) {
+        for (k = 0; k < n; k++) alpha[k] = ((d[k >> 3] >> (7u-(k&7u)))&1u)*15u;
+        return;
+    }
     if (!f->hc) {
         for (k = 0; k < n; k++) alpha[k] = (d[k >> 1] >> ((k & 1u) ? 0 : 4)) & 15u;
         return;
@@ -154,12 +168,12 @@ static int32_t ref_text(int32_t x, int32_t y, const aafont_t *f, const char *s, 
 
 int main(void)
 {
-    const aafont_t *F[3] = {&AF_S, &AF_M, &AF_L};
+    const aafont_t *F[4] = {&AF_S, &AF_M, &AF_L, &AF_X};
     uint32_t n = 0, bad_px = 0, bad_pen = 0;
     for (uint32_t p = 0; p < NPALETTES; p++) {
         palette_set(p);
         for (uint32_t k = 0; k < 2u; k++)
-            for (uint32_t f = 0; f < 3u; f++)
+            for (uint32_t f = 0; f < 4u; f++)
                 for (uint32_t s = 0; s < NSTR; s++) {
                     uint16_t fg = k ? T_TEXT : T_THEME, bg = k ? T_BG : T_SURF;
                     int32_t e0, e1;
@@ -176,7 +190,7 @@ int main(void)
            n, bad_pen, bad_px, bad_pen || bad_px ? "FAIL" : "ok");
     {                                                     /* (0.9.0) every pair of codes: gfx.c's search = the scan */
         uint32_t bad_k = 0, nz = 0;
-        for (uint32_t f = 0; f < 3u; f++)
+        for (uint32_t f = 0; f < 4u; f++)
             for (uint32_t a = 0; a < 256u; a++)
                 for (uint32_t b = 0; b < 256u; b++) {
                     int32_t r = ref_kern(F[f], a, b);
@@ -208,3 +222,4 @@ int main(void)
     }
     return bad_pen || bad_px ? 1 : 0;
 }
+

@@ -650,12 +650,12 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_MESSAGE_NOFILE, S_PRESET
        S_ROLL_LOCKS, S_ROLL_LOCK_HELD, S_DRUM_LOCKS, S_DRUM_LOCK_HELD, S_MOTION_LOCKS, S_AUTO_LIST, S_AUTO_LIST_ADD, S_AUTO_LIST_DRUM, S_REC_LAYER, S_REC_LAYER_SET, S_REC_LAYER_SONG, S_MACRO_LAYER, S_MSEQ, S_DIST_PAGE, S_DLY2, S_REVERB2, S_CHORUS, S_MASTER, S_LFO_DEST, S_LFO2, S_LFO2_FREE,
        S_COUNTIN, S_COUNTIN2, S_MENU_AUDIO, S_HEAD_PLAY_REC, S_HEAD_REC_OTHER, S_HEAD_BPM_TURN, S_HEAD_BPM_LOCK,
        S_HEAD_BPM_LOCKED, S_HEAD_GLO_TURN, S_HEAD_DOWNBEAT, S_HEAD_BEAT_2,
-       S_SAVE_LIB, S_SAVE_TOOLS, S_SAVE_PROJ, S_SAVE_ARR, S_SAVE_SOUND, S_SAVE_PRESETS, S_SAVE_TL, S_PG0, S_PG_END = S_PG0 + 16,
+       S_SAVE_LIB, S_SAVE_TOOLS, S_SAVE_PROJ, S_SAVE_ARR, S_SAVE_SOUND, S_SAVE_PRESETS, S_SAVE_TL, S_SAVE_PARTS, S_SAVE_PARTS_LOOP, S_SAVE_TL_LOOP, S_SAVE_CLIPS, S_PG0, S_PG_END = S_PG0 + 16,
        S_FXL_SENDS, S_FXL_DIST, S_FXL_PAN, S_FXL_BUSES, S_FXL_DELAY, S_FXL_DELAY2, S_FXL_REVERB, S_FXL_SLICER, S_FXL_MASTER,
        S_HOME_MACROS, S_HOME_BEING, S_HOME_ROUTES, S_GEN_LEAD,
        S_ED_FILTER, S_ED_FILTER_BP, S_ED_VOICE2, S_ED_FOCUS, S_ED_FOCUS_MOD, S_ED_OPERATOR,
        S_ENV_TRACKS, S_ENV_TRACKS_DEST, S_ENV_STAGE, S_ENV_STAGE_SUS, S_MSEQ2, S_KEY_CHORD, S_KEY_CHORD_OFF, S_KEY_ARP, S_KEY_ARP2, S_GLO_SENDS, S_MENU_ROW, S_MENU_ROW_LEDS, S_LY_FX_KNOBS, S_LY_FX_STATE, S_LY_GLO_STATE, S_DLG_DICE_SOUND, S_DLG_DICE_SEQ, S_DLG_DICE_FX, S_DLG_MUT_BACK,
-       S_DRUM_X4, S_DRUM_GHOST, S_DRUM_OCT_UP, S_DRUM_OCT_DN, S_COMP_TOUCH, S_COMP_EVEN, S_GEN_EXPLORE,
+       S_DRUM_X4, S_DRUM_GHOST, S_DRUM_OCT_UP, S_DRUM_OCT_DN, S_COMP_TOUCH, S_COMP_EVEN, S_GEN_EXPLORE, S_GEN_SONG,
        S_VX_HEAD_A, S_VX_HEAD_I, S_VX_HEAD_U, S_VX_HEAD_S, S_VX_HEAD_M, S_VX_HEAD_K, S_VX_HEAD_T, S_VX_HEAD_F, S_VX_HEAD_VOWEL,
        S_VX_HEAD_HOME, S_VX_HEAD_QUIET, S_VX_BIRD, S_VX_CMOS, S_VX_INSECT, S_VX_WING, S_VX_MAMMAL, S_VX_MORPH_IB, S_VX_MORPH_BM,
        S_VX_ANIMAL_HOME, S_VX_KIT, S_VX_KIT_HITS, S_VX_KIT_GHOST, S_VX_KIT_HOME, S_VX_KIT_MUTED,
@@ -687,13 +687,13 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "roll_locks", "roll_lock_held", "drum_locks", "drum_lock_held", "motion_locks", "auto_list", "auto_list_add", "auto_list_drum", "layer_rec", "layer_rec_set", "layer_rec_song", "layer_macro", "mseq", "dist", "dly2", "reverb2", "chorus", "master", "lfo_dest", "lfo2", "lfo2_free",
     "countin", "countin_2bars", "menu_audio", "head_play_rec", "head_rec_other", "head_bpm_turn", "head_bpm_lock",
     "head_bpm_locked", "head_glo_turn", "head_downbeat", "head_beat_2",
-    "save_library", "save_tools", "save_project", "save_arrange", "save_sound", "save_presets", "save_timeline", "pg_retrig", "pg_rotor", "pg_length", "pg_modes", "pg_dly3", "pg_slbus", "pg_tape", "pg_eq", "pg_system2", "pg_comps", "pg_comps2", "pg_kit2", "pg_kit3", "pg_kit4", "pg_levels", "pg_levels2", "pg_xmod",
+    "save_library", "save_tools", "save_project", "save_arrange", "save_sound", "save_presets", "save_timeline", "save_parts", "save_parts_loop", "save_timeline_loop", "save_clips", "pg_retrig", "pg_rotor", "pg_length", "pg_modes", "pg_dly3", "pg_slbus", "pg_tape", "pg_eq", "pg_system2", "pg_comps", "pg_comps2", "pg_kit2", "pg_kit3", "pg_kit4", "pg_levels", "pg_levels2", "pg_xmod",
     "fx_track_sends", "fx_track_dist", "fx_track_pan", "fx_buses", "fx_effect_delay", "fx_effect_delay2", "fx_effect_reverb",
     "fx_effect_slicer", "fx_effect_master",
     "home_macros", "home_being", "home_routes", "gen_lead",
     "ed_filter", "ed_filter_bp", "ed_voice2", "ed_focus", "ed_focus_mod", "ed_operator",
     "env_tracks", "env_tracks_dest", "env_stage", "env_stage_sus", "mseq2", "key_chord", "key_chord_off", "key_arp", "key_arp2", "glo_sends", "menu_row", "menu_row_leds", "ly_fx_knobs", "ly_fx_state", "ly_glo_state", "dlg_dice_sound", "dlg_dice_seq", "dlg_dice_fx", "euclid_modes",
-    "drum_hit_x4", "drum_hit_ghost", "drum_oct_x8", "drum_oct_flam", "comp_touch", "comp_echo_even", "gen_explore",
+    "drum_hit_x4", "drum_hit_ghost", "drum_oct_x8", "drum_oct_flam", "comp_touch", "comp_echo_even", "gen_explore", "gen_song",
     "vx_head_a", "vx_head_i", "vx_head_u", "vx_head_s", "vx_head_m", "vx_head_k", "vx_head_t", "vx_head_f", "vx_head_vowel",
     "vx_head_home", "vx_head_quiet", "vx_bird", "vx_cmos", "vx_insect", "vx_wing", "vx_mammal", "vx_morph_insect_bird", "vx_morph_bird_mammal",
     "vx_animal_home", "vx_kit", "vx_kit_hits", "vx_kit_ghost", "vx_kit_home", "vx_kit_muted",
@@ -1050,6 +1050,7 @@ static void setup(int s)
 {
     memset(kb_on, 0, sizeof kb_on);               /* no key held (roll_playing holds one) */
     live.req = live.cur = -1; live.mode = live.srec = live.dirty = 0; lys.nqc = 0;   /* (the song layer: off) */
+    memset(clip_now, 0, sizeof clip_now); memset(clip_go, 0, sizeof clip_go);   /* (V10.6s: CLIPS, nothing known) */
     trk_live = NTRK;                              /* (the six awake but on *_tracks4) */
     if (s >= S_TOAST_ENV) {                       /* (0.9.5) a toast over a page with words to its foot: the pill keeps clear
                                                    * of them (or is not drawn: the header says it), never over one (hk_overlay) */
@@ -1140,7 +1141,8 @@ static void setup(int s)
         break;
     case S_SCENE:                                       /* (V10.25) SCL > SCENE on: the six tracks' roles, a C4 played */
         song.sel = 0; scn_on = 1; sc_trk = 5; last_note = 60;
-        { static const uint8_t R0[NTRK] = {SC_KEEP, SC_LEAD, SC_KEEP, SC_ARP, SC_BASS, SC_CHORD}; memcpy(scn_role, R0, sizeof R0); }
+        { static const uint8_t R0[NTRK] = {SC_KEEP, SC_LEAD, SC_ARP, SC_DRUM, SC_BASS, SC_CHORD}; memcpy(scn_role, R0, sizeof R0); }
+        scn_pat[4] = 6; scn_dreq = 8; sc_beat();          /* (V10.6j) BASS BOUNCE; the kit's DRUM a key's beat */
         go_title("SCENE");
         break;
     case S_CHANCE: go_page(GR_CHANCE); step_set_chance(&TSEL->step[0], 65); break;
@@ -1376,6 +1378,12 @@ static void setup(int s)
     case S_CONFIRM_PAT: ui.confirm = CF_LOAD_PAT; ui.confirm_trk = 0; ui.ppick = 4; break;
     case S_CONFIRM_MOTION: ui.confirm = CF_CLEAR_MOTION; ui.confirm_trk = 3; break;
     case S_CONFIRM_ERASE: song.playing = 0; up_store(6, "A VERY LONG SOUND NAME"); ui.confirm = CF_ERASE_USER; ui.confirm_trk = 6; break;
+    case S_GEN_SONG:                                    /* (V10.6i) GENE over an arranged song: the lanes, the helix below */
+        chain_config.count = 6;
+        chain_config.row[0] = (chain_row_t){1, 16}; chain_config.row[1] = (chain_row_t){2, 16}; chain_config.row[2] = (chain_row_t){0, 32};
+        chain_config.row[3] = (chain_row_t){3, 16}; chain_config.row[4] = (chain_row_t){2, 16}; chain_config.row[5] = (chain_row_t){0, 32};
+        ui.confirm = CF_DICE_ALL; gp.page = 0; gp.hot = 0;
+        break;
     case S_GEN: ui.confirm = CF_DICE_ALL; gp.page = 0; gp.hot = 0; gp.genre = 1; gp.seed = 421; str_cpy(gp.last, "HOUSE 0421", sizeof gp.last); break;   /* (0.6.91) GEN */
     case S_GEN_PARTS: ui.confirm = CF_DICE_ALL; gp.page = 1; gp.hot = 2; gp.amt[GP_CHORDS] = 70; gp.amt[GP_ARP] = 0; break;
     case S_MENU: ui.menu = 1; ui.menu_sel = 0; song.rec = 1; break;
@@ -1633,14 +1641,17 @@ static void setup(int s)
         nav_scene(PG[s - S_PG0].sec, PG[s - S_PG0].t);
         break;
     }
-    case S_SAVE_LIB: case S_SAVE_TOOLS: case S_SAVE_PROJ: case S_SAVE_ARR: case S_SAVE_SOUND: case S_SAVE_PRESETS: case S_SAVE_TL: {
-        static const char *const PN[NSONG] = {"", "ACID 03", "DUB KIT", "", "BOSQUE", "", "TRANCE A", ""};
-        static const uint8_t PM[NSONG] = {0, 3, 1, 0, 15, 0, 5, 0};
+    case S_SAVE_LIB: case S_SAVE_TOOLS: case S_SAVE_PROJ: case S_SAVE_ARR: case S_SAVE_SOUND: case S_SAVE_PRESETS: case S_SAVE_TL:
+    case S_SAVE_PARTS: case S_SAVE_PARTS_LOOP: case S_SAVE_TL_LOOP: case S_SAVE_CLIPS: {
+        static const char *const PN[NSONG] = {"", "ACID 03", "DUB KIT", "", "BOSQUE", "TRANCE A"};   /* (V10.6p: 6) */
+        static const uint8_t PM[NSONG] = {0, 3, 1, 0, 15, 5};
         static const chain_row_t AR[6] = {{1, 16}, {2, 16}, {0, 32}, {3, 8}, {2, 16}, {0, 32}};
         static const char *const UN[7] = {"DEEP SUB", "GLASS", "PAD NUBE", "WOBBLE", "BIRDCALL", "KEYS 2", "GRIT"};
         static const uint8_t UK[7] = {0, 1, 2, 4, 6, 9, 13}, UE[7] = {ENGI_ANALOG, ENGI_FM6, 2, ENGI_ANALOG, ENGI_ANIMAL, ENGI_FM6, 3};
         uint32_t k, e0 = TSEL->eng_req;
         song.playing = 0;
+        if (s >= S_SAVE_TL) { for (k = 0; k < NTRK; k += 2u) my_steps(&trk[k]); fm1_ms += 1000u; }   /* (V10.6o: more tracks
+                                                         * play; the sections read again) */
         project_save_as(0, "NOCHE LARGA"); project_save_as(1, "NOCHE B"); project_save_as(2, "NOCHE C");
         for (k = 0; k < NSONG; k++) { str_cpy(lib.name[k], PN[k], sizeof lib.name[k]); lib.mask[k] = PM[k]; }
         chain_config.count = 6;
@@ -1656,9 +1667,25 @@ static void setup(int s)
         else if (s == S_SAVE_PROJ) { nav_scene(SEC_SAVE, "SECTIONS"); ui.act = 4; }
         else if (s == S_SAVE_ARR) nav_scene(SEC_SAVE, "ARRANGE");
         else if (s == S_SAVE_SOUND) { nav_scene(SEC_SAVE, "USER"); ui.act = 4; }
-        else if (s == S_SAVE_TL) {   /* (V10.1) T2 from C, T4 muted, T6 HALF on row 2; T1 THIN on row 4 */
-            song_idx.tsrc[song_cur][1] = 3u << 3; song_idx.tvar[song_cur][1] = RV_MUTE << 12 | RV_HALF << 20;
-            song_idx.tvar[song_cur][3] = RV_THIN; ui.song_row = 1; ui.song_tk = 2; nav_scene(SEC_SAVE, "TIMELINE");
+        else if (s == S_SAVE_TL || s == S_SAVE_TL_LOOP) {   /* (V10.1) T2 from C, T4 muted, T6 HALF on row 2; T1 THIN on
+                                                         * row 4; (V10.6o) T3 muted by row 2's scene; _LOOP: row 2 held */
+            song_idx.tsrc[song_cur][1] = 1u << 3; song_idx.tvar[song_cur][1] = RV_MUTE << 12 | RV_HALF << 20 | RV_FILL << 4;
+            song_idx.tvar[song_cur][3] = RV_THIN; song_idx.scene[song_cur][1].on = 1; song_idx.scene[song_cur][1].mute = 4;
+            ui.song_row = 1; song.sel = 2;
+            if (s == S_SAVE_TL_LOOP) { chain.running = 1; chain.hold = 1; chain.row = 1; chain.remaining = 9; }
+            nav_scene(SEC_SAVE, "TIMELINE");
+        }
+        else if (s == S_SAVE_PARTS || s == S_SAVE_PARTS_LOOP) {   /* (V10.6o) B picked; _LOOP: C looping */
+            ui.part = s == S_SAVE_PARTS ? 1 : 2; ui.song_row = s == S_SAVE_PARTS ? 0 : 1;
+            if (s == S_SAVE_PARTS_LOOP) { live.cur = 2; song.playing = 1; }
+            nav_scene(SEC_SAVE, "PARTS");
+        }
+        else if (s == S_SAVE_CLIPS) {                   /* (V10.6s) CLIPS: T1 T3 T5 sound A, T2 B, T4 C asked for, T6 a stop
+                                                         * asked for; the cell T4 C picked; SONG REC on */
+            static const uint8_t NOW[NTRK] = {1, 2, 1, 1, 1, 2}, GO[NTRK] = {0, 0, 0, 3, 0, CLIP_STOP};
+            memcpy(clip_now, NOW, sizeof clip_now); memcpy(clip_go, GO, sizeof clip_go);
+            song.sel = 3; ui.part = 2; live.srec = 2; song.playing = 1;
+            nav_scene(SEC_SAVE, "CLIPS");
         }
         else nav_scene(SEC_SAVE, "PRESETS");
         ui.msg_t = 0;
@@ -1753,8 +1780,8 @@ static void setup(int s)
     case S_V6_PHASE_FULL: v6_scene(ENGI_PHASE_UI, "BRASS", "EDIT 1", 0, 50, 300, 7); ui_scope = 0; break;
     case S_V6_LOFI: v6_scene(ENGI_LOFI_UI, "BYTEBEAT", "EDIT 1", 0, 60, 300, 8); break;
     case S_V6_LOFI_FLOAT: v6_scene(ENGI_LOFI_UI, "FLOAT PAD", "EDIT 2", 0, 60, 120, 8); break;
-    case S_V6_LOFI_PLS: v6_scene(ENGI_LOFI_UI, "PULSE LD", "EDIT 1", 0, 72, 600, 8); break;
-    case S_V6_LOFI_HOME: v6_scene(ENGI_LOFI_UI, "GB ARP", 0, 0, 72, 300, 8); break;
+    case S_V6_LOFI_PLS: v6_scene(ENGI_LOFI_UI, "MATH LEAD", "EDIT 1", 0, 72, 600, 8); break;
+    case S_V6_LOFI_HOME: v6_scene(ENGI_LOFI_UI, "MATH KEYS", 0, 0, 72, 300, 8); break;
     case S_V6_LOFI_FULL: v6_scene(ENGI_LOFI_UI, "BYTEBEAT", "EDIT 1", 0, 60, 300, 8); ui_scope = 0; break;
     case S_V6_STRING: v6_scene(ENGI_STRING, "STEEL GTR", "EDIT 1", 0, 48, 80, 9); break;   /* (0.9.9-snd5) TEJEDORA */
     case S_V6_STRING_BOW: v6_scene(ENGI_STRING, "BOWED", "EDIT 2", 0, 55, 900, 9); break;

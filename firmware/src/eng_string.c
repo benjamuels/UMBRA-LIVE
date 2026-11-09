@@ -265,23 +265,47 @@ static void string_block(track_t *t)
 
 /* {EXCITE, DECAY, BRIGHT, POS, STRETCH, BODY, SIZE, BOW (FDBK: GAIN DIST SPEAKR BLOOM)}, {A D S R}, fenv, mono */
 static const preset_t STRING_PRESETS[] = {
-    {"NYLON", {SX_PLUCK, 72, 52, 28, 0, 60, 40, 0}, {0, 64, 127, 104}, 0, TAG(PLUCK), FX(0, 0, 0, 30), PAT(3)},
-    {"STEEL GTR", {SX_PICK, 86, 88, 24, 6, 40, 52, 0}, {0, 64, 127, 104}, 0, TAG(PLUCK), FX(0, 15, 0, 30), PAT(3)},
-    {"HARP", {SX_PLUCK, 96, 62, 64, 0, 30, 30, 0}, {0, 64, 127, 112}, 0, TAG(PLUCK), FX(0, 0, 10, 55), PAT(6)},
-    {"KOTO", {SX_PICK, 78, 98, 14, 16, 30, 62, 0}, {0, 64, 127, 104}, 0, TAG(PLUCK), FX(0, 0, 15, 40), PAT(5)},
-    {"BANJO", {SX_PICK, 52, 112, 10, 4, 90, 92, 0}, {0, 64, 127, 96}, 0, TAG(PLUCK), FX(0, 0, 0, 20), PAT(4)},
-    {"PIANO", {SX_HAMMER, 104, 76, 18, 42, 20, 22, 0}, {0, 64, 127, 100}, 0, TAG(KEYS), FX(0, 0, 0, 35), PAT(6)},
-    {"DULCIMER", {SX_HAMMER, 92, 100, 20, 26, 36, 60, 0}, {0, 64, 127, 108}, 0, TAG(PLUCK), FX(0, 10, 10, 40), PAT(5)},
-    {"MARIMBA", {SX_MALLET, 56, 40, 64, 72, 80, 70, 0}, {0, 64, 127, 96}, 0, TAG(BELL), FX(0, 0, 0, 30), PAT(5)},
-    {"PLUCK BASS", {SX_PLUCK, 62, 36, 20, 0, 50, 10, 0}, {0, 64, 127, 80}, 0, 1 | TAG(BASS), FX(0, 0, 0, 5), PAT(2)},
-    {"BOWED", {SX_NOISE, 118, 46, 30, 0, 50, 40, 70}, {30, 64, 127, 96}, 0, TAG(PAD), FX(0, 20, 10, 60), PAT(5)},
-    {"KS NOISE", {SX_NOISE, 80, 127, 0, 0, 0, 0, 0}, {0, 64, 127, 90}, 0, TAG(FX), FX(0, 0, 15, 30), PAT(4)},
-    {"METAL STR", {SX_NOISE, 100, 120, 10, 112, 0, 0, 0}, {0, 64, 127, 104}, 0, TAG(PLUCK), FX(0, 0, 20, 45), PAT(3)},
-    {"FEEDBACK", {SX_FDBK, 90, 70, 24, 60, 70, 40, 60}, {0, 64, 127, 90}, 0, TAG(LEAD), FX(30, 0, 20, 35), PAT(5)},
-    {"SHOEGAZE", {SX_FDBK, 110, 50, 30, 55, 100, 90, 70}, {0, 64, 127, 112}, 0, TAG(PAD), FX(20, 30, 30, 70), PAT(5)},
-    {"SQUEAL", {SX_FDBK, 80, 96, 16, 70, 110, 12, 30}, {0, 64, 127, 80}, 0, TAG(LEAD), FX(40, 0, 25, 30), PAT(4)},
-    {"EBOW", {SX_FDBK, 127, 44, 40, 50, 20, 64, 90}, {20, 64, 127, 100}, 0, TAG(LEAD), FX(0, 20, 20, 50), PAT(5)},
+    /* (V10.6i, reworked in place: the stored numbers kept, PROGRAM CHANGE too; browsed in STRING_ORDER) the string's
+     * own envelope: RELEASE its damper (FDBK: the whole ADSR); SHP moves BRIGHT (FDBK: SPEAKR), CUT the part's FILTER;
+     * ENV 2 -> AMP swells a bowed note in */
+    {"NYLON", {SX_PLUCK, 72, 52, 28, 0, 60, 40, 0}, {0, 64, 127, 104}, 0, TAG(PLUCK), FX(0, 0, 0, 30), PAT(3),
+     MODS(MMOD(1, PS_VEL, PD_SHP, 20))},                                                  /* softer is darker */
+    {"STEEL GTR", {SX_PICK, 86, 88, 24, 6, 40, 52, 0}, {0, 64, 127, 104}, 0, TAG(PLUCK), FX(0, 15, 0, 30), PAT(3),
+     MODS(MMOD(1, PS_VEL, PD_SHP, 24))},
+    {"HARP", {SX_PLUCK, 96, 62, 64, 0, 30, 30, 0}, {0, 64, 127, 112}, 0, TAG(PLUCK), FX(0, 0, 10, 55), PAT(6),
+     MODS(MMOD(1, PS_RAND, PD_PAN, 20), MMOD(2, PS_VEL, PD_SHP, 16))},                   /* the strings across the harp */
+    {"KOTO", {SX_PICK, 78, 98, 14, 16, 30, 62, 0}, {0, 64, 127, 104}, 0, TAG(PLUCK), FX(0, 0, 15, 40), PAT(5),
+     MODS(MMOD(1, PS_AT, PD_PITCH, 11), MMOD(2, PS_VEL, PD_SHP, 20))},                   /* AT presses it up ~2 st */
+    {"BANJO", {SX_PICK, 52, 112, 10, 4, 90, 92, 0}, {0, 64, 127, 96}, 0, TAG(PLUCK), FX(0, 0, 0, 20), PAT(4),
+     MODS(MMOD(1, PS_VEL, PD_SHP, 30))},
+    {"PIANO", {SX_HAMMER, 104, 76, 18, 42, 20, 22, 0}, {0, 64, 127, 92}, 0, TAG(KEYS), FX(0, 0, 0, 35), PAT(6),
+     MODS(MMOD(1, PS_VEL, PD_SHP, 30), MMOD(2, PS_KEY, PD_E(1), -20))},                  /* the low notes ring longer */
+    {"DULCIMER", {SX_HAMMER, 92, 100, 20, 26, 36, 60, 0}, {0, 64, 127, 108}, 0, TAG(PLUCK), FX(0, 10, 10, 40), PAT(5),
+     MODS(MMOD(1, PS_VEL, PD_SHP, 20))},
+    {"MARIMBA", {SX_MALLET, 56, 40, 64, 72, 80, 70, 0}, {0, 64, 127, 80}, 0, TAG(BELL), FX(0, 0, 0, 30), PAT(5),
+     MODS(MMOD(1, PS_VEL, PD_SHP, 30))},
+    {"PLUCK BASS", {SX_PLUCK, 62, 36, 20, 0, 50, 10, 0}, {0, 64, 127, 80}, 0, 1 | TAG(BASS), FX(0, 0, 0, 5), PAT(2),
+     MODS(P_GLIDE, 8, MMOD(1, PS_VEL, PD_SHP, 30))},                                      /* legato: a slide */
+    {"BOWED", {SX_NOISE, 118, 46, 30, 0, 50, 40, 70}, {30, 64, 127, 96}, 0, TAG(PAD), FX(0, 20, 10, 60), PAT(5),
+     MODS(MENV2(50, 64, 127, 70), MMOD(1, PS_ENV2, PD_AMP, 64), P_LRATE, 86, P_LD_PIT, 1,
+          MMOD(2, PS_AT, PD_E(7), 30))},                                                  /* swells in; AT: the bow */
+    {"INIT STRING", {SX_PLUCK, 72, 60, 28, 0, 40, 40, 0}, {0, 64, 127, 90}, 0, TAG(PLUCK), FX(0, 0, 0, 0)},
+    {"METAL STR", {SX_NOISE, 100, 120, 10, 112, 0, 0, 0}, {0, 64, 127, 104}, 0, TAG(PLUCK), FX(0, 0, 20, 45), PAT(3),
+     MODS(MENV2(0, 30, 0, 20), MMOD(1, PS_ENV2, PD_PITCH, 8), MMOD(2, PS_RAND, PD_PAN, 35))},   /* each hit falls */
+    {"FEEDBACK", {SX_FDBK, 90, 70, 24, 60, 70, 40, 60}, {0, 64, 127, 90}, 0, TAG(LEAD), FX(30, 0, 20, 35), PAT(5),
+     MODS(MMOD(1, PS_MODW, PD_E(4), 30), MMOD(2, PS_AT, PD_E(6), 30))},                  /* MODW GAIN, AT SPEAKR */
+    {"SHOEGAZE", {SX_FDBK, 110, 50, 30, 55, 100, 90, 70}, {40, 64, 127, 112}, 0, TAG(PAD), FX(20, 30, 30, 70), PAT(5),
+     MODS(P_LWAVE, LW_DRIFT, P_LRATE, 30, P_LD_SHP, 20)},   /* the amp wanders */
+    {"SQUEAL", {SX_FDBK, 80, 96, 16, 70, 110, 12, 30}, {0, 64, 127, 80}, 0, TAG(LEAD), FX(40, 0, 25, 30), PAT(4),
+     MODS(P_LWAVE, LW_SH, P_LRATE, -11, P_LD_SHP, 30, MMOD(1, PS_MODW, PD_E(5), 40))},   /* harmonics jump */
+    {"EBOW", {SX_FDBK, 127, 44, 40, 50, 20, 64, 90}, {20, 64, 67, 100}, 0, TAG(LEAD), FX(0, 20, 20, 50), PAT(5),
+     MODS(P_LRATE, 84, P_LD_PIT, 1, P_LFADE, 80, MMOD(1, PS_AT, PD_E(4), 25))},
 };
+/* (V10.6i) the browsing order: to play, then the experiments, then INIT */
+static const uint8_t STRING_ORDER[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,   /* to play */
+                                       15, 12, 13, 14, 11,             /* experiments */
+                                       10};                            /* INIT */
+_Static_assert(sizeof STRING_ORDER == NELEM(STRING_PRESETS), "STRING's browsing order: every preset once");
 
 static const engine_t ENG_STRING = {
     .name = "STRING",

@@ -130,23 +130,46 @@ static void add_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const v
 
 /* {MODE, MORPH, BRIGHT, PARTIAL, SHIFT, COMB, DECAY, MOTION}, {A D S R}, fenv, mono */
 static const preset_t ADD_PRESETS[] = {
-    {"ADD ORGAN", {AD_HARM, 0, 70, 127, 0, 0, 127, 0}, {0, 64, 127, 40}, 0, TAG(KEYS), FX(0, 15, 0, 30), PAT(5)},
-    {"ADD SAW", {AD_HARM, 0, 92, 127, 0, 0, 127, 0}, {0, 64, 127, 35}, 0, TAG(LEAD), FX(0, 20, 0, 25), PAT(4)},
-    {"HOLLOW", {AD_ODD, 0, 84, 127, 0, 0, 127, 0}, {4, 64, 127, 40}, 0, TAG(PAD), FX(0, 10, 10, 35), PAT(5)},
-    {"PHASER", {AD_HARM, 0, 96, 127, 0, 40, 127, 0}, {10, 64, 127, 45}, 0, TAG(PAD), FX(0, 20, 0, 40), PAT(5)},
-    {"BELL", {AD_BELL, 0, 100, 127, 0, 0, 74, 0}, {0, 64, 127, 70}, 0, TAG(BELL), FX(0, 0, 15, 55), PAT(6)},
-    {"RADIO", {AD_HARM, 0, 96, 127, 40, 0, 127, 20}, {0, 64, 127, 80}, 0, TAG(FX), FX(0, 0, 10, 60), PAT(6)},
-    {"VIBES", {AD_BAR, 0, 72, 127, 0, 0, 76, 0}, {0, 64, 127, 55}, 0, TAG(BELL), FX(0, 25, 0, 40), PAT(6)},
-    {"GLASS", {AD_WIDE, 0, 118, 127, -20, 0, 80, 30}, {0, 64, 127, 70}, 0, TAG(BELL), FX(0, 20, 20, 60), PAT(5)},
-    {"SKIN TOM", {AD_DRUM, 0, 92, 127, 0, 0, 46, 0}, {0, 64, 127, 30}, 0, TAG(DRUM), FX(0, 0, 0, 20), PAT(4)},
-    {"AIR PAD", {AD_WIDE, 64, 100, 127, -10, 20, 127, 50}, {64, 64, 127, 80}, 0, TAG(PAD), FX(0, 30, 15, 75), PAT(5)},
-    {"SWELL", {AD_HARM, 40, 104, 127, 0, 0, 127, -50}, {20, 64, 127, 60}, 0, TAG(PAD), FX(0, 20, 20, 50), PAT(5)},
-    {"SUB ADD", {AD_ODD, 0, 20, 40, 0, 0, 127, 0}, {0, 64, 127, 25}, 0, 1 | TAG(BASS), FX(0, 0, 0, 5), PAT(2)},
-    {"PRIME ORG", {AD_PRIME, 0, 84, 127, 0, 0, 127, 0}, {2, 64, 127, 45}, 0, TAG(KEYS), FX(0, 20, 0, 35), PAT(5)},
-    {"QUINT", {AD_FIFTH, 0, 80, 127, 0, 24, 127, 20}, {6, 64, 127, 50}, 0, TAG(PAD), FX(0, 25, 10, 45), PAT(5)},
-    {"DRONE", {AD_SUB, 50, 70, 127, 0, 30, 127, 40}, {40, 64, 127, 90}, 0, TAG(PAD), FX(0, 20, 15, 70), PAT(5)},
-    {"GONG", {AD_PLATE, 30, 104, 127, -12, 0, 88, 30}, {0, 64, 127, 90}, 0, TAG(BELL), FX(0, 0, 20, 70), PAT(6)},
+    /* (V10.6i, reworked in place: the stored numbers kept, PROGRAM CHANGE too; browsed in ADD_ORDER) SHP moves COMB;
+     * no CUT of its own: the part's FILTER (F.CUT under 127: ENV / LFO -> FILTER on it) */
+    {"ADD ORGAN", {AD_HARM, 0, 76, 127, 0, 0, 127, 0}, {0, 64, 127, 40}, 0, TAG(KEYS), FX(0, 15, 0, 30), PAT(5),
+     MODS(P_LRATE, 72, P_LD_AMP, 14, MMOD(1, PS_MODW, PD_LRATE, 30))},                   /* a rotor; MODW: fast */
+    {"ADD SAW", {AD_HARM, 0, 92, 127, 0, 0, 127, 0}, {2, 70, 100, 35}, 30, 1 | TAG(LEAD), FX(0, 20, 0, 25), PAT(4),
+     MODS(P_FCUT, 70, P_FRES, 40, P_LRATE, 88, MMOD(1, PS_MODW, PD_VIB, 2))},           /* the filter opens */
+    {"HOLLOW", {AD_ODD, 0, 84, 127, 0, 30, 127, 0}, {30, 70, 115, 70}, 0, TAG(PAD), FX(0, 10, 10, 35), PAT(5),
+     MODS(P_LWAVE, LW_TRI, P_LRATE, 40, P_LD_SHP, 30, MMOD(1, PS_AT, PD_E(2), 30))},     /* a phaser of partials */
+    {"INIT ADD", {AD_HARM, 0, 70, 127, 0, 0, 127, 0}, {0, 64, 127, 40}, 0, TAG(KEYS), FX(0, 0, 0, 0)},
+    {"BELL", {AD_BELL, 0, 100, 127, 0, 0, 74, 0}, {0, 64, 127, 70}, 0, TAG(BELL), FX(0, 0, 15, 55), PAT(6),
+     MODS(MMOD(1, PS_VEL, PD_E(2), 30))},                                                 /* struck harder: brighter */
+    {"RADIO", {AD_HARM, 0, 96, 127, 40, 0, 127, 20}, {0, 64, 127, 80}, 0, TAG(FX), FX(0, 0, 10, 60), PAT(6),
+     MODS(P_LWAVE, LW_SH, P_LRATE, -8, MMOD(1, PS_LFO, PD_E(4), 12), MMOD(2, PS_RAND, PD_PAN, 30), P_FTYPE, 2,
+          P_FCUT, 80)},                                                                    /* tuning between stations */
+    {"VIBES", {AD_BAR, 0, 72, 127, 0, 0, 76, 0}, {0, 64, 127, 55}, 0, TAG(BELL), FX(0, 25, 0, 40), PAT(6),
+     MODS(P_LRATE, 78, P_LD_AMP, 30)},                                                    /* the motor */
+    {"GLASS", {AD_WIDE, 0, 118, 127, -20, 0, 80, 30}, {0, 64, 127, 70}, 0, TAG(BELL), FX(0, 20, 20, 60), PAT(5),
+     MODS(MMOD(1, PS_KEY, PD_E(2), -24))},   /* the high notes softer */
+    {"SKIN TOM", {AD_DRUM, 0, 92, 127, 0, 0, 46, 0}, {0, 64, 127, 30}, 0, TAG(DRUM), FX(0, 0, 0, 20), PAT(4),
+     MODS(MENV2(0, 25, 0, 20), MMOD(1, PS_ENV2, PD_PITCH, 12))},                         /* the skin falls in pitch */
+    {"AIR PAD", {AD_WIDE, 64, 100, 127, -10, 20, 127, 50}, {64, 64, 127, 80}, 0, TAG(PAD), FX(0, 30, 15, 75), PAT(5),
+     MODS(P_FCUT, 100, P_LWAVE, LW_DRIFT, P_LRATE, -2, P_LD_FLT, 20)},
+    {"SWELL", {AD_HARM, 0, 104, 127, 0, 0, 127, -50}, {20, 64, 127, 60}, 0, TAG(PAD), FX(0, 20, 20, 50), PAT(5),
+     MODS(MENV2(60, 100, 40, 80), MMOD(1, PS_ENV2, PD_E(1), 50))},   /* HARM into ODD and back */
+    {"SUB ADD", {AD_ODD, 0, 20, 40, 0, 0, 127, 0}, {0, 64, 80, 25}, 0, 1 | TAG(BASS), FX(0, 0, 0, 5), PAT(2),
+     MODS(P_GLIDE, 10, MMOD(1, PS_VEL, PD_E(3), 30))},                                    /* harder: more partials */
+    {"PRIME ORG", {AD_PRIME, 0, 84, 127, 0, 0, 127, 0}, {2, 64, 127, 45}, 0, TAG(KEYS), FX(0, 20, 0, 35), PAT(5),
+     MODS(P_LRATE, 84, P_LD_PIT, 1, P_LFADE, 60)},
+    {"QUINT", {AD_FIFTH, 0, 80, 127, 0, 24, 127, 20}, {6, 64, 127, 50}, 0, TAG(PAD), FX(0, 25, 10, 45), PAT(5),
+     MODS(P_LWAVE, LW_TRI, P_LRATE, 24, MMOD(1, PS_LFO, PD_E(1), 20))},                  /* FIFTH towards SUB, slowly */
+    {"DRONE", {AD_SUB, 50, 70, 127, 0, 30, 127, 40}, {40, 64, 127, 90}, 0, TAG(PAD), FX(0, 20, 15, 70), PAT(5),
+     MODS(P_LWAVE, LW_DRIFT, P_LRATE, -1, MMOD(1, PS_LFO, PD_E(1), 30), P_LD_SHP, 20)},  /* the spectrum drifts */
+    {"GONG", {AD_PLATE, 30, 104, 127, -12, 0, 88, 30}, {0, 64, 127, 90}, 0, TAG(BELL), FX(0, 0, 20, 70), PAT(6),
+     MODS(MENV2(0, 60, 0, 60), MMOD(1, PS_ENV2, PD_PITCH, 4), MMOD(2, PS_RAND, PD_REV, 30))},
 };
+/* (V10.6i) the browsing order: to play, then the experiments, then INIT */
+static const uint8_t ADD_ORDER[] = {0, 12, 1, 2, 9, 13, 4, 6, 7, 11, 8,   /* to play */
+                                    10, 14, 15, 5,                         /* experiments */
+                                    3};                                    /* INIT */
+_Static_assert(sizeof ADD_ORDER == NELEM(ADD_PRESETS), "ADD's browsing order: every preset once");
 
 static const engine_t ENG_ADD = {
     .name = "ADD",

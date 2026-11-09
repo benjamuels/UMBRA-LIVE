@@ -6,7 +6,7 @@
  *              gate; chords and the DRUM grid's hits repeat whole; x1 slides and ties out as before, x2..x4 never;
  *              the chance is rolled once per pass for all its parts; swing; STOP and an edit to fewer end them.
  *   PROJECTS   FUN8 round trip of x1..x4 (bit 7 of the velocity and chance bytes), an x1 project packs those bytes
- *              as before, FUN7 / FUN6 images load x1.
+ *              as before, FUN7 images load x1 (FUN6: retired, V10.6s, refused).
  *   PRESETS    a user preset's note pattern keeps it (flags 8 | 16, UP_PUT too); a drum grid record has no room: x1.
  *   UI         SEQ > CHANCE KNOB 3 (RATCH x1..x4, clamped, the cursor step; dimmed on a REST, a TIE, an empty
  *              step); the piano roll and the DRUM grid draw a ratcheted step in its parts, the roll no slide line
@@ -201,7 +201,7 @@ static int projects(void)
                 ok &= step_ratchet(&fun7.t[k].step[i]) == 1u;
         bad += check("  FUN7 of before: every step x1", ok && fun7.t[0].step[1].flags == SF_ACCENT);
     }
-    {   /* FUN6 (10-byte steps): only accent and slide come over, x1 */
+    {   /* FUN6 (10-byte steps): (V10.6s) retired, refused */
         project_v6_t v6;
         memset(&v6, 0, sizeof v6);
         v6.magic = PROJ_MAGIC_V6; v6.size = sizeof v6; v6.parts = NPART; v6.phys = PROJ_PHYS;
@@ -212,8 +212,7 @@ static int projects(void)
             v6.t[k].step[0] = (step10_t){{60}, 1, ST_NOTE, 0xFBu, 100, 0, 0};   /* (stray high bits) */
         }
         v6.sum = proj_hash(&v6, sizeof v6 - 4u);
-        bad += check("  FUN6: x1, accent and slide kept", proj_import(&after, &v6, sizeof v6) &&
-                     step_ratchet(&after.t[0].step[0]) == 1u && after.t[0].step[0].flags == (SF_ACCENT | SF_SLIDE));
+        bad += check("  FUN6 (retired): refused", !proj_import(&after, &v6, sizeof v6));
     }
     ui_power_on();                                   /* a real save and load */
     step_set_ratchet(&trk[1].step[7], 3);
@@ -443,6 +442,9 @@ static int human(void)
         uint32_t len = step_len(t, 0), b, n = 0, lo = 999999, hi = 0, vlo = 127, vhi = 0, cmax = len / 3u, early = 0;
         uint32_t cap = FS * 40u / 1000u < cmax ? FS * 40u / 1000u : cmax, apart = 0, lo_b = 0;   /* (0.6.92: 40 ms) */
         if (pass == 2u) { t->p[P_VOICE] = V_POLY; t->step[0].n = 3; t->step[0].note[1] = 64; t->step[0].note[2] = 67; }
+        t->p[P_GLIDE] = 0;                              /* (the power-on sound's GLIDE, V10.6d: POLY + GLIDE slides the
+                                                         * chord into the next step's on the same voices, seq.c chord_auto:
+                                                         * no note-on to count) */
         t->p[P_HVEL] = pass ? 0 : 127;                  /* (100 %, 0 %) */
         t->p[P_HTIM] = pass ? 0 : 127;
         uint32_t st = 0;

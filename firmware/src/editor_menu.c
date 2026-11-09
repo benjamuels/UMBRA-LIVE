@@ -28,7 +28,11 @@ static const uint8_t ED_MENU[][2] = {
     {MI_CPU, 23},                                      /* (p1, main 0.9.12) CPU CORES 2 / 1, a row of SYSTEM (23 as main's) */
     {MI_MIDIMAP, 25},                                  /* (p1) MIDI MAP FACTORY / CUSTOM ADD / CUSTOM, a row of CONTROL (LEARN,
                                                         * the device's own gesture, is not offered) */
-    {MI_WELCOME, 26},                                  /* (UMBRA OBSCURA) WELCOME OFF / ON, a row of SYSTEM */
+    {MI_OCTBEND, 26},                                  /* (V10.6z4) OCT BEND OFF / 1 .. 12 ST, a row of AUDIO */
+    {MI_VEL, 27}, {MI_VELMIN, 28}, {MI_AT, 29}, {MI_VLEARN, 30},   /* (V10.6z6) VELOCITY, VEL MIN, AFTERTOUCH, VEL LEARN,
+                                                        * rows of CONTROL (vel.c) */
+    {MI_WELCOME, 31},                                  /* (UMBRA OBSCURA) WELCOME OFF / ON, a row of SYSTEM (26 until
+                                                        * V10.7.6 took 26..30) */
 };
 #define ED_MENU_N NELEM(ED_MENU)
 

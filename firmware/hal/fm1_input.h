@@ -98,6 +98,32 @@
 #include "fm1_gpio.h"
 #include "fm1_led_anim.h"
 
+/* (V10.6z5) The velocity diagnostic's sampling (src/vel_diag.c), off unless asked for (fm1_an.on below; the code that
+ * samples, fm1__an_take / fm1__an_start, at the end of hal/fm1_adc.h):
+ * Velo's (Charles Vestal, github.com/charlesvestal/fm1-velocity, GPL-3.0, as fm1-dock's hal/fm1_input.h carries it).
+ * While on, each tick also starts an ADC conversion on row PA7 (even frames) or PA8 (odd frames) of the column it has
+ * just latched, and takes it at the next tick before the rows are read: every key of those two rows (notes 0..19,
+ * F3..C5) once every two frames (~2.2 ms), the voltage across its carbon pill against the row's pull-up (1023 open,
+ * lower as the key is pressed harder). FM1_INPUT_ANALOG(col, rowbit, v, driven) gets each sample (rowbit 3 PA7, 4
+ * PA8). The odd frames' columns 0 and 1 on PA8 are OCT- / OCT+, no note: those two slots take the MASTER pot and the
+ * battery instead (fm1_adc_read hands them to the main loop). Drive (fm1_an.drive 1..4): a sample for which
+ * FM1_INPUT_DRIVE(col, rowbit) asks is taken with the row driven high (the pin's driver at strength drive - 1 is then
+ * the divider's upper half: a seated key's range spreads); the row is an input with its pull-up again at the take,
+ * before the rows are read. The rows' digital input buffers stay on (switching them off made Velo read phantom OCT-
+ * / OCT+ presses and even start the update mode). Off (fm1_an.on 0; V10.6z6: the sampling is on while MENU > CONTROL >
+ * VELOCITY or AFTERTOUCH is not OFF, the defaults, src/vel.c): one byte tested twice a tick, the scan's writes and reads
+ * as before */
+#ifndef FM1_INPUT_ANALOG
+#define FM1_INPUT_ANALOG(col, rowbit, v, driven) ((void)0)
+#endif
+#ifndef FM1_INPUT_DRIVE
+#define FM1_INPUT_DRIVE(col, rowbit) 0
+#endif
+/* (V10.6z6) a note key's press debounced (k 0..26), just before its bit sets: the key velocity's (src/vel.c vel_note_on) */
+#ifndef FM1_INPUT_NOTE_ON
+#define FM1_INPUT_NOTE_ON(k) ((void)0)
+#endif
+
 #ifndef FM1_INPUT_IDLE
 #define FM1_INPUT_IDLE() ((void)0)
 #endif
@@ -303,6 +329,7 @@ static void fm1__key(uint32_t id, uint32_t closed)
     if (note) {
         if (!on) {
             uint32_t d = FM1_INPUT_NOW() - fm1_in.note_t0[id - 14u];
+            FM1_INPUT_NOTE_ON(id - 14u);           /* (V10.6z6) before the key's bit: its velocity, or its wait */
             fm1_in.notes_pressed |= bit;
             fm1_in_stat.press_n++;
             fm1_in_stat.press_sum += d;
@@ -514,12 +541,26 @@ static void fm1_led_anim_start(uint32_t glow)
     fm1__an_f = 1;
 }
 static int fm1_led_anim_on(void) { return fm1__an_f != 0u; }
+/* (V10.6z5) the converter's owner: the key scan while on (fm1__an_take / fm1__an_start, hal/fm1_adc.h), else the
+ * main loop (fm1_adc_read). want: the main loop asks (vel_diag.c); on: the scan has it (set with want, cleared by the scan once
+ * nothing is pending and the row is an input again) */
+static volatile struct {
+    uint8_t want, on, pend, driven;   /* driven: the pending sample's row is driven high (released at the take) */
+    uint8_t col, rowbit, phase;       /* the pending sample: column, row bit (3 PA7, 4 PA8, 0 the pot / battery); frame */
+    uint8_t drive;                    /* 0: no driven samples; 1..4: driven at strength drive - 1 (HD0 bit 0, HD bit 1) */
+    int16_t master, batt;             /* taken in their slots (-1: none since on) */
+    uint16_t timeouts;                /* conversions not done by the next tick */
+} fm1_an;
+static void fm1__an_take(void);                   /* (V10.6z5) the velocity diagnostic's samples: hal/fm1_adc.h */
+static void fm1__an_start(uint32_t n);
 static void fm1_input_tick(void)
 {
     uint32_t p = fm1__tick_col, n = p + 1u == FM1_NCOL ? 0u : p + 1u;
     uint32_t t0 = fm1_ticks(), g = t0 - fm1_in_stat.last, b = 0;
     uint32_t w = 0xFFFFu ^ (1u << n) ^ (n < 2u ? 1u << (11u + n) : 0u), lit, dim = 0, k = fm1__dim_k;
     uint32_t br = 0, kb = 0;
+    if (fm1_an.on)                                 /* (V10.6z5) the velocity diagnostic (see top) */
+        fm1__an_take();
     fm1__led_lines(0);
     fm1_in_stat.last = t0;
     while (b < FM1_GAP_BINS - 1u && g >= (150u * FM1_TICKS_PER_US << b))
@@ -579,6 +620,8 @@ static void fm1_input_tick(void)
         if (fm1__an_f)                             /* the power-on sweep: the next frame's picture */
             fm1__anim_frame();
     }
+    if (fm1_an.on)                                 /* (V10.6z5) column n's PA7 / PA8 sample */
+        fm1__an_start(n);
     g = fm1_ticks() - t0;
     fm1_in_stat.cost_sum += g;
     fm1_in_stat.ticks++;
@@ -642,3 +685,5 @@ static void fm1_led_key(uint32_t id, int on)
                     fm1_led[p] &= (uint8_t)~(1u << r);
             }
 }
+
+#include "fm1_adc.h"                    /* (V10.6z5) after the scan: the converter, and the scan's samples of it */

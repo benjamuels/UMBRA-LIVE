@@ -35,10 +35,15 @@ static uint32_t mfnv(uint32_t h, const void *p, uint32_t n)
 }
 
 /* ---- 2. a project of before: the steps' MICRO set as 0.9.0 stored it (cwhen's bits 4-7, sixteenths) ---- */
-#define MICRO_OLD_090 0x249e3fdcu   /* (0.9.9 ctl64: the render in blocks of 64 differs from 0.9.0's bit for bit
+#define MICRO_OLD_090 0x6377849cu   /* (2026-11-09 bug review: 0xe7ee65d3 until the sounds and defaults since V10.6
+                                         * (GATE 100 % for new tracks V10.6z4, the levelled presets V10.6t, V10.7's mix):
+                                         * the steps' places, checked below, as before. 0.9.9 ctl64: the render in blocks of 64 differs from 0.9.0's bit for bit
                                          * (the notes at their samples, the fades); was 0xd5c5b5c5: the steps' places as read
-                                         * from the project are unchanged, the second check below) */
-#define MICRO_PACK_090 0x55f3c173u
+                                         * from the project are unchanged, the second check below. Then 0x249e3fdc, rewritten
+                                         * by 0.9.9-snd2's chorus (da051a3: 0xd8795d59) and gen6e's notes in a release
+                                         * (b587793), the goldens they rewrote; the steps' places as before) */
+#define MICRO_PACK_090 0x49120182u           /* (was 0x55f3c173: the project's defaults since, e.g. GATE 100 % (V10.6z4);
+                                         * still no 'M' 'F' block and every MICRO read back x 4, below) */
 static void old_steps(void)
 {
     static const int8_t M16[8] = {0, 3, -2, 7, -8, 1, -5, 4};
@@ -163,6 +168,8 @@ static void rec_play(int32_t bpm, int32_t div, int32_t sw, int32_t hrq, int32_t 
     for (i = 0; i < NSTEP; i++) step_clear(&t->step[i]);
     t->p[P_SLEN] = 8; t->p[P_SDIV] = (int16_t)div; t->p[P_SSWING] = (int16_t)sw; song.g[G_SWING] = 0;
     t->p[P_HRQ] = (int16_t)hrq; t->p[P_VOICE] = V_POLY; t->p[P_SGATE] = 40;
+    t->p[P_GLIDE] = 0;                                  /* (track 1's power-on sound since V10.6d glides: POLY + GLIDE slides each
+                                                         * step into the next on the same voice, seq.c chord_auto; no new note-on) */
     song.g[G_BPM] = (int16_t)bpm;
     seq_start();
     song.rec = 1;
@@ -190,10 +197,15 @@ static void rec_play(int32_t bpm, int32_t div, int32_t sw, int32_t hrq, int32_t 
         v0 = vage;
         seq_tick(t, 1);
         for (; v0 < vage; v0++)
-            for (k = 0; k < NVOICE; k++)
-                if (t->v[k].active && t->v[k].age == v0 + 1u && t->v[k].note >= 61 && t->v[k].note <= 66 &&
-                    at[t->v[k].note - 61] == -1000000)
-                    at[t->v[k].note - 61] = (int32_t)now - (int32_t)gridp(t, (uint32_t)(t->v[k].note - 60));
+            for (k = 0; k < NVOICE; k++) {
+                /* (voice.c voice_begin, ctl64: a note on a voice still sounding (the last one's release) is kept in
+                 * pn_* until track_render, which this sample-by-sample run never calls: read the kept start too; the
+                 * note was asked for here either way. Without it only the first note was ever seen) */
+                const voice_t *v = &t->v[k];
+                uint32_t nt = v->age == v0 + 1u ? v->note : (v->pn_flags & PN_START) && v->pn_age == v0 + 1u ? v->pn_note : 0u;
+                if (v->active && nt >= 61 && nt <= 66 && at[nt - 61] == -1000000)
+                    at[nt - 61] = (int32_t)now - (int32_t)gridp(t, nt - 60u);
+            }
         now++;
     }
     seq_stop();

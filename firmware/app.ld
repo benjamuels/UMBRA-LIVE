@@ -29,6 +29,10 @@ MEMORY
     NOINIT (rw)  : ORIGIN = 0x01C7C000, LENGTH = 0x3D50
     BTSEG  (rx)  : ORIGIN = 0x020E6000, LENGTH = 0x12000  /* (V10.12) flash 0xEA000..0xFBFFF (hal/fm1_flash.h FL_EXT_*): the
                                                            * Bluetooth segment, read in place through the plain XIP window */
+    PACKED (r)   : ORIGIN = 0x02200000, LENGTH = 0x10000  /* (V10.6z5) the load images of .ram_text, .c1_text, .hot_text,
+                                                           * .data as linked, never in flash: tools/build.py packs them
+                                                           * (LZ4) into the image after .text (_etext), main.c fm1_cstart
+                                                           * unpacks them (src/boot_lz4.h). Past the probe link's larger XIP */
 }
 SECTIONS
 {
@@ -47,12 +51,12 @@ SECTIONS
     .text : { KEEP(*(.text.crt0)) *(.text) INCLUDE build/layout.ld *(.rodata) *(.rodata.cst*) *(.rodata.str*)
               *(SORT_BY_ALIGNMENT(.rodata.n.*)) *(.text*) *(.rodata*)
               . = ALIGN(4); _etext = .; } > XIP
-    .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) . = ALIGN(4); _rt_end = .; } > RAMTEXT AT > XIP
+    .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) . = ALIGN(4); _rt_end = .; } > RAMTEXT AT > PACKED
     _rt_load = LOADADDR(.ram_text);
     /* (JIANT 0.6.71) the second core's waiting loop (hal/fm1_multicore.h): in RAM, after the flash driver, inside the
      * guard's RAM code window (_rt_start .. _c1t_end); its own section, as it calls the jobs (the build's check that
      * .ram_text calls nothing still holds) */
-    .c1_text : { _c1t_start = .; KEEP(*(.c1_text*)) . = ALIGN(4); _c1t_end = .; } > RAMTEXT AT > XIP
+    .c1_text : { _c1t_start = .; KEEP(*(.c1_text*)) . = ALIGN(4); _c1t_end = .; } > RAMTEXT AT > PACKED
     _c1t_load = LOADADDR(.c1_text);
     /* (JIANT 0.6.78) core 0's hottest audio code (tools/build.py HOT_FNS): in RAM after the second core's loop, inside the
      * same RAM code window (_rt_start .. _hot_end) */
@@ -61,12 +65,12 @@ SECTIONS
         KEEP(*(.hot_text*))   /* (tools/build.py HOT_FNS: their sections renamed in the optimised IR) */
         . = ALIGN(4);
         _hot_end = .;
-    } > RAMTEXT AT > XIP
+    } > RAMTEXT AT > PACKED
     _hot_load = LOADADDR(.hot_text);
     /* (V10.31) EUCLID's keep: the sequence a track had before EUCLID transformed it (src/ui_euclid.c eu_bk), RAM data
      * in RAMTEXT's room above the RAM code (not loaded, not zeroed: valid only once eu_bk_k names a track) */
     .eu_keep (NOLOAD) : { . = ALIGN(4); *(.eu_keep*) . = ALIGN(4); } > RAMTEXT
-    .data : { . = ALIGN(4); _data_start = .; *(.data*) *(.sdata*) . = ALIGN(4); _data_end = .; } > RAM AT > XIP
+    .data : { . = ALIGN(4); _data_start = .; *(.data*) *(.sdata*) . = ALIGN(4); _data_end = .; } > RAM AT > PACKED
     _data_load = LOADADDR(.data);
     /* (V10.12) the Bluetooth segment's RAM in the pool, but its baseband block (ble_hw_wl82.c bb, 1508 B, read and
      * written by the radio's DMA) here, in the RAM every DMA reaches */

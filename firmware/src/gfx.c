@@ -13,7 +13,7 @@ typedef struct { uint16_t off, adv; } aagh_t;   /* (0.9.0) a glyph: its phases' 
 typedef struct {
     uint8_t h, asc, first, last, nex;   /* line height, baseline; ASCII range; extras */
     uint16_t nk;                        /* kerning: the glyphs ki covers (0: none) */
-    const aagh_t *gh;                   /* (0.9.0) the glyph table, packed (tools/aa_raster.py glyph_tables): a glyph's */
+    const void *gh;                     /* byte-packed records, or aligned aagh_t in the wide format */
     const uint32_t *gp;                 /* .. and each phase's off - gh.off | bx + 1 << 10 | by << 13 | bw << 19 | bh << 26 */
     const uint8_t *data;
     const uint16_t *ki;                 /* (0.9.0) glyph a's pairs: kp[2 ki[a] .. 2 ki[a + 1] - 1] */
@@ -27,6 +27,8 @@ typedef struct { const char *name; uint16_t bg, surf, text, theme, accent; } ui_
 typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 #include "ui_fonts.h"                   /* AF_S 12 px / 400, AF_M 15 px / 500, AF_L 28 px / 600 */
 #include "ui_font_x.h"                  /* (0.8.5) AF_X: the 5 x 7 mono pixel face (tools/gen_px_font.py) */
+#define FONT_COMPACT (AF_S_COMPACT && AF_M_COMPACT && AF_L_COMPACT && AF_X_COMPACT)
+#define FONT_PHASES (AF_S_PHASES > 1 || AF_M_PHASES > 1 || AF_L_PHASES > 1 || AF_X_PHASES > 1)
 #include "ui_palettes.h"
 #include "ui_keycaps.h"                 /* KC_*: the keycaps / badges (tools/gen_aa_keycaps.py), KNOB_* arcs */
 #define ELLIPSIS '\x85'                 /* the ellipsis glyph of AF_S and AF_M */
@@ -773,12 +775,23 @@ static uint32_t glyph(const aafont_t *f, uint32_t ch)
     if ((k = glyph_at(f, ch)) < 0 && (ch != (uint8_t)ELLIPSIS || (k = glyph_at(f, '.')) < 0) &&
         (k = glyph_at(f, '?')) < 0)
         k = 0;
+#if FONT_PHASES
     return (uint32_t)k << f->psh;
+#else
+    return (uint32_t)k;
+#endif
 }
 /* table entry i (glyph i >> psh at phase i & (phases - 1)), unpacked */
 static aag_t ag(const aafont_t *f, uint32_t i)
 {
-    const aagh_t *h = &f->gh[i >> f->psh];
+    if(FONT_COMPACT || !f->gp) {
+        const uint8_t *p=(const uint8_t *)f->gh+5u*i;
+        aag_t g={(uint16_t)(p[0]|(p[1]&15u)<<8), (uint16_t)((p[1]>>4|p[2]<<4)&511u),
+                 (int8_t)((p[2]>>5)-1),p[3]&31u,(p[3]>>5|p[4]<<3)&31u,(p[4]>>2)&31u};
+        return g;
+    }
+#if !FONT_COMPACT
+    const aagh_t *h = &((const aagh_t *)f->gh)[i >> f->psh];
     uint32_t v = f->gp[i];
     aag_t g;
     g.off = (uint16_t)(h->off + (v & 1023u));
@@ -788,6 +801,15 @@ static aag_t ag(const aafont_t *f, uint32_t i)
     g.bw = (uint8_t)((v >> 19) & 127u);
     g.bh = (uint8_t)(v >> 26);
     return g;
+#endif
+}
+static uint32_t font_advance(const aafont_t *f,uint32_t i)
+{
+#if !FONT_COMPACT
+    if(f->gp) return ((const aagh_t *)f->gh)[i>>f->psh].adv;
+#endif
+    const uint8_t *p=(const uint8_t *)f->gh+5u*i;
+    return (p[1]>>4|p[2]<<4)&511u;
 }
 
 static int32_t kern(const aafont_t *f, uint32_t a, uint32_t b)       /* 1/16 px */
@@ -820,7 +842,7 @@ static int32_t text_w(const aafont_t *f, const char *s)
         uint32_t c = fold(f, (uint8_t)*s);
         if (prev)
             pen += kern(f, prev, c);
-        pen += f->gh[glyph(f, c) >> f->psh].adv;
+        pen += font_advance(f,glyph(f,c));
         prev = c;
     }
     return (pen + 8) >> 4;
@@ -839,6 +861,7 @@ static int32_t text_run(int32_t x, int32_t y, const aafont_t *f, const char *s, 
         if (prev)
             pen += kern(f, prev, c);
         gi = glyph(f, c);
+#if FONT_PHASES
         if (f->psh && (f->gp[gi + 1u] & 1023u) != (f->gp[gi] & 1023u)) {   /* (phase 1's bitmap is not phase 0's) */
             pos = pen - (pen & (step - 1));          /* the phase position at or left of the pen */
             d0 = pos - pen - err;                    /* .. and the one right of it: which keeps the gap truer */
@@ -847,8 +870,11 @@ static int32_t text_run(int32_t x, int32_t y, const aafont_t *f, const char *s, 
                 pos += step;
             gi += ((uint32_t)pos >> (4u - f->psh)) & ((1u << f->psh) - 1u);
         } else {
+#endif
             pos = (pen + 8) & ~15;                   /* one phase (figures, ., blanks): the rounded pen */
+#if FONT_PHASES
         }
+#endif
         gv = ag(f, gi);
         err = pos - pen;
         if (g->bw) {
@@ -1212,3 +1238,4 @@ static void draw_text_box(uint32_t x, uint32_t y, uint32_t w, const aafont_t *f,
 {
     draw_text_line(x, y, w, f, s, c, T_BG, align);
 }
+

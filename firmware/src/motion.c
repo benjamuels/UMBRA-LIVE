@@ -109,6 +109,15 @@ static uint64_t motion_lock_steps(uint32_t k)
             m |= (uint64_t)1 << MOTION_STEP(&motion.event[i]);
     return m;
 }
+/* (V10.6v) the first lock of track t's step (a RAMP's parameter): its record, 0 none */
+static const motion_event_t *motion_lock_at(const track_t *t, uint32_t step)
+{
+    uint32_t i, place = trk_index(t) << 6 | step;
+    for (i = 0; i < motion.count; i++)
+        if (MOTION_PLACE(&motion.event[i]) == place && (motion.event[i].param & MOTION_LOCK))
+            return &motion.event[i];
+    return 0;
+}
 /* the lock of track t on step / id: 1 and its value in *v, 0 = none */
 static int motion_lock_get(const track_t *t, uint32_t step, uint32_t id, int16_t *v)
 {
@@ -280,7 +289,8 @@ static uint32_t motion_thin(uint32_t m)
         for (i = 0; i < motion.count; i++) {
             const motion_event_t *e = &motion.event[i];
             id = e->param;
-            if (MOTION_TRK(e) != k || id >= P_COUNT || ((seen[id / 32u] >> (id % 32u)) & 1u)) continue;
+            if (MOTION_TRK(e) != k || id >= P_COUNT || ((seen[id / 32u] >> (id % 32u)) & 1u) ||
+                (id == P_XPR && !drum_track(&trk[k]))) continue;   /* (V10.6z4: the expression keys' gates, kept) */
             seen[id / 32u] |= 1u << (id % 32u);
             { const param_desc_t *d = motion_desc(&trk[k], id); gone += motion_thin_id(k, id, (d->max - d->min) / 32 + 1); }
             i = (uint32_t)-1;                             /* (the records moved: from the start, the ids done skipped) */

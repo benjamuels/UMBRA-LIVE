@@ -5,7 +5,7 @@
  *   CYCLE      four notes muted !1:4 .. !4:4 and a TRANSPOSE +1 R4 at 1:4 over the bar: 16 bars, each its own, then
  *              the same 16 again; the SEQ walker: a note further each pass.
  *   ACTIONS    RATCHET over its LENGTH (and its DECAY), STUTTER and MUTE replacing their steps, ARP over its LENGTH,
- *              JUMP, OCT; conditions N:M, FIRST, PRE.
+ *              OCT; conditions N:M, FIRST, PRE.
  *   MONO/POLY  C2's condition ELSE (MONO: C1 wins, C2 when C1 did not act) against POLY (both stack).
  *   FORMAT     a v2 project round trip; a project of before seq2d (its CP_* and EVERY, no x bit 7) loads migrated:
  *              ARP over its TIEs, ARP SEQ the walker, TRIG 1:2 MUTE !1:2, OCT with EVERY 1:4 OCT+ 1:4, ECHO RATCHET.
@@ -209,20 +209,16 @@ static int actions(void)
         ok = seq_is(nt, n, W, 6);
         bad += check("ARP x2 UP over its LENGTH of 2 (the step after replaced), the rest as written", ok);
     }
-    {   /* JUMP: step 2 then step 4 (60 62 65 ..); OCT+ 2 octaves, OCT- 1 */
-        static const uint8_t W[6] = {60, 62, 65, 60, 62, 65}, W2[4] = {84, 50, 64, 65};
-        t = pat(4, P);
-        comp_set(&t->step[1], 0, CA_JUMP, CC_ALWAYS, 0, 1, 3);
-        seq_start();
-        n = run(t, 6, nt, sizeof nt);
-        ok = seq_is(nt, n, W, 6);
+    {   /* OCT+ 2 octaves, OCT- 1 (V10.6v: JUMP gone, RAMP its code; tests/ramp_test.c) */
+        static const uint8_t W2[4] = {84, 50, 64, 65};
+        ok = 1;
         t = pat(4, P);
         comp_set(&t->step[0], 0, CA_OCTU, CC_ALWAYS, 0, 1, 1);
         comp_set(&t->step[1], 0, CA_OCTD, CC_ALWAYS, 0, 1, 0);
         seq_start();
         n = run(t, 4, nt, sizeof nt);
         ok &= seq_is(nt, n, W2, 4);
-        bad += check("JUMP to step 4 (once a pass); OCT+ 2 octaves, OCT- 1 and back", ok);
+        bad += check("OCT+ 2 octaves, OCT- 1 and back", ok);
     }
     return bad;
 }
@@ -534,7 +530,7 @@ static int gl_format(void)
     gl_clear();
     project_capture(&proj_scratch);
     ok = proj_pack(&st, &proj_scratch);
-    gl_set(4, CA_JUMP, CC_ALWAYS, 0, 1, 0, 63); gl_mono = 1;
+    gl_set(4, CA_MUTE, CC_ALWAYS, 0, 1, 0, 63); gl_mono = 1;
     ok &= proj_import(&proj_scratch, &st, sizeof st) && !project_restore_runtime(&proj_scratch);
     ok &= !gl_on && !gl_mono && !glane[4].comp;
     bad += check("  a project without the global block loads with the lane empty, POLY", ok);

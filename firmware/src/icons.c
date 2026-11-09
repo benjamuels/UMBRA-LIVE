@@ -218,6 +218,7 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v)
 /* the MOD page: the icon of a source, of a destination (an engine parameter: its own) */
 static uint32_t mod_src_icon(int32_t s)
 {
+    if (s >= MS_FOLLOW && s < MS_N) return ICON_LEVEL;
     static const uint8_t I[MS_N] = {ICON_MOD, ICON_LFO_WAVE, ICON_ENV, ICON_ACCENT, ICON_KEYTRACK, ICON_PROB,
                                     ICON_MOD, ICON_MIDI, ICON_LEVEL, ICON_MIX, ICON_MIX, ICON_MIX, ICON_MIX, ICON_AUTO};   /* (M1..M4, STEP) */
     return I[clamp(s, 0, MS_N - 1)];
@@ -228,6 +229,7 @@ static uint32_t mod_dst_icon(const track_t *t, int32_t d)
                                      ICON_CHORUS, ICON_DELAY, ICON_REVERB, ICON_RATE, ICON_VIBRATO};
     uint32_t id;
     d = clamp(d, 0, MD_N - 1);
+    if (d == MD_FCUT) return ICON_CUTOFF;
     if (d < MD_E1)
         return I[d];
     if (d >= MD_CLIP)                                   /* (the master's CLIP / PNCH) */
@@ -244,7 +246,7 @@ static uint32_t engine_icon(const char *name)
 #if FELUCCA_FM4
         {"DIGITAL", ICON_ALGORITHM},
 #endif
-        {"PHASE", ICON_PHASE}, {"LOFI", ICON_BITS},
+        {"PHASE", ICON_PHASE}, {"MATH", ICON_BITS},
         {"SAMPLE", ICON_SAMPLE}, {"VOICE", ICON_MOUTH}, {"TRIO", ICON_TRIO}, {"WHEEL", ICON_DRAWBAR},
         {"SLICE", ICON_SLICE},
         {"GRAIN", ICON_GRAIN},
@@ -255,7 +257,7 @@ static uint32_t engine_icon(const char *name)
         {"ANIMAL", ICON_PHYS},                /* (0.8.3: a physical model, as PHYS was) */
         {"STRING", ICON_PHYS},                /* (0.9.9-snd5: a physical model too) */
         {"ADD", ICON_WAVE},
-        {"INPUT", ICON_VOICE},                /* (V10.54) */
+        {"EXT", ICON_VOICE},                /* (V10.54) */
     };
     uint32_t i;
     for (i = 0; i < sizeof M / sizeof M[0]; i++)
@@ -297,3 +299,4 @@ static uint32_t mod_dst_icon(const track_t *t, int32_t d) { (void)t; (void)d; re
 static uint32_t motion_icon(void) { return ICON_NONE; }
 static uint32_t page_icon(const page_t *pg) { (void)pg; return ICON_NONE; }
 #endif
+

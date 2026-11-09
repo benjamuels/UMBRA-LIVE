@@ -93,13 +93,17 @@ def main():
         "    {" + ", ".join(str(v) for v in d10) + "},",
         "    {" + ", ".join(str(v) for v in d20) + "},",
         "};",
-        f"static const int16_t UAC_FIR3[{N}][{L // 2 - 3}] = {{",
+        f"static const int16_t UAC_FIR3S[{N}] = {{" + ", ".join(str(d3[j][0]) for j in range(N)) + "};   /* (V10.6k) each tap's"
+        " first third difference, then the fourth differences (all within a byte: half the flash) */",
+        f"static const int8_t UAC_FIR4[{N}][{L // 2 - 4}] = {{",
     ]
     for j in range(N):
-        lines.append("    {" + ", ".join(str(v) for v in d3[j]) + "},")
+        d4 = [d3[j][k + 1] - d3[j][k] for k in range(len(d3[j]) - 1)]
+        assert all(-128 <= v <= 127 for v in d4), "a fourth difference past a byte"
+        lines.append("    {" + ", ".join(str(v) for v in d4) + "},")
     lines.append("};")
     out.write_text("\n".join(lines) + "\n")
-    print(f"wrote {out}: {L // 2} x {N} taps, {3 * N * 4 + N * (L // 2 - 3) * 2} B (as differences; {L // 2 * N * 4} B plain)")
+    print(f"wrote {out}: {L // 2} x {N} taps, {3 * N * 4 + N * 2 + N * (L // 2 - 4)} B (as differences; {L // 2 * N * 4} B plain)")
 
 
 if __name__ == "__main__":

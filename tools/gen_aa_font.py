@@ -44,9 +44,9 @@ CODE = {0x2026: 0x85}                  # characters outside Latin-1 -> their one
 PHASES, PHASES_L = 1, 1                # horizontal phases per glyph (aa_raster.raster_font): S M, L. (JIANT 0.9.9-snd4, flash)
                                        # S M 2, were 4: 12.9 KB less of the glyph tables; a glyph within 1/4 px of its
                                        # place, a gap within 1/2 px (text_spacing_test.py, as L since 0.5)
-# faces stored Huffman-coded (--huff): M and L. S, the most drawn and the least compressible (-15 %), stays
-# 2 px per byte, so the labels draw at full speed
-HUFF = [("M", "L")]
+# All UI faces use the existing lossless decoder. The four-entry cache keeps
+# frequently used faces resident and shares its last slot; no new RAM table.
+HUFF = [("S", "M", "L")]
 # L draws only "JIANT" (ABOUT), the UPDATE MODE countdown digit, the calibration's control names (panel.c
 # B_NAME / E_NAME) and MENU > LARGE's card values and page titles (ui_draw.c draw_column_tall, ui_graph.c
 # graph_title: # . / J W too; a value with another character is set in M): a sparse face of those glyphs, the
@@ -213,7 +213,10 @@ def emit(face, tracking, gamma, kern_min):
             for byte in raw[off:off + (e[4] * e[5] + 1) // 2]:
                 v += [byte >> 4, byte & 15]
             vals.append(v[:e[4] * e[5]])
-        hc, packed = huff_pack(vals)
+        # Pick the smaller existing run alphabet per face. The firmware already
+        # decodes arbitrary alpha repeats (also used by keycaps).
+        hc, packed = min((huff_pack(vals, runs) for runs in ((0, 15), (0,), tuple(range(16)))),
+                         key=lambda p: len(p[0]) + sum(map(len, p[1])))
         data, newoff = bytearray(), {}
         for off, v, b in zip(offs, vals, packed):
             assert huff_unpack(hc, b, len(v)) == v
@@ -294,4 +297,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
