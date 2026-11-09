@@ -11360,28 +11360,28 @@ static int test_skin(void)
         ok = umt_get(10u) == 1u && umt_get(11u) == 50u;
         umt_put(10u, 0);
         ok &= umt_get(10u) == 0u;                                  /* (STATIC) */
-        umn_note(0); frame();
+        umn_note(0, 0u); frame();
         ok &= !umn.o[0][0] && !umn.o[0][1] && umn_at(0, 0u, 100, 1000) == 100;
         umt_put(10u, 1);                                           /* (MOVE) */
-        umn_note(0); x1 = umn.o[0][0]; y1 = umn.o[0][1];
-        umn_note(0);
+        umn_note(0, 0u); x1 = umn.o[0][0]; y1 = umn.o[0][1];
+        umn_note(0, 0u);
         ok &= umn.o[0][0] != x1 || umn.o[0][1] != y1;
-        umn_note(1);
+        umn_note(1, 0u);
         ok &= umn.o[1][0] != umn.o[0][0] || umn.o[1][1] != umn.o[0][1];
         bad += check("(UMBRA OBSCURA) NOTE MOVEMENT: MOVE at first; STATIC no offset; MOVE a step a note, each track its own path", ok);
         umt_put(10u, 2);                                           /* (DRIFT) */
         ok = umt_get(10u) == 2u;
-        umn_note(2);
-        p0 = umn.p[2]; umb_now += 50u; umn_note(2); d1 = umn.p[2] - p0;
-        p0 = umn.p[2]; umb_now += 2000u; umn_note(2); d2 = umn.p[2] - p0;
+        umn_note(2, 0u);
+        p0 = umn.p[2]; umb_now += 50u; umn_note(2, 0u); d1 = umn.p[2] - p0;
+        p0 = umn.p[2]; umb_now += 2000u; umn_note(2, 0u); d2 = umn.p[2] - p0;
         ok &= d1 && d2 == d1 * 40u;
         umt_put(11u, 70);                                          /* (TRAVEL further: a longer step) */
-        p0 = umn.p[2]; umb_now += 50u; umn_note(2);
+        p0 = umn.p[2]; umb_now += 50u; umn_note(2, 0u);
         ok &= umt_get(11u) > 50u && umn.p[2] - p0 > d1;
         umt_put(10u, 3);                                           /* (RANDOM, the last) */
         ok &= umt_get(10u) == 3u;
         for (i = 0; i < 200; i++) {
-            umn_note(3);
+            umn_note(3, 0u);
             x1 = umn_at(3, 0u, i * 5, 999);
             y1 = umn_at(3, 1u, 999 - i * 5, 999);
             inside &= x1 >= 0 && x1 <= 999 && y1 >= 0 && y1 <= 999 && umn.o[3][0] >= -256 && umn.o[3][0] <= 256;

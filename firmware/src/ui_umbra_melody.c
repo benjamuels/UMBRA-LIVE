@@ -13,7 +13,8 @@
  * are joined in turn by a thread in its colour. Fifths and fourths stay near the rim, thirds cut across, tritones pass
  * through the umbra and vanish; a phrase played again retraces its threads and burns them brighter (a thread fades in
  * ~6 s).
- * FILAMENT: a taut string a track (4 or 6, as TRACKS). A note plucks its track's string where its pitch falls (C2 at the
+ * FILAMENT (since 2026-11-09 a plate module, plates/filament.c, through the plate API; told here as it was): a taut
+ * string a track (4 or 6, as TRACKS). A note plucks its track's string where its pitch falls (C2 at the
  * left, C7 at the right; a drum where its lane is), its velocity the height and the melody's contour the side (rising
  * up, falling down); a higher note tightens the string so its waves run faster; a held note keeps bowing it; let go,
  * the string is damped and still within ~0.6 s. A 1D wave, 81 points a string, 125 substeps a second */
@@ -22,14 +23,15 @@
 static const uint8_t UMM_WT[3] = {236, 250, 246}, UMM_TEAL[3] = {143, 217, 201}, UMM_REST[3] = {34, 60, 96};
 static uint8_t umm_on;                                  /* the melody plate drawn last (0: none: it starts afresh) */
 static int32_t umm_x0, umm_y0;                          /* the strip being drawn: its place on the screen */
-static int32_t umm_lq, umm_fk, umm_damp, umm_ru;        /* HOME > ECO > PLATE, worked out once a frame (umm_tick): LIGHT
-                                                         * (Q8), SAROS's FADE (its rate), FILAMENT's RING (released), SAROS's
-                                                         * umbra's radius (SIZE: 26 px at 50, px Q8) */
+static int32_t umm_lq, umm_fk, umm_ru;        /* HOME > ECO > PLATE, worked out once a frame (umm_tick): LIGHT
+                                                         * (Q8), SAROS's FADE (its rate), SAROS's umbra's radius (SIZE: 26 px
+                                                         * at 50, px Q8) */
 /* a row's darkening (under the knob row and the footer; TOTALITY none), LIGHT in it (all the plates') */
-static int32_t umm_vg(int32_t py)
+static int32_t umb_rowlight(int32_t py, int32_t lq)   /* .. of LIGHT lq (Q8): the plate modules' rows too (umb_lay_draw) */
 {
-    return ((umb.bare ? 256 : py < 56 ? 108 : py < 76 ? 108 + (py - 56) * 7 : py >= 226 ? 128 : 256) * umm_lq) >> 8;
+    return ((umb.bare ? 256 : py < 56 ? 108 : py < 76 ? 108 + (py - 56) * 7 : py >= 226 ? 128 : 256) * lq) >> 8;
 }
+static int32_t umm_vg(int32_t py) { return umb_rowlight(py, umm_lq); }
 /* r g b (0..255, or past it: held there) dithered by d (-8..7), as the panel takes it */
 static uint16_t ump_pack(int32_t R, int32_t G, int32_t B, int32_t d)
 {
@@ -228,155 +230,19 @@ static void umm_saros_draw(void)
             }
     }
 }
-/* FILAMENT: a note played (velocity vel, 0: let go) on track c: its string plucked, held; let go, no longer held */
-static void umm_fil_note(uint32_t c, uint32_t n, uint32_t vel)
-{
-    umm_t *m = &umb.m;
-    uint32_t i, h, drum = trk[c].engine == ENGI_DRUM;
-    int32_t v = (int32_t)vel * 2 + 1, k, x, w, iw, amp;
-    for (h = 0; h < UMM_NH && m->hn[c][h] != n + 1u; h++)
-        ;
-    if (!vel) {
-        if (h < UMM_NH)
-            m->hn[c][h] = 0;
-        return;
-    }
-    k = drum ? (int32_t)(drum_lane(n) % NLANE) * 36 + 2 : umb_clamp(((int32_t)n - 36) * 4369 >> 10, 0, 256);   /* (0..1, Q8) */
-    x = umn_at(c, 0u, k * 80, 80 * 256);                /* (the place: points, Q8; NOTE MOVEMENT's along the string) */
-    if (m->last[c] && n + 1u != m->last[c])
-        m->dir[c] = (int8_t)(n + 1u > m->last[c] ? -1 : 1);   /* (rising: up) */
-    if (!m->dir[c])
-        m->dir[c] = -1;
-    m->last[c] = (uint8_t)(n + 1u);
-    w = 640 + (256 - k) * 7;                            /* (the pluck's half width: 2.5 .. 9.5 points, Q8) */
-    iw = 65536 / w;
-    amp = (1024 + v * 12) * ((int32_t)umv(2u, 0u) + 1) / 51 * m->dir[c];   /* (4 .. 16 px, Q8, at SWING 50) */
-    for (i = 1; i < UMM_NP - 1; i++) {
-        int32_t d = (int32_t)i * 256 - x;
-        d = d < 0 ? -d : d;
-        if (d < w)
-            m->u[c][i] = (int16_t)umb_clamp(m->u[c][i] / 2 + ((((amp * (w - d)) >> 8) * iw) >> 8), -3584, 3584);
-    }
-    m->c2[c] = (uint8_t)(26 + ((k * 205) >> 8));        /* (higher, tighter: 0.1 .. 0.9) */
-    m->mv[c] = 1;
-    if (drum)                                           /* (a drum is a pluck: nothing held) */
-        return;
-    if (h == UMM_NH)
-        for (h = 0; h < UMM_NH - 1u && m->hn[c][h]; h++)
-            ;
-    m->hn[c][h] = (uint8_t)(n + 1u);
-    m->hx[c][h] = (uint8_t)umb_clamp((x + 128) >> 8, 1, UMM_NP - 2);
-    m->hf[c][h] = 3435974u + (uint32_t)k * 67109u;     /* (0.8 .. 4.8 bows a second: phase a ms) */
-    m->ha[c][h] = (int16_t)(v * m->dir[c]);
-    m->h0[c][h] = umb_now;
-}
-/* the substeps owed (125 a second, 8 a frame at most): the strings' waves; a held note bows; let go, damped */
-static void umm_fil_step(void)
-{
-    umm_t *m = &umb.m;
-    uint32_t c, i, h, n = 0;
-    while ((uint32_t)(umb_now - m->sub) >= 8u && n++ < 8u) {
-        m->sub += 8u;
-        for (c = 0; c < NTRK; c++) {
-            int16_t *u = m->u[c], *v = m->v[c];
-            int32_t held = 0, damp, mx = 0, a;
-            if (!m->mv[c])
-                continue;
-            for (h = 0; h < UMM_NH; h++)
-                if (m->hn[c][h]) {
-                    uint32_t age = m->sub - m->h0[c][h];
-                    if (age > 30000u) {                 /* (never let go: after 30 s, as if it were) */
-                        m->hn[c][h] = 0;
-                        continue;
-                    }
-                    held = 1;
-                    i = m->hx[c][h];
-                    v[i] = (int16_t)(v[i] + ((m->ha[c][h] * (sine_i(age * m->hf[c][h]) >> 7)) >> 13));
-                }
-            damp = held ? 32478 : umm_damp;             /* (Q15 a substep: held, 0.9 s; let go, 0.185 s at RING 50) */
-            for (i = 1; i < UMM_NP - 1; i++)
-                v[i] = (int16_t)(((v[i] + ((m->c2[c] * (u[i - 1] + u[i + 1] - 2 * u[i])) >> 8)) * damp) >> 15);
-            for (i = 1; i < UMM_NP - 1; i++) {
-                u[i] = (int16_t)umb_clamp(u[i] + v[i], -4096, 4096);
-                a = u[i] < 0 ? -u[i] : u[i];
-                mx = a > mx ? a : mx;
-            }
-            if (mx < 128 && !held) {                    /* (settled: exactly still, nothing more to send) */
-                memset(u, 0, sizeof m->u[c]);
-                memset(v, 0, sizeof m->v[c]);
-                m->mv[c] = 0;
-            }
-        }
-    }
-    if ((uint32_t)(umb_now - m->sub) >= 8u)
-        m->sub = umb_now;                               /* (behind: never a burst) */
-}
-/* the strings in the strip: each a line a column wide, its colour from the rest's deep blue to its track's as it
- * moves (16 steps), held notes tinting it; a glow either side while it moves */
-static void umm_fil_draw(void)
-{
-    umm_t *m = &umb.m;
-    int32_t c, x, nl = trk_live, sp = (((nl > 4 ? 24 : 34) + (umb.bare ? 10 : 0)) * umv_sc(2u)) >> 8, cy = umb.bare ? 120 : 150;
-                                                        /* (TOTALITY: the whole screen; SPREAD: a quarter .. twice) */
-    if (nl > 1 && sp * (nl - 1) > 224)                  /* (all on the screen) */
-        sp = 224 / (nl - 1);
-    for (c = 0; c < nl && c < NTRK; c++) {
-        const int16_t *u = m->u[c];
-        const uint8_t *tc = UMB_EVC[(c * 3) % 8];
-        int32_t y0 = cy + (2 * c - nl + 1) * sp / 2, py = -1, held = 0, h;
-        if (y0 + 20 < umm_y0 || y0 - 20 >= umm_y0 + (int32_t)cv_h)
-            continue;
-        for (h = 0; h < UMM_NH; h++)
-            held |= m->hn[c][h];
-        for (x = umm_x0 > 0 ? umm_x0 - 1 : 0; x < umm_x0 + (int32_t)cv_w; x++) {
-            int32_t fi = (x * 21937) >> 8, i0 = fi >> 8, f = fi & 255, s, y, e, a, r, g, b, k;
-            if (i0 >= UMM_NP - 1) {
-                i0 = UMM_NP - 2;
-                f = 256;
-            }
-            s = u[i0] + (((u[i0 + 1] - u[i0]) * f) >> 8);
-            y = y0 * 256 + s;
-            if (py < 0)
-                py = y;
-            if (x < umm_x0) {                           /* (the column before the strip: where its line comes from) */
-                py = y;
-                continue;
-            }
-            e = (((s < 0 ? -s : s) >> 3) + (held ? 90 : 0));
-            e = (umb_clamp(e, 0, 256) + 8) & ~15;
-            a = 141 + ((115 * e) >> 8);
-            r = UMM_REST[0] + (((tc[0] - UMM_REST[0]) * e) >> 8);
-            g = UMM_REST[1] + (((tc[1] - UMM_REST[1]) * e) >> 8);
-            b = UMM_REST[2] + (((tc[2] - UMM_REST[2]) * e) >> 8);
-            if ((py > y ? py - y : y - py) < 256) {    /* (a point, shared between two rows) */
-                umm_px(x, y >> 8, ((256 - (y & 255)) * a) >> 8, r, g, b);
-                umm_px(x, (y >> 8) + 1, ((y & 255) * a) >> 8, r, g, b);
-            } else                                      /* (steep: the column from the last one's row) */
-                for (k = (py < y ? py : y) >> 8; k <= (py < y ? y : py) >> 8; k++)
-                    umm_px(x, k, (a * 205) >> 8, r, g, b);
-            if (e) {
-                umm_px(x, (y >> 8) - 2, (31 * e) >> 8, r, g, b);
-                umm_px(x, (y >> 8) + 2, (31 * e) >> 8, r, g, b);
-            }
-            py = y;
-        }
-    }
-}
 /* once a frame: a plate just chosen starts afresh; the notes since; the plate's work */
 static void umm_tick(uint32_t pl)
 {
     umm_t *m = &umb.m;
-    uint32_t r = umv(2u, 1u) + 1u, d = 3607587u / (r * r);   /* (RING: 1 - damp, 1387 at 50, as r^-2; 0: 8192) */
     umm_lq = umv_light(pl);
     umm_fk = 506 / ((int32_t)umv(1u, 1u) + 1);         /* (FADE 45: 11) */
-    umm_damp = 32768 - (int32_t)(d < 8192u ? d : 8192u);
     umm_ru = 26 * umv_sc(1u);                           /* (SIZE) */
     if (umm_on != pl) {
         memset(m, 0, sizeof *m);
         umm_on = (uint8_t)pl;
         umb.init = 0;
         umb.qr = umb_q.w;
-        m->sub = m->tms = umb_now;
+        m->tms = umb_now;
     }
     if (umb.f0 == ui.frame)
         return;
@@ -388,16 +254,11 @@ static void umm_tick(uint32_t pl)
         if (c >= NTRK || (umb_q.vel[q] && (eco_off(c) || !v)))
             continue;
         if (v)
-            umn_note(c);                                /* (NOTE MOVEMENT) */
-        if (pl == 2u)
-            umm_fil_note(c, umb_q.note[q], v);
-        else if (v && trk[c].engine != ENGI_DRUM)
+            umn_note(c, q);                             /* (NOTE MOVEMENT) */
+        if (v && trk[c].engine != ENGI_DRUM)
             umm_saros_on(c, umb_q.note[q], (int32_t)v * 2 + 1);
     }
-    if (pl == 2u)
-        umm_fil_step();
-    else
-        umm_saros_frame();
+    umm_saros_frame();
 }
 static __attribute__((noinline)) void umm_backdrop(uint32_t pl, int32_t x0, int32_t y0)
 {
@@ -407,8 +268,5 @@ static __attribute__((noinline)) void umm_backdrop(uint32_t pl, int32_t x0, int3
     umm_y0 = y0;
     for (i = 0; i < n; i++)                             /* (the ground: black, as JIANT's; 5 5 8 until 2026-11-08) */
         cv_px[i] = 0;
-    if (pl == 2u)
-        umm_fil_draw();
-    else
-        umm_saros_draw();
+    umm_saros_draw();
 }

@@ -817,7 +817,7 @@ static void ump_tick(uint32_t pl)
         drum = trk[c].engine == ENGI_DRUM;
         lane = drum ? drum_lane(nn) % NLANE : 0u;
         if (v)
-            umn_note(c);                                /* (NOTE MOVEMENT) */
+            umn_note(c, q);                             /* (NOTE MOVEMENT) */
         if (!pl)
             ump_ci_note(c, nn, v, drum, lane);
         else if (pl == 3u)

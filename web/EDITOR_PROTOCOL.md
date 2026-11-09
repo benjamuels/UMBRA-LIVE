@@ -986,3 +986,26 @@ through the device's dictionary (~2100 words; a word it lacks by rough letter ru
 into plain ones (stress is not marked in singing) and ñ into "ny" before sending. A set takes effect at once (RAM: no
 flash write, also while playing): the track's lyric starts over at its next note. Saved with the project (FUNC's
 `L` `Y` block per track that has one; a project without it loads with none) and in the backup's runtime object (id 0).
+
+## Plates (UMBRA OBSCURA, 96-100)
+
+UMBRA OBSCURA's plate slot (`firmware/src/umb_slot.c`, `editor_plate.c`; plans/umbra-plate-bank.md): one plate file in
+flash at 0xDA000 (a 4 KiB sector; free in storage.c's map), run where it lies in the resident FILAMENT's place. A plate
+file is a plate built alone against `firmware/src/umb_plate.h` and linked for the slot (`tools/build.py` plate_files,
+`firmware/plate.ld`): its header (`umb_plate_t`, magic "UPLT") first, at most 4064 bytes. The page that sends one is
+`web/plates.html` (on the site: webapp/plates/, with the plate files CI built and `plates.json`, their names).
+
+| cmd | args | reply |
+| --- | --- | --- |
+| 96 PLATE_LIST | — | API (the firmware's plate API version), slots (1), then per slot: state (0 empty, 1 a plate, 2 a plate held back: the FM-1 has not started cleanly since, main.c boot_clean), name string, length (u32) |
+| 97 PLATE_BEGIN | slot, length (u32) | slot, rc. Erases the slot (stops the transport; allow 1 s). Nothing runs from the slot until END |
+| 98 PLATE_WRITE | slot, offset (u32), the bytes 7-bit packed (as BACKUP_PUT: groups of a top-bits byte and up to 7 bytes), up to 256 | slot, rc. In order: each offset where the last write ended |
+| 99 PLATE_END | slot, CRC-32 (u32, zlib's) of the whole file | slot, rc. The slot's record is written last, after the file is read back: the CRC, the header (a plate, an API the firmware has, every entry point inside the file). Refused (2): the slot is erased |
+| 100 PLATE_ERASE | slot | slot, rc |
+
+rc: 0 ok, 1 arguments (a wrong length, slot or order), 2 the CRC or the header refused (the slot left empty), 3 stop
+playback first (the transport did not stop in 100 ms), 4 a flash write failed. A transfer cut short leaves the slot
+empty (its record comes last). A plate in the slot runs only after a clean start: if it crashed or hung the FM-1, the FM-1
+restarts without it (LIST: state 2) until it is switched off and on, and the slot can be emptied meanwhile. The
+emulator has no slot (it cannot run the FM-1's code). Tests: `tests/plate_slot_test.c` (the slot and these commands on a
+simulated flash), `tests/plate_page_test.mjs` (the page's script against them).

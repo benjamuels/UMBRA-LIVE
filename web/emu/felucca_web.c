@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #define FELUCCA_WEB 1
+#define UMB_LAYERS 2                     /* (UMBRA OBSCURA) a second plate layer, for web_umb(97, ..) */
 #ifndef FELUCCA_CDC
 #define FELUCCA_CDC 1                    /* as src/felucca.c: MENU > USB SERIAL is there (nothing behind it) */
 #endif
@@ -474,7 +475,9 @@ EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) 99: th
         nav_go(SEC_HOME, 0, 0);                         /* (ui_umbra_tot.c) */
         umt_enter(0);
         umt.say_ms = 0;
-    } else if (i < 4u)
+    } else if (i == 97u)                                /* (the plate API's test) FILAMENT over the plate in TOTALITY: 1 on */
+        umb_ovl = (uint8_t)(v != 0u);
+    else if (i < 4u)
         umv_put(pl, i == 2u ? 3u : i == 3u ? 2u : i, v);   /* (the plate's setting 3 LIGHT, 2 its third) */
 }
 EXPORT uint32_t web_umb_get(uint32_t i)                /* (UMBRA OBSCURA) 99: the PLATE; 0, 1: its settings, 2 LIGHT, 3 its third */

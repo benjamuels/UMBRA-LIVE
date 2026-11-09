@@ -519,6 +519,37 @@ def build_app():
     return bytes(img), syms, dis, rt
 
 
+# (UMBRA OBSCURA) plate files (plans/umbra-plate-bank.md; src/umb_plate.h): a plate built alone, linked for the plate
+# slot (firmware/plate.ld: flash 0xDA000, src/umb_slot.c), its header first: build/plates/<name>.plate, what the plates
+# page (web/plates.html) sends to the FM-1. FIL EMBER is FILAMENT with warm strings at rest: on the FM-1 it shows that
+# the slot's plate is the one running
+PLATE_MAGIC, PLATE_ROOM = 0x544C5055, 0x1000 - 32
+PLATES = [("filament", "filament", []),
+          ("filament-ember", "filament", ["-DPLF_REST_RGB=150,70,26", '-DPLF_NAME="FIL EMBER"'])]
+
+
+def plate_files():
+    (OUT / "plates").mkdir(exist_ok=True)
+    made = []
+    for name, src, defs in PLATES:
+        o, elf, out = OUT / f"plate_{name}.o", OUT / f"plate_{name}.elf", OUT / "plates" / f"{name}.plate"
+        tc("cc", *CFLAGS, "-fdata-sections", "-ffreestanding", *defs,
+           '-DUMB_PLATE_HEAD=__attribute__((section(".umb_head"), used))', "-Ifirmware/src", "-c",
+           FW / "src" / "plates" / f"{src}.c", "-o", o)
+        # (a call into anything outside the file fails the link: a plate reaches the firmware through umb_api_t only)
+        tc("pi32v2/bin/ld", "--gc-sections", "-e", f"umb_plate_{src}", "-T", FW / "plate.ld", o, "-o", elf)
+        for ln in tc("common/bin/objdump", "-h", elf).splitlines():
+            f = ln.split()
+            if len(f) > 3 and f[1].startswith((".data", ".sdata", ".bss", ".sbss")) and int(f[2], 16):
+                raise SystemExit(f"plate {name}: {f[1]} of {int(f[2], 16)} B: a plate keeps no state of its own")
+        tc("common/bin/objcopy", "-O", "binary", "-j", ".plate", elf, out)
+        b = out.read_bytes()
+        if len(b) > PLATE_ROOM or len(b) < 8 or struct.unpack_from("<I", b)[0] != PLATE_MAGIC:
+            raise SystemExit(f"plate {name}: {len(b)} B (room {PLATE_ROOM}), or its header is not first")
+        made.append(f"{name} {len(b)} B")
+    print(f"plates: {', '.join(made)} -> build/plates/")
+
+
 # (V10.12) the Bluetooth segment (firmware/bt/bt_seg.c, app.ld BTSEG): what the update loader writes at 0xEA000
 BT_BASE, BT_END, BT_HEAD, BT_MAGIC, BT_WANT = 0xEA000, 0xFC000, 32, 0x3154424A, 0x544E5742
 
@@ -757,6 +788,7 @@ def main():
         gen.result()
         ota = ldr.result()
     img, syms, dis, rt = build_app()
+    plate_files()
     errors, notes = check(img, syms, dis, rt)
     hal_err = mmio_check()
     errors += hal_err

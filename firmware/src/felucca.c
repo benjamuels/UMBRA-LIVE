@@ -127,6 +127,7 @@
 #include "fm1_clk320.h"          /* (0.9.9-stab, as 0.9.12) MENU > SYSTEM > CPU CLOCK 320 MHZ's switch (curist's, MIT; main.c) */
 #include "storage_hw.c"
 #include "storage.c"
+#include "umb_slot.c"              /* (UMBRA OBSCURA) the plate slot: a plate file in flash (editor_plate.c) */
 #endif
 #include "upreset.c"             /* user presets (RAM mirror; flash with FELUCCA_FLASH) */
 #include "project.c"

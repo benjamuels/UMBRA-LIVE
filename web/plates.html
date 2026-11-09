@@ -1,0 +1,167 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only. UMBRA OBSCURA: the plates page (plans/umbra-plate-bank.md, phase 1). Sends a
+     plate file (build/plates/*.plate, tools/build.py plate_files) into the FM-1's plate slot over USB-MIDI SysEx:
+     EDITOR_PROTOCOL.md "Plates" (cmds 96..100; firmware/src/editor_plate.c, umb_slot.c). Chrome or Edge (Web MIDI). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UMBRA OBSCURA · plates</title>
+<style>
+  :root { color-scheme: dark; --bg: #000; --ink: #d8ebe6; --dim: #7f9a96; --line: #1d2b2f; --teal: #8fd9c9; --warn: #f0a868; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 48px 20px 64px; }
+  h1 { font-size: 13px; letter-spacing: .32em; font-weight: 500; color: var(--teal); margin: 0 0 4px; }
+  h2 { font-size: 12px; letter-spacing: .2em; font-weight: 500; color: var(--dim); margin: 36px 0 10px; }
+  p { margin: 0 0 12px; color: var(--dim); }
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .row:last-child { border-bottom: 1px solid var(--line); }
+  .name { flex: 1; }
+  .name b { font-weight: 500; letter-spacing: .08em; }
+  .name small { display: block; color: var(--dim); font-size: 13px; }
+  button, label.file { font: inherit; font-size: 13px; color: var(--ink); background: none; border: 1px solid #355; border-radius: 6px;
+    padding: 6px 14px; cursor: pointer; }
+  button:hover:not(:disabled), label.file:hover { border-color: var(--teal); color: var(--teal); }
+  button:disabled { opacity: .35; cursor: default; }
+  #status { margin-top: 20px; min-height: 1.6em; font-size: 13px; color: var(--teal); }
+  #status.bad { color: var(--warn); }
+  input[type=file] { display: none; }
+  footer { margin-top: 56px; font-size: 12px; color: #4d6360; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>UMBRA OBSCURA</h1>
+  <p>Plates: load a plate file into the FM-1's plate slot. A plate there takes FILAMENT's place (HOME › PLATE, or in
+    TOTALITY). Loading stops playback and pauses the sound for a moment, so do it between sets.</p>
+  <div class="row"><div class="name"><b id="dev">FM-1</b><small id="devinfo">Not connected. Connect it by USB, then press Connect (Chrome or Edge).</small></div>
+    <button id="connect">Connect</button></div>
+
+  <h2>THE SLOT</h2>
+  <div class="row"><div class="name"><b id="slotname">—</b><small id="slotinfo">Connect to see what it holds.</small></div>
+    <button id="erase" disabled>Empty it</button></div>
+
+  <h2>PLATE FILES</h2>
+  <div id="lib"><p>Loading the list…</p></div>
+  <div class="row"><div class="name"><b>A file of your own</b><small>A .plate file built for this firmware's plate API.</small></div>
+    <label class="file" id="filelbl">Choose…<input type="file" id="file" accept=".plate"></label></div>
+
+  <div id="status"></div>
+  <footer>UMBRA OBSCURA is a live-visuals reskin of <a href="https://github.com/juanjiant-bit/JIANT">JIANT FM</a> by Juan Jiant,
+    itself built on Felucca. GPL-3.0. M-VAVE and FM-1 are trademarks of their respective owners.</footer>
+</main>
+<script>
+"use strict";
+const CMD = { LIST: 96, BEGIN: 97, WRITE: 98, END: 99, ERASE: 100 };
+const RC = { 1: "the FM-1 refused the request", 2: "the file was refused (its checksum or header): the slot is empty",
+             3: "stop playback first", 4: "a flash write failed" };
+const DESC = { "filament.plate": "FILAMENT as built into the firmware: loading it changes nothing you can see.",
+               "filament-ember.plate": "FIL EMBER, a test: FILAMENT with warm strings at rest. If the strings turn warm, the slot's plate is running." };
+const $ = (id) => document.getElementById(id);
+let dev = null;
+
+function say(t, bad) { $("status").textContent = t; $("status").className = bad ? "bad" : ""; }
+const u32 = (n) => [0, 7, 14, 21, 28].map((s) => (n >>> s) & 127);
+const fromU32 = (a) => (a[0] | a[1] << 7 | a[2] << 14 | a[3] << 21) + a[4] * 268435456;
+function pack7(b) {                                   /* groups: a byte of top bits, then up to 7 bytes (ed_unpack7) */
+  const o = [];
+  for (let i = 0; i < b.length; i += 7) {
+    const g = b.subarray(i, i + 7); let m = 0;
+    g.forEach((x, j) => { m |= (x >> 7) << j; });
+    o.push(m, ...Array.from(g, (x) => x & 127));
+  }
+  return o;
+}
+const CRC = (() => { const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return (b) => { let c = 0xFFFFFFFF; for (const x of b) c = t[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }; })();
+
+/* one request, one reply (the same command), in turn */
+function request(cmd, args, ms = 3000) {
+  return new Promise((ok, fail) => {
+    const tmo = setTimeout(() => { dev.wait = null; fail(new Error("the FM-1 did not answer")); }, ms);
+    dev.wait = { cmd, done: (a) => { clearTimeout(tmo); dev.wait = null; ok(a); } };
+    dev.out.send([0xF0, 0x7D, 0x46, 0x4C, cmd, ...args, 0xF7]);
+  });
+}
+function onMidi(e) {
+  const d = e.data;
+  if (d[0] !== 0xF0 || d[1] !== 0x7D || d[2] !== 0x46 || d[3] !== 0x4C || !dev || !dev.wait || d[4] !== dev.wait.cmd) return;
+  dev.wait.done(Array.from(d.subarray(5, d.length - 1)));
+}
+
+async function connect() {
+  let acc;
+  try { acc = await navigator.requestMIDIAccess({ sysex: true }); }
+  catch (e) { say("This browser gave no MIDI access (it needs Chrome or Edge, and your OK).", true); return; }
+  const isF = (p) => /felucca|jiant/i.test(p.name || "") && p.state !== "disconnected";
+  const inp = [...acc.inputs.values()].find(isF), out = [...acc.outputs.values()].find(isF);
+  if (!inp || !out) { say("No FM-1 found. Is it connected by USB and switched on?", true); return; }
+  inp.onmidimessage = onMidi;
+  dev = { inp, out, wait: null };
+  $("dev").textContent = out.name; $("connect").disabled = true;
+  await refresh();
+}
+async function refresh() {
+  let a;
+  try { a = await request(CMD.LIST, []); }
+  catch (e) { $("devinfo").textContent = "It does not answer plate requests: install the UMBRA OBSCURA firmware with plates first."; dev = null;
+              $("connect").disabled = false; return; }
+  const st = a[2], z = a.indexOf(0, 3), name = String.fromCharCode(...a.slice(3, z)), len = fromU32(a.slice(z + 1, z + 6));
+  $("devinfo").textContent = `Connected. Plate API ${a[0]}.`;
+  $("slotname").textContent = st ? name : "Empty";
+  $("slotinfo").textContent = st === 1 ? `${len} bytes, running in FILAMENT's place.` :
+    st === 2 ? `${len} bytes, held back: the FM-1 restarted after a crash or hang. Switch it off and on to run it again, or empty the slot.` :
+    "FILAMENT runs as built into the firmware.";
+  $("erase").disabled = !st;
+  document.querySelectorAll("button.load").forEach((b) => { b.disabled = false; });
+}
+function check(a, what) { if (a[1]) throw new Error(`${what}: ${RC[a[1]] || "rc " + a[1]}`); }
+async function send(bytes, label) {
+  if (!dev) { say("Connect the FM-1 first.", true); return; }
+  const busy = document.querySelectorAll("button"); busy.forEach((b) => { b.disabled = true; });
+  try {
+    if (bytes.length < 128 || bytes.length > 4064) throw new Error(`${label} is ${bytes.length} bytes: not a plate file for this slot`);
+    say(`Sending ${label}…`);
+    check(await request(CMD.BEGIN, [0, ...u32(bytes.length)], 5000), "start");
+    for (let o = 0; o < bytes.length; o += 256) {
+      check(await request(CMD.WRITE, [0, ...u32(o), ...pack7(bytes.subarray(o, o + 256))]), "write");
+      say(`Sending ${label}… ${Math.min(100, Math.round((o + 256) * 100 / bytes.length))}%`);
+    }
+    check(await request(CMD.END, [0, ...u32(CRC(bytes))], 5000), "finish");
+    say(`${label} is in the slot.`);
+  } catch (e) { say(e.message, true); }
+  finally { busy.forEach((b) => { b.disabled = false; }); $("connect").disabled = !!dev; await refresh().catch(() => {}); }
+}
+async function erase() {
+  try { check(await request(CMD.ERASE, [0], 5000), "empty"); say("The slot is empty: FILAMENT runs as built in."); }
+  catch (e) { say(e.message, true); }
+  await refresh().catch(() => {});
+}
+async function library() {
+  let names = [];
+  try { names = await (await fetch("plates.json", { cache: "no-store" })).json(); } catch (e) { /* none here */ }
+  $("lib").innerHTML = names.length ? "" : "<p>No plate files published here.</p>";
+  for (const n of names) {
+    const row = document.createElement("div"); row.className = "row";
+    row.innerHTML = `<div class="name"><b></b><small></small></div><button class="load">Load</button>`;
+    row.querySelector("button").disabled = !dev;
+    row.querySelector("b").textContent = n.replace(/\.plate$/, "").toUpperCase();
+    row.querySelector("small").textContent = DESC[n] || "";
+    row.querySelector("button").onclick = async () => {
+      const b = new Uint8Array(await (await fetch(n, { cache: "no-store" })).arrayBuffer());
+      await send(b, n.replace(/\.plate$/, "").toUpperCase());
+    };
+    $("lib").appendChild(row);
+  }
+}
+$("connect").onclick = connect;
+$("erase").onclick = erase;
+$("file").onchange = async (e) => { const f = e.target.files[0]; if (f) await send(new Uint8Array(await f.arrayBuffer()), f.name); e.target.value = ""; };
+if (!navigator.requestMIDIAccess) say("This browser has no Web MIDI: use Chrome or Edge.", true);
+library();
+</script>
+</body>
+</html>

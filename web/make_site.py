@@ -114,6 +114,13 @@ def main(pkg, version, out, prev=None):
     for doc in ("LICENSE", "LICENSING.md"):
         shutil.copy(HERE.parent / doc, fw / doc)
     shutil.copy(HERE / "editor.html", ed / "index.html")
+    pl = out / "webapp" / "plates"                  # (UMBRA OBSCURA) the plates page and the plate files CI built
+    pl.mkdir(parents=True, exist_ok=True)
+    shutil.copy(HERE / "plates.html", pl / "index.html")
+    plates = sorted((HERE.parent / "build" / "plates").glob("*.plate"))
+    for f in plates:
+        shutil.copy(f, pl / f.name)
+    (pl / "plates.json").write_text(json.dumps([f.name for f in plates]) + "\n", encoding="utf-8")
     for f in ("fukiai.ttf", "FUKIAI-LICENSE.txt", "fm1backup.js"):
         if (HERE / f).exists():
             shutil.copy(HERE / f, ed / f)

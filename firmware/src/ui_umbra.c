@@ -189,8 +189,6 @@ static void umb_tabs(void)
 /* SAROS and FILAMENT (ui_umbra_melody.c) */
 #define UMM_TH 48                                       /* SAROS: threads at most */
 #define UMM_ND 12                                       /* .. the notes' points glowing */
-#define UMM_NP 81                                       /* FILAMENT: a string's points (3 px apart) */
-#define UMM_NH 4                                        /* .. the notes a string holds */
 typedef struct {
     uint8_t ta[UMM_TH], tb[UMM_TH], tc[UMM_TH], tf[UMM_TH];   /* SAROS: a thread's notes (a < b), track, the note before */
     uint16_t te[UMM_TH];                                /* .. its energy (Q8: burned up to 2.5) */
@@ -203,13 +201,6 @@ typedef struct {
     int16_t ux[12], uy[12];                             /* the twelve places on the circle of fifths, turned (Q15) */
     uint8_t nth, nnd, last[NTRK];                       /* threads in use, the next point; each track's last note + 1 */
     uint32_t th, tms;                                   /* the turn (2^32 a turn) and its clock */
-    int16_t u[NTRK][UMM_NP], v[NTRK][UMM_NP];           /* FILAMENT: each string's height and speed (px, Q8) */
-    uint8_t c2[NTRK], hn[NTRK][UMM_NH], hx[NTRK][UMM_NH];   /* .. its tension (Q8); the notes it holds (+ 1), where */
-    int16_t ha[NTRK][UMM_NH];                           /* .. how hard they bow it (the side its sign) */
-    uint32_t hf[NTRK][UMM_NH], h0[NTRK][UMM_NH];        /* .. how fast (phase a ms), since when */
-    int8_t dir[NTRK];                                   /* .. the side a pluck goes */
-    uint8_t mv[NTRK];                                   /* .. moving (still: nothing to work out) */
-    uint32_t sub;                                       /* the substeps' clock (ms) */
 } umm_t;
 /* CINDER, GRANULE, CORONA, TARN (ui_umbra_field.c) */
 typedef struct {
@@ -304,28 +295,35 @@ static uint32_t umb_isqrt(uint32_t v)
     return r;
 }
 static int32_t umb_clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
-/* a note on track c (once a note, before a plate places it): its offset moved (NOTE MOVEMENT) */
-static void umn_note(uint32_t c)
+/* each note's offset as NOTE MOVEMENT gave it (umb_q's entry, across and down): a layer reading the notes after another
+ * (the plate API's overlay) places each note where it was, not where the track's last note left the offset */
+static int16_t umb_qo[UMB_NQ][2] __attribute__((section(".pool")));
+/* a note on track c, umb_q's entry q (once a note, before a plate places it): its offset moved (NOTE MOVEMENT), kept */
+static void umn_note(uint32_t c, uint32_t q)
 {
     uint32_t m = umt_get(10u), t = umt_get(11u), st = t * t * 26843u, dt = umb_now - umn.t[c], ax;
     umn.t[c] = umb_now;
-    if (!m)
-        return;
-    umn.p[c] += m == 1u ? st : m == 2u ? st / 500u * (dt > 4000u ? 4000u : dt) : 0u;
-    for (ax = 0; ax < 2u; ax++)                         /* (the path; RANDOM: a span either way, folded: even) */
-        umn.o[c][ax] = (int16_t)(m == 3u ? (int32_t)(umb_rnd() % 513u) - 256
-                                         : SINE[(umn.p[c] * UMN_L[c][ax] + (ax ? 0u : c * 715827883u)) >> 22] >> 7);
+    if (m) {
+        umn.p[c] += m == 1u ? st : m == 2u ? st / 500u * (dt > 4000u ? 4000u : dt) : 0u;
+        for (ax = 0; ax < 2u; ax++)                     /* (the path; RANDOM: a span either way, folded: even) */
+            umn.o[c][ax] = (int16_t)(m == 3u ? (int32_t)(umb_rnd() % 513u) - 256
+                                             : SINE[(umn.p[c] * UMN_L[c][ax] + (ax ? 0u : c * 715827883u)) >> 22] >> 7);
+    }
+    umb_qo[q][0] = umn.o[c][0];
+    umb_qo[q][1] = umn.o[c][1];
 }
-/* v (0 .. span along axis ax: 0 across, 1 down) where track c's offset moves it, folded back into 0 .. span */
-static int32_t umn_at(uint32_t c, uint32_t ax, int32_t v, int32_t span)
+/* v (0 .. span) moved by offset o (Q8 of the span), folded back into 0 .. span */
+static int32_t umn_fold(int32_t o, int32_t v, int32_t span)
 {
-    int32_t o = umn.o[c][ax], p = 2 * span;
+    int32_t p = 2 * span;
     if (!o)
         return v;
     v = (v + ((o * span) >> 8)) % p;
     v += v < 0 ? p : 0;
     return v > span ? p - v : v;
 }
+/* v (0 .. span along axis ax: 0 across, 1 down) where track c's offset moves it */
+static int32_t umn_at(uint32_t c, uint32_t ax, int32_t v, int32_t span) { return umn_fold(umn.o[c][ax], v, span); }
 /* the noise table at X, Y (texels, Q8; it wraps): its value x 256 */
 static int32_t umb_tbil(int32_t X, int32_t Y)
 {
@@ -343,17 +341,130 @@ static const uint8_t UMB_LANE_POS[NLANE] = {3, 5, 6, 2, 1, 4, 7, 0};   /* KICK i
                                                                         * HATOP teal, TOM indigo, RIM amber, BELL mint */
 #include "ui_umbra_melody.c"                          /* SAROS and FILAMENT, the melody plates */
 #include "ui_umbra_field.c"                           /* CINDER, GRANULE, CORONA and TARN, the field plates */
+/* ----------------------------------------------------------------------------------------- the plate modules --- */
+/* A plate built as a module (umb_plate.h) runs on a layer: its block, the notes it has read, its frame. Layer 0 is the
+ * ground, its block the plates' shared one (umb's union: one plate draws there at a time); layer 1 (the emulator's test
+ * of two at once, UMB_LAYERS 2) an overlay with its own. The firmware reads the notes and hands each layer its own; NOTE
+ * MOVEMENT steps on the ground's only. FILAMENT is the first module (resident: built into the image). */
+#include "umb_plate.h"
+#include "plates/filament.c"                          /* FILAMENT, through the plate API */
+_Static_assert(NTRK == UMB_NTRK, "the plate API's tracks");
+#ifndef UMB_LAYERS
+#define UMB_LAYERS 1
+#endif
+#define UMB_VGN 150u                                    /* a strip's rows at most (gfx.c CV_MAX / 240) */
+static int32_t umb_api_move(const umb_note_t *n, uint32_t ax, int32_t v, int32_t span) { return umn_fold(n->mo[ax & 1u], v, span); }
+static const umb_api_t umb_api = {UMB_API, umb_api_move, SINE, UMB_EVC};
+#if FELUCCA_FLASH && !FELUCCA_WEB
+static const umb_plate_t *ups_plate(void);             /* umb_slot.c: the plate file in flash, if one is to run */
+#else
+#define ups_plate() ((const umb_plate_t *)0)
+#endif
+typedef struct {
+    const umb_plate_t *p;                               /* the plate it draws (its module's header): resident .. */
+    const umb_plate_t *pp;                              /* .. or the slot's in its place (umb_slot.c), the one last drawn */
+    void *st;                                           /* its block .. */
+    uint32_t cap;                                       /* .. of these bytes */
+    uint32_t qr, f0, last;                              /* the notes read, the frame worked out, its time */
+    uint8_t on;                                         /* the plate it last drew + 1 (0: none: it starts afresh) */
+    uint8_t mov;                                        /* its notes step NOTE MOVEMENT (the ground's) */
+} umb_layer_t;
+#if UMB_LAYERS > 1
+static uint8_t umb_ovl;                                 /* (the emulator: web_umb(97, 1)) FILAMENT over the plate in TOTALITY */
+static uint32_t umb_ost[(sizeof(plf_t) + 3u) / 4u] __attribute__((section(".pool")));
+#endif
+static umb_layer_t umb_lay[UMB_LAYERS] = {
+    {&umb_plate_filament, 0, &umb, __builtin_offsetof(umb_t, f0), 0, 0, 0, 0, 1},
+#if UMB_LAYERS > 1
+    {&umb_plate_filament, 0, umb_ost, sizeof umb_ost, 0, 0, 0, 0, 0},
+#endif
+};
+static int16_t umb_vg[UMB_VGN] __attribute__((section(".pool")));   /* the strip's rows' light (umb_strip_t.vg) */
+/* layer li's plate (as plate pl: its settings) over the canvas as the screen's x0, y0 .., in draw mode mode */
+static void umb_lay_draw(uint32_t li, uint32_t pl, int32_t x0, int32_t y0, uint32_t mode)
+{
+    umb_layer_t *L = &umb_lay[li];
+    const umb_plate_t *p = ups_plate();
+    umb_lctx_t c;
+    umb_strip_t s;
+    uint32_t j, h = cv_h < UMB_VGN ? cv_h : UMB_VGN;
+    if (!p || p->state > L->cap || !(p->modes & UMB_MODE(mode)))
+        p = L->p;                                       /* (none in the slot, or not one for this layer: the resident) */
+    if (p->magic != UMB_PLATE_MAGIC || p->api > UMB_API || p->state > L->cap || !(p->modes & UMB_MODE(mode)))
+        return;                                         /* (not a plate, a newer one, too big, or not this way: nothing) */
+    if (p != L->pp) {                                   /* (another plate in its place: it starts afresh) */
+        L->pp = p;
+        L->on = 0;
+    }
+    for (j = 0; j < UMB_NCTL; j++)                      /* (the routes, MACROS - VISUALS, move the ground's plate only: */
+        c.k[j] = (uint8_t)(j < 3u ? li ? umv_raw(pl, j) : umv(pl, j) : 0u);   /* the overlay its own, as stored) */
+    c.light = li ? ((int32_t)umv_raw(pl, 3u) * 256 + 49) / 99 : umv_light(pl);
+    c.now = umb_now;
+    c.dt = 0;
+    c.bare = umb.bare;
+    c.tracks = (uint8_t)trk_live;
+    c.layer = (uint8_t)li;
+    c.rsv = 0;
+    if (L->on != pl + 1u) {                             /* chosen: its block zeroed, the notes from now */
+        memset(L->st, 0, p->state);
+        L->on = (uint8_t)(pl + 1u);
+        L->qr = umb_q.w;
+        L->last = umb_now;
+        p->init(L->st, &c, &umb_api);
+    }
+    if (L->f0 != ui.frame) {                            /* once a frame: the notes since (a burst: the newest), its frame */
+        L->f0 = ui.frame;
+        c.dt = umb_now - L->last > 250u ? 250u : umb_now - L->last;
+        L->last = umb_now;
+        if (umb_q.w - L->qr > UMB_NQ)
+            L->qr = umb_q.w - UMB_NQ;
+        for (; L->qr != umb_q.w; L->qr++) {
+            uint32_t q = L->qr % UMB_NQ, t = umb_q.c[q], v = umb_vel(umb_q.vel[q]);   /* (REACT) */
+            umb_note_t n;
+            if (t >= NTRK || (umb_q.vel[q] && (eco_off(t) || !v)))
+                continue;
+            if (v && L->mov)
+                umn_note(t, q);                         /* (NOTE MOVEMENT) */
+            n.track = (uint8_t)t;
+            n.note = umb_q.note[q];
+            n.vel = (uint8_t)v;
+            n.drum = trk[t].engine == ENGI_DRUM;
+            n.lane = (uint8_t)(n.drum ? drum_lane(n.note) % NLANE : 0u);
+            n.rsv = 0;
+            n.mo[0] = umb_qo[q][0];                     /* (where NOTE MOVEMENT put it: the ground's call, this frame's) */
+            n.mo[1] = umb_qo[q][1];
+            p->note(L->st, &c, &umb_api, &n);
+        }
+        p->frame(L->st, &c, &umb_api);
+    }
+    for (j = 0; j < h; j++)
+        umb_vg[j] = (int16_t)umb_rowlight(y0 + (int32_t)j, c.light);
+    s.px = cv_px;
+    s.w = (int32_t)cv_w;
+    s.h = (int32_t)h;
+    s.x0 = x0;
+    s.y0 = y0;
+    s.vg = umb_vg;
+    s.mode = mode;
+    p->draw(L->st, &c, &umb_api, &s);
+}
 /* the canvas as the screen's x0, y0 .. : the plate */
 static void umb_backdrop(int32_t x0, int32_t y0)
 {
     uint32_t pl = umb_pl();
     umb_tabs();                                         /* (the noise, once) */
     umb_clock();
-    if (pl == 1u || pl == 2u) {                         /* SAROS, FILAMENT */
+    if (pl == 2u) {                                     /* FILAMENT: a module (plates/filament.c) */
         ump_on = 0xFFu;
+        umm_on = 0;
+        umb_lay_draw(0u, pl, x0, y0, UMB_DRAW_REPLACE);
+    } else if (pl == 1u) {                              /* SAROS */
+        ump_on = 0xFFu;
+        umb_lay[0].on = 0;
         umm_backdrop(pl, x0, y0);
     } else {
         umm_on = 0;
+        umb_lay[0].on = 0;
         ump_backdrop(pl, x0, y0);
     }
 }

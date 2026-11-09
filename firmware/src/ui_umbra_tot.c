@@ -267,6 +267,10 @@ static void umb_full(void)
     for (y = 0; y < 240u; y += 120u) {
         cv_begin(240, 120, T_BG);
         umb_backdrop(0, (mir & 2u) ? 0 : (int32_t)y);
+#if UMB_LAYERS > 1
+        if (umb_ovl)                                    /* (the emulator's test of two at once: FILAMENT's light over it) */
+            umb_lay_draw(1u, 2u, 0, (mir & 2u) ? 0 : (int32_t)y, UMB_DRAW_ADD);
+#endif
         umt_fx(y, mir);
         if (ba && bs)                                   /* (over the effects: the being stays whole) */
             umt_being(y, bs);
