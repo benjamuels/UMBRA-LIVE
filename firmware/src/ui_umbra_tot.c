@@ -6,8 +6,8 @@
  * that goes to a page (a section's, SAVE, SEQ, HOME held for the menu, a dialog, GEN: umt_check). In it:
  *   SELECT the plates, round, a detent a plate; the new one spreads from the middle over the old (DISSOLVE: gfx.c dc_gate,
  *   the cells not yet reached keep what they showed; 0 a cut .. 99 four seconds, as HOME > ECO > NOTES set it, gone);
- *   KNOB 1..4 what HOME > ECO > ROUTING (gone) sent them to on this plate (UMT_*: the plate's own three, LIGHT, SPEED, REACT,
- *   MOVEMENT, TRAVEL, DISSOLVE);
+ *   KNOB 1..4 the macros M1..M4 (mod.c macro_v, the project's), sent on to the sound and the picture as HOME > UMBRA's
+ *   MACROS - AUDIO and MACROS - VISUALS say (ui_umbra_mac.c; at first the plate's own three and LIGHT);
  *   FX tapped: KNOB 1..4 the visual effects instead (MIRROR MOSAIC GLITCH SOLAR), FX lit; tapped again: the plate's;
  *   SCL tapped: the selected track's being over the plate, in the middle (HOME > BEING's: its engine's own creature,
  *   ui_engvis.c, the snail, the mouth, the kit ..; no floors under them; else its being; ALGORITHM another track's),
@@ -33,21 +33,13 @@ static struct {
     uint8_t bn;                                         /* the being (SCL): on */
     uint16_t ba;                                        /* .. their strength now, 0..256 (fading: umb_full) */
 } umt;
-static const char *const UMT_FXN[4] = {"MIRROR", "MOSAIC", "GLITCH", "SOLAR"};
-static const char *const UMT_MIR[4] = {"OFF", "L-R", "T-B", "QUAD"};
-static const char *umt_tname(uint32_t pl, uint32_t t)   /* routed target t's name on plate pl */
+static const char *const UMT_TN[UMT_NT - 3] = {"LIGHT", "SPEED", "REACT", "MOVEMENT", "TRAVEL", "DISSOLVE", "MIRROR", "MOSAIC",
+                                                "GLITCH", "SOLAR", "BEING"};   /* the targets past the plate's three */
+#define UMT_FXN (UMT_TN + UMT_MIR - 3)                  /* the effects (FX): MIRROR MOSAIC GLITCH SOLAR */
+static const char *const UMT_MIRN[4] = {"OFF", "L-R", "T-B", "QUAD"};
+static const char *umt_tname(uint32_t pl, uint32_t t)   /* target t's name on plate pl */
 {
-    static const char *const N[6] = {"LIGHT", "SPEED", "REACT", "MOVEMENT", "TRAVEL", "DISSOLVE"};
-    return t < 3u ? UMV_N[pl % UMP_NPL][t] : N[(t - 3u) % 6u];
-}
-static uint32_t umt_ix(uint32_t t) { return t == UMT_FADE ? 0u : t + 4u; }   /* a target past LIGHT: its byte (umt_get) */
-static uint32_t umt_val(uint32_t pl, uint32_t t) { return t <= UMT_LIGHT ? umv(pl, t) : umt_get(umt_ix(t)); }
-static void umt_add(uint32_t pl, uint32_t t, int32_t d)   /* target t turned d (MOVEMENT: a detent a step) */
-{
-    if (t <= UMT_LIGHT)
-        umv_put(pl, t, (uint32_t)umb_clamp((int32_t)umv(pl, t) + d, 0, 99));
-    else
-        umt_put(umt_ix(t), (int32_t)umt_get(umt_ix(t)) + (t == UMT_MOVE ? (d > 0) - (d < 0) : d));
+    return t < 3u ? UMV_N[pl % UMP_NPL][t] : UMT_TN[(t - 3u) % (UMT_NT - 3u)];
 }
 static uint32_t umt_where(void)
 {
@@ -68,18 +60,7 @@ static void umt_say(const char *a, const char *b)
     }
     umt.say_ms = fm1_ms | 1u;
 }
-static void umt_say_knobs(void)                         /* what KNOB 1..4 turn now */
-{
-    char b[32];
-    uint32_t k, pl = umb_pl();
-    b[0] = 0;
-    for (k = 0; k < 4u; k++) {
-        if (k)
-            str_cpy(b + str_len(b), " ", sizeof b - str_len(b));
-        str_cpy(b + str_len(b), umt.fx ? UMT_FXN[k] : umt_tname(pl, umr_get(pl, k)), sizeof b - str_len(b));
-    }
-    umt_say(b, 0);
-}
+static void umt_say_knobs(void) { umt_say(umt.fx ? "MIRROR MOSAIC GLITCH SOLAR" : "M1 M2 M3 M4", 0); }   /* KNOB 1..4's */
 static void umt_enter(uint32_t song)
 {
     if (gen_on())
@@ -148,27 +129,23 @@ static void umt_fx_tap(void)                            /* FX: KNOB 1..4 the eff
     umt.fx ^= 1u;
     umt_say_knobs();
 }
-/* KNOB k turned d (accelerated; MIRROR's a detent a step): its effect, or the target ROUTING gives it */
+/* KNOB k turned d (accelerated; MIRROR's a detent a step): its effect, or its macro (as the MACRO layer turns them) */
 static void umt_knob(uint32_t k, int32_t d)
 {
-    uint32_t pl = umb_pl(), t, v;
-    char b[4];
-    const char *nm, *vs = b;
+    uint32_t v;
+    char b[4], m[3] = {'M', (char)('1' + k), 0};
+    const char *nm = m, *vs = b;
     if (umt.fx) {
-        umt_put(4u + k, (int32_t)umt_get(4u + k) + d);
-        v = umt_get(4u + k);
+        umt_put(4u + k, (int32_t)umt_raw(4u + k) + d);
+        v = umt_raw(4u + k);
         nm = UMT_FXN[k];
         if (!k)
-            vs = UMT_MIR[v & 3u];
+            vs = UMT_MIRN[v & 3u];
         else if (!v)
             vs = "OFF";
     } else {
-        t = umr_get(pl, k);
-        nm = umt_tname(pl, t);
-        umt_add(pl, t, d);
-        v = umt_val(pl, t);
-        if (t == UMT_MOVE)
-            vs = UMN_MV[v & 3u];
+        macro_v[k & 3u] = (uint8_t)clamp(macro_v[k & 3u] + d, 0, 127);
+        v = macro_v[k & 3u] * 100u / 127u;
     }
     fmt_int(b, (int32_t)v);
     umt_say(nm, vs);
@@ -269,7 +246,7 @@ static void umt_being(uint32_t y, uint32_t a)
 static void umb_full(void)
 {
     static uint32_t ms;
-    uint32_t y, mir = umt_get(4u), f = umt_get(0u) * umt_get(0u) * 4000u / 9801u, el = fm1_ms - umt.fms, ba = fm1_ms - ms;
+    uint32_t y, mir = umt_get(4u), f = umt_get(0u) * umt_get(0u) * 4000u / 9801u, el = fm1_ms - umt.fms, ba = fm1_ms - ms, bs;
     if (sys_load && !ui.force && ba < (sys_load == LOAD_ECO ? 70u : 50u))
         return;
     ms = fm1_ms;
@@ -280,6 +257,7 @@ static void umb_full(void)
     else
         umt.fms = 0;
     umt_glitch_tick();
+    bs = umq_o[UMT_BEING] ? ba * (umq_o[UMT_BEING] - 1u) / 99u : ba;   /* (MACROS - VISUALS: its strength routed) */
     if (ba)                                             /* the being: its track's level, once a frame */
         (void)eco_step();
     if (umt.say_ms && fm1_ms - umt.say_ms > 1500u)
@@ -290,8 +268,8 @@ static void umb_full(void)
         cv_begin(240, 120, T_BG);
         umb_backdrop(0, (mir & 2u) ? 0 : (int32_t)y);
         umt_fx(y, mir);
-        if (ba)                                         /* (over the effects: the being stays whole) */
-            umt_being(y, ba);
+        if (ba && bs)                                   /* (over the effects: the being stays whole) */
+            umt_being(y, bs);
         if (y && umt.say_ms)                            /* the word at the foot */
             cv_text(8, 102, &AF_S, umt.say, T_MID);
         cv_blit_cells(0, y);

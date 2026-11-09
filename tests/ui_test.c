@@ -11149,9 +11149,9 @@ static int test_skin(void)
         ok &= !ui.msg_t && !ui.hint_pg;
         bad += check("a page's hint goes when the page changes (not carried onto the next page); no layer hint after EDIT", ok);
     }
-    {   /* (UMBRA OBSCURA) TOTALITY: a HOME tap on HOME (lit); SELECT the plates, round; KNOB 1..4 as ROUTING routes them
-         * (at first the plate's two, SPEED, LIGHT); FX tapped: the effects, FX lit; every other LED dark; HOME: back to
-         * the page under it; a page chosen (EDIT) ends it; ROUTING's KNOB 1 another target */
+    {   /* (UMBRA OBSCURA) TOTALITY: a HOME tap on HOME (lit); SELECT the plates, round; KNOB 1..4 the macros M1..M4 (said
+         * by name); FX tapped: the effects, FX lit; every other LED dark; HOME: back to the page under it; a page chosen
+         * (EDIT) ends it */
         uint32_t c, dim = 0, pl;
         ui_power_on(); frame();
         umb_plate = 0x80u;                                         /* (CINDER) */
@@ -11174,12 +11174,13 @@ static int test_skin(void)
         turn(EN_SELECT, 1);
         turn(EN_ALGO, 1);                                          /* (ALGORITHM: the track here, never the plate) */
         ok &= umb_pl() == pl && umt.on;
-        turn(EN_K3, 5);                                            /* (KNOB 3: CINDER's third, SWAY; the words off at first) */
-        ok &= umv(0u, 2u) == 55u && !umt.say_ms && !umt.info;
+        macro_v[2] = 0;
+        turn(EN_K3, 5);                                            /* (KNOB 3: M3; the words off at first) */
+        ok &= macro_v[2] == 5u && !umt.say_ms && !umt.info;
         press(B_SEQ); ui_leds();                                   /* (SEQ: the words on, lit, no page) */
         ok &= umt.on && umt.info && ui.home && led_of(fm1_led, panel.btn[B_SEQ]);
         turn(EN_K3, -5); turn(EN_K3, 5);
-        ok &= umv(0u, 2u) == 55u && str_eq(umt.say, "SWAY 55");
+        ok &= macro_v[2] == 5u && str_eq(umt.say, "M3 3");
         press(B_FX); ui_leds();
         ok &= umt.fx && led_of(fm1_led, panel.btn[B_FX]) && ui.home && umt.on;
         turn(EN_K1, 3);                                            /* (MIRROR: a detent a mode) */
@@ -11192,12 +11193,9 @@ static int test_skin(void)
         ok &= !umt.on && ui.home && ui.hset[0] == 1u && !ui.hlv;   /* (MACROS - AUDIO again) */
         press(B_HOME); frame(); press(B_EDIT); frame();
         ok &= !umt.on && !ui.home;
-        umr_put(umb_pl(), 0u, UMT_C);                              /* (routed a plate each: as ROUTING did, gone) */
-        ok &= umr_get(umb_pl(), 0u) == UMT_C && umr_get((umb_pl() + 1u) % UMP_NPL, 0u) == UMT_A && !umt.on;
         favorites.factory[4][16] = 0;
-        memset(favorites.factory[4] + 20, 0, 12);
-        memset(favorites.factory[6] + 8, 0, 6);
-        bad += check("(UMBRA OBSCURA) TOTALITY: HOME on HOME; SELECT plates round, KNOBs routed, FX effects; LEDs dark; HOME back; EDIT ends it; routing a plate each", ok);
+        macro_v[2] = 0;
+        bad += check("(UMBRA OBSCURA) TOTALITY: HOME on HOME; SELECT plates round, KNOBs the macros, FX effects; LEDs dark; HOME back; EDIT ends it", ok);
     }
     {   /* (UMBRA OBSCURA) TOTALITY: SCL tapped, the selected track's being over the plate (HOME > BEING's; SCL lit), fading in
          * over half a second; tapped again, fading out; SCL held: its layer, the being as it was; left and entered again: as it was */
@@ -11247,13 +11245,13 @@ static int test_skin(void)
             fmt_int(cn, (int32_t)k + 1);
             str_cpy(cn + str_len(cn), "/8", 3);
             ok &= lz_crumb_is(CR[k]) && lz_count_is(cn) && lz_tab_lit(TAB[k]) && home_bare() == (k < 3u) &&
-                  (k < 3u ? skin_ink(LZ_CARD_Y, LZ_CARD_Y + LZ_CARD_H) == 0 : 1);
-            if (k < 5u) {
+                  (!k ? skin_ink(LZ_CARD_Y, LZ_CARD_Y + LZ_CARD_H) == 0 : 1);
+            if (k < 5u) {                                          /* (the MACROS pages: their routes', ui_umbra_mac.c) */
                 c0 = (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]];
                 m0 = macro_v[0];
                 for (j = 0; j < 4u; j++) turn(EN_K1 + j, 2);
                 frame();
-                ok &= k < 3u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] == c0 && macro_v[0] == m0 && !ui.hot_t :
+                ok &= k < 3u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] == c0 && macro_v[0] == m0 && !ui.hot_t == !k :
                       k == 3u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] != c0 : macro_v[0] != m0;
             }
             if (!ok) { printf("  HOME entry %u\n", k); break; }
@@ -11263,18 +11261,93 @@ static int test_skin(void)
         press(B_OCTDN); frame();
         ui_skin = SKIN_AIR;
         nav_go(SEC_HOME, 0, 0); frames(64);                         /* (AIR: WELCOME's words over the plate, MACROS - */
-        ok &= hud_home() && home_bare();                           /* AUDIO the plate alone) */
+        ok &= hud_home() && home_bare();                           /* VISUALS its routes) */
         for (w0 = 0, y = 90; y < 180u; y++) for (x = 0; x < 240u; x++) w0 += lg_px((int32_t)x, (int32_t)y) == T_TEXT;
-        nav_go(SEC_HOME, 1, 0); frames(64);
-        for (w1 = 0, y = 90; y < 180u; y++) for (x = 0; x < 240u; x++) w1 += lg_px((int32_t)x, (int32_t)y) == T_TEXT;
-        ok &= hud_home() && w0 > w1 + 300u;
+        nav_go(SEC_HOME, 2, 0); frames(64);
+        for (w1 = 0, y = 70; y < 180u; y++) for (x = 0; x < 240u; x++) w1 += lg_px((int32_t)x, (int32_t)y) == T_TEXT;
+        ok &= hud_home() && w0 > 300u && w1 > 300u;
         nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(64);
         ok &= umt.on;
         press(B_HOME); frame();
         ok &= !umt.on && ui.home && !ui.hlv && !ui.hset[0];
         if (!ok) printf("  welcome ink %u, macros %u\n", w0, w1);
         ui_skin = SKIN_COLORS;
-        bad += check("(UMBRA OBSCURA) HOME: WELCOME . UMBRA (MACROS - AUDIO, MACROS - VISUALS, BEING, ROUTES) . GEN; no knobs on WELCOME and the MACROS pages; WELCOME's words", ok);
+        favorites.factory[6][18] = 0;                              /* (the routes the knobs turned: as at first) */
+        for (k = 0; k < NTRK; k++) memset(&trk[k].p[P_M1SRC], 0, 12u * sizeof trk[k].p[0]);
+        bad += check("(UMBRA OBSCURA) HOME: WELCOME . UMBRA (MACROS - AUDIO, MACROS - VISUALS, BEING, ROUTES) . GEN; no knobs on WELCOME; WELCOME's words, the MACROS pages' routes", ok);
+    }
+    {   /* (UMBRA OBSCURA, the user 2026-11-09) the MACROS pages (ui_umbra_mac.c): TOTALITY's KNOB 1..4 the macros M1..M4;
+         * MACROS - VISUALS' routes at first M1..M3 the plate's three from SET to 99, M4 LIGHT from SET to 0, so the plate as
+         * set with the macros at 0; MACROS - AUDIO: + NEW, KNOB 1 a route in the selected track's free slot, DEST, AMOUNT as
+         * LFO > MOD's, TRACK moves it, ALGORITHM the route (not the track); MACROS - VISUALS: SOURCE TARGET a detent each,
+         * a track's hits and its step as sources, two routes on a target adding */
+        uint32_t v[4], k, s0, sl;
+        ui_power_on(); frame();
+        favorites.factory[6][18] = 0;
+        memset(favorites.factory[4] + 8, 0, 24);
+        for (k = 0; k < NTRK; k++) memset(&trk[k].p[P_M1SRC], 0, 12u * sizeof trk[k].p[0]);
+        memset(macro_v, 0, sizeof macro_v);
+        umb_plate = 0x80u;                                         /* (CINDER) */
+        umq_get(0u, v);
+        ok = v[0] == UMQ_M1 && v[1] == UMT_A && v[2] == UMQ_SET && v[3] == 99u;
+        umq_get(3u, v);
+        ok &= v[0] == UMQ_M1 + 3u && v[1] == UMT_LIGHT && v[2] == UMQ_SET && !v[3];
+        umq_get(4u, v);
+        ok &= !v[0];
+        nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(32);
+        ok &= umt.on && umv(0u, 3u) == umv_raw(0u, 3u) && umv(0u, 0u) == umv_raw(0u, 0u);   /* (the macros at 0: as set) */
+        press(B_SEQ);
+        turn(EN_K4, 127); turn(EN_K1, 127); frames(32);
+        ok &= macro_v[3] == 127u && macro_v[0] == 127u && umv(0u, 3u) == 0u && umv(0u, 0u) == 99u && str_eq(umt.say, "M1 100");
+        ok &= umv_raw(0u, 3u) == UMV_LD;                           /* (LIGHT as set, kept) */
+        press(B_HOME); frame();
+        memset(macro_v, 0, sizeof macro_v);
+        nav_go(SEC_HOME, 1, 0); frame();                           /* MACROS - AUDIO */
+        uma_sel = UMA_NEW;
+        s0 = song.sel;
+        turn(EN_K1, 1);                                            /* (+ NEW: M1, the selected track's first slot) */
+        sl = s0 * 4u;
+        ok &= uma_sel == sl && trk[s0].p[P_M1SRC] == MS_M1 && !trk[s0].p[P_M1DST];
+        turn(EN_K3, 1); turn(EN_K4, 10);
+        ok &= trk[s0].p[P_M1DST] != 0 && trk[s0].p[P_M1AMT] == 10;
+        if (trk_live > 1u) {
+            turn(EN_K2, 1);                                        /* (TRACK: to the next track's free slot) */
+            sl = (s0 + 1u) % trk_live * 4u;
+            ok &= uma_sel == sl && !trk[s0].p[P_M1SRC] && !trk[s0].p[P_M1AMT] && trk[sl / 4u].p[P_M1SRC] == MS_M1 &&
+                  trk[sl / 4u].p[P_M1AMT] == 10;
+        }
+        turn(EN_ALGO, -1);
+        ok &= uma_sel == UMA_NEW && song.sel == s0;                /* (+ NEW, first; the track as it was) */
+        turn(EN_ALGO, 1);
+        ok &= uma_sel == sl;
+        nav_go(SEC_HOME, 2, 0); frame();                           /* MACROS - VISUALS */
+        umq_sel = 0;
+        turn(EN_ALGO, 4);
+        ok &= umq_sel == 4u && song.sel == s0;
+        turn(EN_K1, (int32_t)UMQ_HIT); turn(EN_K2, (int32_t)UMT_SPEED);   /* (T1's hits to SPEED, 0 .. 99) */
+        umq_get(4u, v);
+        ok &= v[0] == UMQ_HIT && v[1] == UMT_SPEED;
+        v[2] = 0; v[3] = 99u; umq_put(4u, v);
+        frames(400);
+        ok &= umt_get(8u) == 0u;
+        umb_q.c[umb_q.w % UMB_NQ] = 0; umb_q.vel[umb_q.w % UMB_NQ] = 127; umb_q.w++;   /* (a note on T1) */
+        frame();
+        ok &= umt_get(8u) > 90u;
+        frames(400);
+        ok &= umt_get(8u) == 0u;                                   /* (over in 0.3 s) */
+        trk[0].p[P_MSLEN] = 1; trk[0].p[P_MS0] = 127;              /* (T1's step, full: TRAVEL 0 .. 99 and again 0 .. 50) */
+        v[0] = UMQ_STEP; v[1] = UMT_TRAVEL; v[2] = 0; v[3] = 99u; umq_put(5u, v);
+        v[3] = 50u; umq_put(6u, v);
+        frame(); frame();
+        ok &= umt_get(11u) == 99u;                                 /* (0 + 98 + 50, at most 99) */
+        trk[0].p[P_MS0] = 0; frame(); frame();
+        ok &= umt_get(11u) == 0u;
+        if (!ok) printf("  macros: sel %u/%u speed %u travel %u\n", uma_sel, umq_sel, umt_get(8u), umt_get(11u));
+        favorites.factory[6][18] = 0;
+        memset(favorites.factory[4] + 8, 0, 24);
+        for (k = 0; k < NTRK; k++) memset(&trk[k].p[P_M1SRC], 0, 12u * sizeof trk[k].p[0]);
+        trk[0].p[P_MSLEN] = 16;
+        bad += check("(UMBRA OBSCURA) MACROS: TOTALITY's knobs M1..M4; VISUALS at first the plate as set; AUDIO + NEW, DEST, AMOUNT, TRACK moves, ALGORITHM the route; VISUALS hits and steps, routes adding", ok);
     }
     {   /* (UMBRA OBSCURA) NOTE MOVEMENT (its page, HOME > ECO > NOTES, gone: set here as it set it): STATIC MOVE DRIFT RANDOM (MOVE at first);
          * STATIC: no offset, a plate's places as ever; MOVE: a note a step along the track's own path (each track its own);
@@ -11285,27 +11358,27 @@ static int test_skin(void)
         ui_power_on(); frame();
         memset(favorites.factory[4] + 8, 0, 24);
         ok = umt_get(10u) == 1u && umt_get(11u) == 50u;
-        umt_add(0u, UMT_MOVE, -1);
+        umt_put(10u, 0);
         ok &= umt_get(10u) == 0u;                                  /* (STATIC) */
         umn_note(0); frame();
         ok &= !umn.o[0][0] && !umn.o[0][1] && umn_at(0, 0u, 100, 1000) == 100;
-        umt_add(0u, UMT_MOVE, 1);                                  /* (MOVE) */
+        umt_put(10u, 1);                                           /* (MOVE) */
         umn_note(0); x1 = umn.o[0][0]; y1 = umn.o[0][1];
         umn_note(0);
         ok &= umn.o[0][0] != x1 || umn.o[0][1] != y1;
         umn_note(1);
         ok &= umn.o[1][0] != umn.o[0][0] || umn.o[1][1] != umn.o[0][1];
         bad += check("(UMBRA OBSCURA) NOTE MOVEMENT: MOVE at first; STATIC no offset; MOVE a step a note, each track its own path", ok);
-        umt_add(0u, UMT_MOVE, 1);                                  /* (DRIFT) */
+        umt_put(10u, 2);                                           /* (DRIFT) */
         ok = umt_get(10u) == 2u;
         umn_note(2);
         p0 = umn.p[2]; umb_now += 50u; umn_note(2); d1 = umn.p[2] - p0;
         p0 = umn.p[2]; umb_now += 2000u; umn_note(2); d2 = umn.p[2] - p0;
         ok &= d1 && d2 == d1 * 40u;
-        umt_add(0u, UMT_TRAVEL, 20);                               /* (TRAVEL further: a longer step) */
+        umt_put(11u, 70);                                          /* (TRAVEL further: a longer step) */
         p0 = umn.p[2]; umb_now += 50u; umn_note(2);
         ok &= umt_get(11u) > 50u && umn.p[2] - p0 > d1;
-        umt_add(0u, UMT_MOVE, 3);                                  /* (RANDOM, the last) */
+        umt_put(10u, 3);                                           /* (RANDOM, the last) */
         ok &= umt_get(10u) == 3u;
         for (i = 0; i < 200; i++) {
             umn_note(3);
@@ -11315,14 +11388,20 @@ static int test_skin(void)
         }
         ok &= inside;
         bad += check("(UMBRA OBSCURA) NOTE MOVEMENT: DRIFT a step as long as the time since; TRAVEL its size; RANDOM anywhere, folded inside", ok);
-        umr_put(umb_pl(), 3u, UMT_MOVE);                           /* (KNOB 4 routed to MOVEMENT) */
+        {
+            uint32_t v[4] = {UMQ_M1 + 3u, UMT_MOVE, 0u, 3u};      /* (MACROS - VISUALS: M4 MOVEMENT STATIC .. RANDOM) */
+            umq_put(0u, v);
+        }
+        macro_v[3] = 0;
         nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(4);
         press(B_SEQ);                                              /* (the words on) */
-        turn(EN_K4, -2);
-        ok = umt.on && umt_get(10u) == 2u && str_eq(umt.say, "MOVEMENT DRIFT");
+        turn(EN_K4, 127); frames(32);
+        ok = umt.on && macro_v[3] == 127u && umt_get(10u) == 3u && str_eq(umt.say, "M4 100");
         press(B_HOME); frame();
         memset(favorites.factory[4] + 8, 0, 24);
-        bad += check("(UMBRA OBSCURA) TOTALITY: a knob routed to MOVEMENT, a detent a step, said by name", ok);
+        favorites.factory[6][18] = 0;
+        macro_v[3] = 0;
+        bad += check("(UMBRA OBSCURA) TOTALITY: KNOB 4 the macro M4, routed to MOVEMENT, said by name", ok);
     }
     {   /* (UMBRA OBSCURA) a plate's settings (their pages, PLATE and ROUTING, gone): its third a size, a plate each; LIGHT
          * one for all; routing a plate each; on HOME's pages ALGORITHM the track, never the plate; DISSOLVE: a plate chosen
@@ -11332,19 +11411,18 @@ static int test_skin(void)
         ui_power_on(); frame();
         memset(favorites.factory[4] + 8, 0, 24);
         memset(favorites.factory[6] + 8, 0, 6);
+        favorites.factory[6][18] = 0;                              /* (MACROS - VISUALS' routes as at first) */
         umb_plate = 0x85u;                                         /* (TARN) */
-        umt_add(5u, UMT_C, 10);                                    /* (TARN's SIZE) */
-        ok = umv(5u, 2u) == 60u && umv(4u, 2u) == 50u && umv_sc(5u) > 256;
-        umr_put(5u, 1u, UMT_C);
-        ok &= umr_get(5u, 1u) == UMT_C && umr_get(4u, 1u) == UMT_B;
+        umv_put(5u, 2u, 60u); frame();                             /* (TARN's SIZE; M3 at 0: as set) */
+        ok = umv(5u, 2u) == 60u && umv_raw(4u, 2u) == 50u && umv_sc(5u) > 256;
         sel0 = song.sel;
         for (k = 0; k < HOME_E_GEN; k++) {                         /* (WELCOME, the MACROS pages, BEING, ROUTES) */
             nav_go(SEC_HOME, k, 0); frame();
             turn(EN_ALGO, trk_live > 1u && sel0 + 1u < trk_live ? 1 : -1);
-            ok &= umb_pl() == 5u && (trk_live < 2u || song.sel != sel0);
+            ok &= umb_pl() == 5u && (trk_live < 2u || (k == 1u || k == 2u) == (song.sel == sel0));
             track_select(sel0);
         }
-        bad += check("(UMBRA OBSCURA) a plate's settings: its third a size, routing a plate each; on HOME ALGORITHM the track, never the plate", ok);
+        bad += check("(UMBRA OBSCURA) a plate's settings: its third a size, a plate each; on HOME ALGORITHM the track (the MACROS pages: the route), never the plate", ok);
         ok = dc_key(120u, 120u) < 64u && dc_key(2u, 2u) >= 188u && dc_gate == 256u;
         nav_go(SEC_HOME, 2, 0); frame(); press(B_HOME); frames(4);   /* (TOTALITY: TARN, from MACROS - VISUALS) */
         for (y = 0; y < 16u; y++) for (x = 0; x < 16u; x++) corner[y * 16u + x] = host_screen[y * 240u + x];
@@ -11358,6 +11436,7 @@ static int test_skin(void)
         press(B_HOME); frame();
         memset(favorites.factory[4] + 8, 0, 24);
         memset(favorites.factory[6] + 8, 0, 6);
+        favorites.factory[6][18] = 0;                              /* (MACROS - VISUALS' routes as at first) */
         bad += check("(UMBRA OBSCURA) DISSOLVE: the next plate from the middle, the corners kept until it reaches them; over in its time", ok);
     }
     for (sk = 0; sk < SKIN_N; sk++) {                             /* every lens page in each skin */

@@ -15,7 +15,8 @@
  * These are built to the FM-1's limits: a byte field or none, a table read and a palette read a pixel, no lighting pass, fades
  * in steps, still between notes, so the blit (gfx.c cv_blit_cells) sends little. Their state shares one block of the pool
  * (umb's union): a plate chosen starts afresh. TOTALITY (ui_umbra_tot.c), a HOME tap on HOME, is the plate alone over the
- * whole screen, KNOB 1..4 routed as HOME > ECO > ROUTING (gone, 2026-11-09) left them, FX its visual effects. */
+ * whole screen, KNOB 1..4 the macros M1..M4 (MACROS - AUDIO and MACROS - VISUALS send them on: ui_umbra_mac.c), FX its
+ * visual effects. */
 #define UMB_ON 1
 #define UMB_N 60                                        /* a field's side: 60 x 60 cells of 4 x 4 px */
 #define UMB_S (UMB_N * UMB_N)
@@ -51,11 +52,15 @@ static uint8_t *umv_at(uint32_t pl, uint32_t j, uint32_t *d)   /* plate pl's set
     *d = j > 2u ? UMV_LD : j > 1u ? 50u : UMV_D[pl][j];
     return j > 2u ? &favorites.factory[15][16] : j > 1u ? &favorites.factory[6][8u + pl] : &favorites.factory[15][4u + pl * 2u + j];
 }
-static uint32_t umv(uint32_t pl, uint32_t j)            /* plate pl's setting j (2: its third, 3: LIGHT), 0..99 */
+/* (MACROS - VISUALS, ui_umbra_mac.c) each target's value where a route reaches it, + 1 (0: none), worked out once a frame
+ * (umq_tick); UMT_* below */
+static uint8_t umq_o[14] __attribute__((section(".pool")));
+static uint32_t umv_raw(uint32_t pl, uint32_t j)        /* plate pl's setting j (2: its third, 3: LIGHT), 0..99, as set */
 {
     uint32_t d, v = *umv_at(pl, j, &d) ^ d;
     return v > 99u ? 99u : v;
 }
+static __attribute__((noinline)) uint32_t umv(uint32_t pl, uint32_t j) { return umq_o[j] ? umq_o[j] - 1u : umv_raw(pl, j); }   /* .. as routed */
 static void umv_put(uint32_t pl, uint32_t j, uint32_t v)
 {
     uint32_t d;
@@ -73,33 +78,26 @@ static int32_t umv_sc(uint32_t pl)
 }
 /* TOTALITY's own settings (ui_umbra_tot.c), in SAMPLE's retired favourites row (engine 4: never selectable, nothing reads its
  * stars; its presets were < 64, so its bytes 8.. were always 0; TRIO's row, bt.c, the same way), each as the value ^ its
- * default: [8 + i] i 0 DISSOLVE (1..3: the routing as it was, one for all plates), 4..7 the visual effects (FX), 8 SPEED,
- * 9 REACT, 10 MOVEMENT, 11 TRAVEL (umt_ix: a routed target's); [20 + 2 x plate ..] each plate's routing, a nibble a knob
- * (umr_get) */
-enum { UMT_A, UMT_B, UMT_C, UMT_LIGHT, UMT_SPEED, UMT_REACT, UMT_MOVE, UMT_TRAVEL, UMT_FADE, UMT_NT };   /* a routed knob: the
-                                                         * plate's own three, LIGHT .. */
+ * default: [8 + i] i 0 DISSOLVE (1..3: once the routing, one for all plates: MACROS - VISUALS' now), 4..7 the visual effects
+ * (FX), 8 SPEED, 9 REACT, 10 MOVEMENT, 11 TRAVEL. [20 ..] held each plate's KNOB 1..4 (gone: TOTALITY's knobs are the
+ * macros M1..M4, MACROS - VISUALS sends them on; its routes in those bytes, ui_umbra_mac.c) */
+enum { UMT_A, UMT_B, UMT_C, UMT_LIGHT, UMT_SPEED, UMT_REACT, UMT_MOVE, UMT_TRAVEL, UMT_FADE, UMT_MIR, UMT_MOS, UMT_GLI, UMT_SOL,
+       UMT_BEING, UMT_NT };                             /* MACROS - VISUALS' targets: the plate's own three, LIGHT .. */
+_Static_assert(UMT_NT == sizeof umq_o, "umq_o: a byte a target");
 #define UMT_NS 12u
 static const uint8_t UMT_D[UMT_NS] = {50, 0, 0, 0, 0, 0, 0, 0, 50, 50, 1, 50};
 static const uint8_t UMT_MAX[UMT_NS] = {99, 0, 0, 0, 3, 99, 99, 99, 99, 99, 3, 99};
-static const uint8_t UMR_D[4] = {UMT_A, UMT_B, UMT_C, UMT_LIGHT};   /* a plate's KNOB 1..4 at first */
-static uint32_t umr_get(uint32_t pl, uint32_t k)       /* plate pl's KNOB k + 1 in TOTALITY: its target (UMT_*) */
-{
-    uint32_t v = (favorites.factory[4][20u + pl * 2u + (k >> 1)] >> (k & 1u) * 4u & 15u) ^ UMR_D[k];
-    return v < UMT_NT ? v : UMR_D[k];
-}
-static void umr_put(uint32_t pl, uint32_t k, int32_t v)
-{
-    uint8_t *b = &favorites.factory[4][20u + pl * 2u + (k >> 1)];
-    uint32_t sh = (k & 1u) * 4u;
-    v = v < 0 ? 0 : v > UMT_NT - 1 ? UMT_NT - 1 : v;
-    *b = (uint8_t)((*b & ~(15u << sh)) | (((uint32_t)v ^ UMR_D[k]) & 15u) << sh);
-    umv_dirty = 1;
-    umv_ms = fm1_ms;
-}
-static uint32_t umt_get(uint32_t i)
+static const uint8_t UMT_Q[UMT_NS] = {UMT_FADE, UMT_NT, UMT_NT, UMT_NT, UMT_MIR, UMT_MOS, UMT_GLI, UMT_SOL, UMT_SPEED,
+                                      UMT_REACT, UMT_MOVE, UMT_TRAVEL};   /* setting i's target */
+static uint32_t umt_raw(uint32_t i)                     /* setting i as set */
 {
     uint32_t v = favorites.factory[4][8u + i] ^ UMT_D[i];
     return v > UMT_MAX[i] ? UMT_D[i] : v;
+}
+static __attribute__((noinline)) uint32_t umt_get(uint32_t i)   /* .. as routed (a call: the plates read it often) */
+{
+    uint32_t t = UMT_Q[i];
+    return t < UMT_NT && umq_o[t] ? umq_o[t] - 1u : umt_raw(i);
 }
 static void umt_put(uint32_t i, int32_t v)
 {
@@ -125,12 +123,16 @@ static struct {
 /* SPEED: the plates' own clock (umb_now, ms), moved once a frame at its pace: 50 as the wall's, 0 still (a plate frozen
  * as it is), 99 four times as fast. Every time a plate keeps (a note's age, a fade, a step) is on it */
 static uint32_t umb_now, umb_cr, umb_cq, umb_cf;
+static void umq_tick(void);                             /* (ui_umbra_mac.c) */
 static void umb_clock(void)
 {
-    uint32_t v = umt_get(8u), dt = fm1_ms - umb_cr, q = v <= 50u ? v * 256u / 50u : 256u + (v - 50u) * 768u / 49u;
+    uint32_t v, dt = fm1_ms - umb_cr, q;
     if (umb_cf == ui.frame + 1u)
         return;
     umb_cf = ui.frame + 1u;
+    umq_tick();                                         /* (the routes first: SPEED may be routed) */
+    v = umt_get(8u);
+    q = v <= 50u ? v * 256u / 50u : 256u + (v - 50u) * 768u / 49u;
     umb_cr = fm1_ms;
     umb_cq += (dt > 250u ? 250u : dt) * q;
     umb_now += umb_cq >> 8;
@@ -356,4 +358,5 @@ static void umb_backdrop(int32_t x0, int32_t y0)
     }
 }
 #include "ui_umbra_tot.c"                             /* TOTALITY: the plate alone, the visual effects */
+#include "ui_umbra_mac.c"                             /* HOME > UMBRA's MACROS - AUDIO and MACROS - VISUALS */
 #include "ui_umbra_plate.c"                           /* the visuals' settings saved */

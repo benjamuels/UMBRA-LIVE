@@ -1362,7 +1362,11 @@ static void draw_columns(void)
         }
         return;
     }
-    if (UMB_ON && home_bare()) {                        /* (UMBRA OBSCURA) WELCOME, MACROS - AUDIO / VISUALS: no knobs, the */
+    if (umk_on()) {                                     /* (UMBRA OBSCURA) MACROS - AUDIO / VISUALS: the route's columns */
+        umk_cards();
+        return;
+    }
+    if (UMB_ON && home_bare()) {                        /* (UMBRA OBSCURA) WELCOME: no knobs, the */
         if (hud_home() || ui.force || ui.col[0][0] || ui.col[1][0] || ui.col[2][0] || ui.col[3][0]) {   /* row the plate */
             for (c = 0; c < 4u; c++) {                  /* (HUD, AIR: every frame) or bare, again when a card was drawn */
                 ui.col[c][0] = 0;                       /* over it (a layer's); the cards drawn whole when they come */

@@ -281,6 +281,9 @@ words:
         for (k = 0; k < NELEM(W); k++, y += 11)
             cv_text_in(-x0, y, 240, &AF_X, W[k], k ? T_TEXT : T_THEME, T_SURF);
         cv_halo = ha;
+    } else if (umk_on() && words) {                     /* MACROS - AUDIO / VISUALS: the routes over the plate, under the */
+        int32_t gy = hud ? (int32_t)graph_y() : 0;      /* tabs, over the knobs (ui_umbra_mac.c) */
+        umk_draw(x0, gy + 4, (hud ? (int32_t)card_y() - gy : (int32_t)graph_h()) - 6);
     }
     cv_oy = 0;
 }

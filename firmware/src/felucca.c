@@ -78,10 +78,14 @@
 
 /* ----------------------------------------------------- base, display --- */
 #include "libc.c"
-#define UMB_MIRROR 1             /* (UMBRA OBSCURA) the screen on a computer, over USB MIDI (umb_mirror.c) */
+#define UMB_MIRROR 0             /* (UMBRA OBSCURA) the screen on a computer, over USB MIDI (umb_mirror.c). Out since 2026-11-09
+                                  * (the user: too slow on the FM-1 for the plates, set aside; its ~4.3 KB of flash and ~4.7 KB
+                                  * of RAM and pool to HOME > UMBRA's MACROS pages). 1 builds it again, as it was */
+#if UMB_MIRROR
 #define SM_BUFFER 3072u          /* (its queue, in the pool: RAM is short) */
 #define SM_BUFFER_ATTR __attribute__((section(".pool")))
 #include "screen_mirror/screen_mirror.c"   /* Patrick F. Kellogg's FM-1 screen mirror (MIT: screen_mirror/LICENSE) */
+#endif
 #include "lcd.c"
 #include "gfx.c"
 
@@ -138,7 +142,9 @@
 #if FELUCCA_BT
 #include "bt_hw.c"               /* (V10.12) bt.c's calls into the Bluetooth segment */
 #endif
+#if UMB_MIRROR
 #include "umb_mirror.c"         /* (UMBRA OBSCURA) the mirror's side here: the panel's rows, the queue, the name */
+#endif
 #include "main.c"
 
 

@@ -2807,7 +2807,10 @@ static void ui_input_frame(void)
     }
     if (!lay && (s = panel_enc(EN_ALGO)) != 0) {   /* ALGORITHM: the selected track, on every page. (0.6.55) Only
                                                     * the tracks that play: TRACKS 4 stops at T4 (T5 / T6 asleep) */
-        track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));
+        if (umk_on())                               /* (UMBRA OBSCURA) MACROS - AUDIO / VISUALS: the route */
+            umk_algo(s);
+        else
+            track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));
     }
     if (glo) {                                          /* GLO + SELECT: the tempo (0.6.67: the only way, with TAP) */
         if (sel) {
@@ -2840,8 +2843,8 @@ static void ui_input_frame(void)
             macro_v[k] = (uint8_t)clamp(macro_v[k] + accel(EN_K1 + k, s, 127), 0, 127);
             continue;
         }
-        if (UMB_ON && umt.on) {                         /* (UMBRA OBSCURA) TOTALITY: as ROUTING says; FX: the effects */
-            umt_knob(k, accel(EN_K1 + k, s, umt.fx && !k ? 0 : 99));
+        if (UMB_ON && umt.on) {                         /* (UMBRA OBSCURA) TOTALITY: the macros M1..M4; FX: the effects */
+            umt_knob(k, accel(EN_K1 + k, s, umt.fx ? (k ? 99 : 0) : 127));
             continue;
         }
         if (ui.entry_open && !ui.home && cur_page()->graph == GR_ROLL && !grid_on() && lock_held() &&
@@ -2855,8 +2858,14 @@ static void ui_input_frame(void)
             ui.hot_t = 40, ui.knob_ms = fm1_ms;
             continue;
         }
-        if (UMB_ON && home_bare())                      /* (UMBRA OBSCURA) WELCOME, MACROS - AUDIO / VISUALS: no knobs (yet) */
+        if (UMB_ON && home_bare()) {                    /* (UMBRA OBSCURA) WELCOME: no knobs; MACROS - AUDIO / VISUALS: the */
+            if (ui.hset[0]) {                           /* route's (ui_umbra_mac.c) */
+                umk_knob(k, s);
+                ui.hot_col = (uint8_t)k;
+                ui.hot_t = 40, ui.knob_ms = fm1_ms;
+            }
             continue;
+        }
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_MSEQ || pg->graph == GR_PATS || BAR_PAGE(pg)) &&
              k == 0u)
