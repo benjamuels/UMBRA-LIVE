@@ -151,15 +151,17 @@ int main(int argc, char **argv)
                                                          * "URLC", the image's length (build.py plate_files) */
         FILE *f = fopen(argv[2], "wb");
         umb_plate_t h;
-        uint32_t t[4 + 3], k;
+        uint32_t t[5 + 3], k, a = (uint32_t)(uintptr_t)FM1_XIP(UPS_OFF(0)) + 1000u;
         image(b, len, UMB_PLATE_MAGIC, UMB_API, 200);
+        memcpy(b + 1002, &a, 4);                        /* (an address at a halfword, as a 48-bit load holds one) */
         for (k = 0; k < 4u; k++)                        /* (the four entry points' words: their low words on this host) */
             t[k] = (uint32_t)((k == 0 ? (uintptr_t)&h.init : k == 1 ? (uintptr_t)&h.note : k == 2 ? (uintptr_t)&h.frame
                                                                                                     : (uintptr_t)&h.draw) - (uintptr_t)&h);
-        t[4] = 4;
-        t[5] = 0x434C5255u;
-        t[6] = len;
-        if (!f || fwrite(b, 1, len, f) != len || fwrite(t, 4, 7, f) != 7u)
+        t[4] = 1002;
+        t[5] = 5;
+        t[6] = 0x434C5255u;
+        t[7] = len;
+        if (!f || fwrite(b, 1, len, f) != len || fwrite(t, 4, 8, f) != 8u)
             return 1;
         fclose(f);
         return 0;

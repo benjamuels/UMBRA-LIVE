@@ -90,7 +90,7 @@ function pack7(b) {                                   /* groups: a byte of top b
 const CRC = (() => { const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
   return (b) => { let c = 0xFFFFFFFF; for (const x of b) c = t[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }; })();
-/* a plate file (tools/build.py plate_files): its image, linked for slot 0, and the words in it that hold an address;
+/* a plate file (tools/build.py plate_files): its image, linked for slot 0, and the places in it that hold an address;
  * null: not one */
 function parse(f) {
   if (f.length < 12 + 128) return null;
@@ -98,7 +98,7 @@ function parse(f) {
   const len = v.getUint32(e - 4, true), magic = v.getUint32(e - 8, true), n = v.getUint32(e - 12, true);
   if (magic !== RELOC || len % 4 || len + 4 * n + 12 !== e || len < 128 || len > SLOT - 32) return null;
   const rel = []; for (let i = 0; i < n; i++) rel.push(v.getUint32(len + 4 * i, true));
-  if (rel.some((w) => w % 4 || w + 4 > len)) return null;
+  if (rel.some((w) => w % 2 || w + 4 > len)) return null;   /* (an address at any halfword: build.py) */
   const name = String.fromCharCode(...f.subarray(8, 18)).replace(/\0.*$/s, "");
   return { img: f.slice(0, len), rel, name };
 }

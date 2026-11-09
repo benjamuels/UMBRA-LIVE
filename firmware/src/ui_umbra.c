@@ -509,7 +509,7 @@ static void umb_backdrop(int32_t x0, int32_t y0)
     if (!ump_lut[3][255])                               /* (the palette as the panel takes it: once) */
         ump_lut_make();
     umb_clock();
-    if (p) {                                            /* a module (plates/*.c, the bank's) */
+    if (p) {                                            /* a module (plates/, the bank's) */
         ump_on = 0xFFu;
         umb_lay_draw(0u, pl, p, x0, y0, UMB_DRAW_REPLACE);
     } else {                                            /* CORONA */

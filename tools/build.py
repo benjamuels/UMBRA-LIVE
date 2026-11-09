@@ -522,9 +522,9 @@ def build_app():
 # (UMBRA OBSCURA) plate files (plans/umbra-plate-bank.md; src/umb_plate.h): a plate built alone, linked for the plate
 # bank's slot 0 (firmware/plate.ld: flash 0xB8000, src/umb_slot.c), its header first: build/plates/<name>.plate, what the
 # plates page (web/plates.html) sends to the FM-1. A plate goes into any of the bank's slots: its file lists the words
-# that hold an address in it (each linked again 15 slots on: the words that moved by exactly that much), and the page adds
-# the slot's distance to them before sending. Anything else that moved (an address split across instructions) fails the
-# build: such a plate could only run in slot 0. The file: the image, then the words' offsets (u32 each), their count, the
+# that hold an address in it (each linked again 15 slots on: the words, at any halfword, that moved by exactly that much),
+# and the page adds the slot's distance to them before sending. Anything else that moved (an address split across
+# instructions) fails the build: such a plate could only run in slot 0. The file: the image, then the words' offsets (u32 each), their count, the
 # magic "URLC" and the image's length (u32 each, little-endian). FIL EMBER is FILAMENT with warm strings at rest: on the
 # FM-1 it shows that the bank's plate is the one running
 PLATE_MAGIC, PLATE_ROOM, PLATE_BASE, PLATE_RELOC = 0x544C5055, 0x2000 - 32, 0x020B4000, 0x434C5255
@@ -563,15 +563,25 @@ def plate_files():
             raise SystemExit(f"plate {name}: {len(b)} B (room {PLATE_ROOM}), or its header is not first")
         if len(m) != len(b) or len(b) % 4:
             raise SystemExit(f"plate {name}: linked elsewhere it is {len(m)} B, not {len(b)}")
-        rel = []
-        for w in range(0, len(b), 4):
-            x, y = struct.unpack_from("<I", b, w)[0], struct.unpack_from("<I", m, w)[0]
-            if x == y:
+        # (an address may sit at any halfword: pi32v2 loads a 32-bit constant with a 48-bit instruction, its value at
+        # the instruction's 2nd halfword; the byte that moved first is an address's 2nd: it starts at the even place
+        # before it or 2 earlier)
+        rel, at = [], 0
+        for i in range(len(b)):
+            if i < at or b[i] == m[i]:
                 continue
-            if (y - x) & 0xFFFFFFFF != PLATE_MOVE or not PLATE_BASE <= x < PLATE_BASE + len(b):
-                raise SystemExit(f"plate {name}: the word at {w:#x} moved by {(y - x) & 0xFFFFFFFF:#x}, not as an address "
-                                 f"in the plate: it could only run in slot 0")
-            rel.append(w)
+            for w in range(max(at, i - 3) + (max(at, i - 3) & 1), i + 1, 2):
+                x, y = struct.unpack_from("<I", b, w)[0] if w + 4 <= len(b) else 0, \
+                    struct.unpack_from("<I", m, w)[0] if w + 4 <= len(b) else 0
+                if (y - x) & 0xFFFFFFFF == PLATE_MOVE and PLATE_BASE <= x < PLATE_BASE + len(b):
+                    rel.append(w)
+                    at = w + 4
+                    break
+            else:
+                dis = [ln for ln in tc("common/bin/objdump", "-d", OUT / f"plate_{name}_0.elf").splitlines()
+                       if (a := re.match(r"\s*([0-9a-f]+):", ln)) and abs(int(a[1], 16) - PLATE_BASE - i) <= 12]
+                raise SystemExit(f"plate {name}: the byte at {i:#x} moved, in no address in the plate (one split "
+                                 f"across instructions?): it could only run in slot 0\n" + "\n".join(dis))
         if len(rel) < 4:
             raise SystemExit(f"plate {name}: {len(rel)} addresses found, its header has 4 entry points")
         (OUT / "plates" / f"{name}.plate").write_bytes(b + struct.pack(f"<{len(rel)}I", *rel) +

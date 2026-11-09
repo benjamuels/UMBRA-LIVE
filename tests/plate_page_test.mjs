@@ -67,7 +67,8 @@ await vm.runInContext('bank[0].name = "X"', ctx);       // (as if slot 1 held an
 await vm.runInContext('send([[__bytes, "FIL EMBER"]])', ctx);
 check(el('status').textContent === 'FIL EMBER in slot 2.' && shown().join('|') === 'CORONA|1 FIL EMBER|2 FIL EMBER|14 empty slots',
       `another slot (moved for slot 2, taken by the FM-1): "${el('status').textContent}"`);
-ctx.__raw = bytes.subarray(0, bytes.length - 12 - 16);  // (the image alone: no list of addresses)
+const nrel = new DataView(bytes.buffer).getUint32(bytes.length - 12, true);
+ctx.__raw = bytes.subarray(0, bytes.length - 12 - 4 * nrel);   // (the image alone: no list of addresses)
 await vm.runInContext('send([[__raw, "RAW"]])', ctx);
 check(el('status').className === 'bad' && /not a plate file for the bank/.test(el('status').textContent), `a file without its addresses, refused before sending`);
 ctx.__bad = bytes.slice(); new DataView(ctx.__bad.buffer).setUint32(ctx.__bad.length - 16, 4, true);   // (the last address listed wrong: the header's API word)
@@ -77,6 +78,11 @@ check(el('status').className === 'bad' && /refused/.test(el('status').textConten
       `addresses moved wrong: the FM-1 refuses it, slot 3 left empty: "${el('status').textContent}"`);
 await vm.runInContext('erase(0)', ctx);
 check(shown().join('|') === 'CORONA|2 FIL EMBER|15 empty slots' && /Slot 1 is empty/.test(el('status').textContent), `erase slot 1: "${el('status').textContent}", ${shown().join(' | ')}`);
+{ // (an address at a halfword, as pi32v2's 48-bit loads hold one: moved like the others)
+  const v = (b) => new DataView(b.buffer, b.byteOffset).getUint32(1002, true);
+  const m3 = vm.runInContext('moved(parse(__bytes), 3)', ctx);
+  check(nrel === 5 && v(m3) === ((v(bytes) + 3 * 0x2000) >>> 0), `an address at a halfword (1002), moved for slot 3`);
+}
 dev.stdin.end();
 console.log(`plate page: ${fails ? 'FAILED' : 'all passed'} (${fails} failed)`);
 process.exit(fails ? 1 : 0);
