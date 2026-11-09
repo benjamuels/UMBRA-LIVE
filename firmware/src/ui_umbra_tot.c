@@ -5,15 +5,18 @@
  * PROJECT > ARRANGE (the song starts, and TOTALITY with it). Out: HOME again (back to the page it came from), or a button
  * that goes to a page (a section's, SAVE, SEQ, HOME held for the menu, a dialog, GEN: umt_check). In it:
  *   SELECT the plates, round, a detent a plate; the new one spreads from the middle over the old (DISSOLVE: gfx.c dc_gate,
- *   the cells not yet reached keep what they showed; HOME > ECO > NOTES, 0 a cut .. 99 four seconds);
- *   KNOB 1..4 what HOME > ECO > ROUTING sends them to on this plate (UMT_*: the plate's own three, LIGHT, SPEED, REACT,
+ *   the cells not yet reached keep what they showed; 0 a cut .. 99 four seconds, as HOME > ECO > NOTES set it, gone);
+ *   KNOB 1..4 what HOME > ECO > ROUTING (gone) sent them to on this plate (UMT_*: the plate's own three, LIGHT, SPEED, REACT,
  *   MOVEMENT, TRAVEL, DISSOLVE);
  *   FX tapped: KNOB 1..4 the visual effects instead (MIRROR MOSAIC GLITCH SOLAR), FX lit; tapped again: the plate's;
+ *   SCL tapped: the selected track's being over the plate, in the middle (HOME > BEING's: its engine's own creature,
+ *   ui_engvis.c, the snail, the mouth, the kit ..; no floors under them; else its being; ALGORITHM another track's),
+ *   fading in over half a second, SCL lit; tapped again: it fades out (as it was left when TOTALITY is entered again);
  *   the keys, PLAY, REC, OCT, ALGORITHM, PRESETS and a layer held as on HOME (the layer's map over it while it shows);
  *   PLAY plays the song again when TOTALITY came from TIMELINE or ARRANGE;
  *   every LED dark but the keys of the notes that sound (ui_input.c ui_leds), FX while its knobs are the effects, REC
  *   while armed.
- * A plate chosen, a knob turned, FX tapped: a word at the foot for 1.5 s, the only thing ever over the plate.
+ * A plate chosen, a knob turned, FX tapped: a word at the foot for 1.5 s; over the plate only that and the being.
  * Under it the page it came from stays (ui.page); HOME's state stands for it meanwhile (ui.home), so the keys play and
  * OCT shifts as on HOME. Built for size, as the main loop is (tools/size_fns.py) */
 static int name_on(void);                               /* (ui_name.c) */
@@ -27,6 +30,8 @@ static struct {
     uint32_t qr, gms;                                   /* GLITCH: the notes read, its clock */
     int32_t ge;                                         /* .. its energy (Q8) */
     uint32_t fms;                                       /* DISSOLVE: since when (0: none) */
+    uint8_t bn;                                         /* the being (SCL): on */
+    uint16_t ba;                                        /* .. their strength now, 0..256 (fading: umb_full) */
 } umt;
 static const char *const UMT_FXN[4] = {"MIRROR", "MOSAIC", "GLITCH", "SOLAR"};
 static const char *const UMT_MIR[4] = {"OFF", "L-R", "T-B", "QUAD"};
@@ -118,7 +123,7 @@ static int umt_home(void)
         return 0;
     return 1;
 }
-static void umt_select(int32_t s)                       /* SELECT (HOME's plate pages: ALGORITHM): the next plate, round */
+static void umt_select(int32_t s)                       /* SELECT: the next plate, round */
 {
     uint32_t pl = (umb_pl() + (s > 0 ? 1u : UMP_NPL - 1u)) % UMP_NPL;
     umb_plate = (uint8_t)(0x80u | pl);
@@ -132,6 +137,11 @@ static void umt_seq_tap(void)                           /* SEQ: the words at the
     umt.info ^= 1u;
     umt.say_ms = 0;
     umt_say("INFO", 0);
+}
+static void umt_scl_tap(void)                           /* SCL: the being over the plate, or gone again (lit while on; */
+{                                                       /* they fade in or out over half a second: umb_full) */
+    umt.bn ^= 1u;
+    umt_say("BEING", umt.bn ? "ON" : "OFF");
 }
 static void umt_fx_tap(void)                            /* FX: KNOB 1..4 the effects, or the plate's again */
 {
@@ -240,21 +250,38 @@ static void umt_fx(uint32_t y, uint32_t mir)
         }
     }
 }
+static void being_fig(uint32_t c, int32_t cx, int32_t cy, int32_t k);   /* (ui_lzhome.c) */
+/* the being (SCL) over the strip at screen row y, at strength a (0..256): the selected track's, as HOME > BEING draws it
+ * (an eighth larger, no labels) */
+static void umt_being(uint32_t y, uint32_t a)
+{
+    og_dim = (uint16_t)(256u - a);
+    cv_oy = -(int32_t)y;
+    vx_small = vx_bare = 1;
+    being_fig(song.sel % NTRK, 120, 120, 18);
+    vx_small = vx_bare = 0;
+    cv_oy = 0;
+    og_dim = 0;
+}
 /* TOTALITY drawn: the plate over the whole screen (no header, tabs, knobs or footer: ui_draw.c ui_draw_body draws nothing
  * else) in two strips, the effects on them, sent where they changed (gfx.c cv_blit_cells); under LOAD LITE / ECO every
  * 50 / 70 ms, as HUD's HOME */
 static void umb_full(void)
 {
     static uint32_t ms;
-    uint32_t y, mir = umt_get(4u), f = umt_get(0u) * umt_get(0u) * 4000u / 9801u, el = fm1_ms - umt.fms;
-    if (sys_load && !ui.force && fm1_ms - ms < (sys_load == LOAD_ECO ? 70u : 50u))
+    uint32_t y, mir = umt_get(4u), f = umt_get(0u) * umt_get(0u) * 4000u / 9801u, el = fm1_ms - umt.fms, ba = fm1_ms - ms;
+    if (sys_load && !ui.force && ba < (sys_load == LOAD_ECO ? 70u : 50u))
         return;
     ms = fm1_ms;
+    ba = ba >= 500u ? 256u : ba * 256u / 500u;          /* the being: its fade, half a second (a turn back from */
+    ba = umt.ba = (uint16_t)(umt.bn ? (umt.ba + ba > 256u ? 256u : umt.ba + ba) : (umt.ba > ba ? umt.ba - ba : 0u));   /* where it was) */
     if (umt.fms && el < f)                              /* DISSOLVE: the cells let through so far (gfx.c) */
         dc_gate = (uint16_t)(el * 256u / f);
     else
         umt.fms = 0;
     umt_glitch_tick();
+    if (ba)                                             /* the being: its track's level, once a frame */
+        (void)eco_step();
     if (umt.say_ms && fm1_ms - umt.say_ms > 1500u)
         umt.say_ms = 0;
     dc_frame(ui.force);
@@ -263,6 +290,8 @@ static void umb_full(void)
         cv_begin(240, 120, T_BG);
         umb_backdrop(0, (mir & 2u) ? 0 : (int32_t)y);
         umt_fx(y, mir);
+        if (ba)                                         /* (over the effects: the being stays whole) */
+            umt_being(y, ba);
         if (y && umt.say_ms)                            /* the word at the foot */
             cv_text(8, 102, &AF_S, umt.say, T_MID);
         cv_blit_cells(0, y);

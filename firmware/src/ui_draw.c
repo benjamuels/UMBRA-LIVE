@@ -1177,7 +1177,8 @@ static int clip_tag(char *b)
 static __attribute__((noinline)) void draw_crumbs(int32_t y, uint16_t fg, uint16_t last)
 {
     char cnt[8], ct[8];
-    int32_t cw = crumb_count(cnt), mx = cw ? 234 - cw - 8 : 234;
+    int32_t cw = crumb_count(cnt), mx = cw ? 234 - cw - 6 : 234;   /* ((UMBRA OBSCURA) 6 px before the count, as before
+                                                         * the clipboard's: "MACROS - VISUALS" whole after four banks' dots) */
     char b[48];
     uint32_t i, k = 0;
     int32_t x, x0;
@@ -1361,8 +1362,15 @@ static void draw_columns(void)
         }
         return;
     }
-    if (UMB_ON && umb_vis()) {                          /* (UMBRA OBSCURA) HOME > ECO > PLATE: the plate, its settings */
-        umv_cards();
+    if (UMB_ON && home_bare()) {                        /* (UMBRA OBSCURA) WELCOME, MACROS - AUDIO / VISUALS: no knobs, the */
+        if (hud_home() || ui.force || ui.col[0][0] || ui.col[1][0] || ui.col[2][0] || ui.col[3][0]) {   /* row the plate */
+            for (c = 0; c < 4u; c++) {                  /* (HUD, AIR: every frame) or bare, again when a card was drawn */
+                ui.col[c][0] = 0;                       /* over it (a layer's); the cards drawn whole when they come */
+                ui.roll[c].from[0] = 0;                 /* back, no digits left rolling */
+            }
+            lz_begin(240u, card_h(), 0u, card_y());
+            lz_blit(0u, card_y());
+        }
         return;
     }
     if (ui.home) {

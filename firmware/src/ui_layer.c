@@ -215,7 +215,7 @@ static int16_t *mom_vp(uint32_t k, const param_desc_t **d)
     if (ui.menu || ui.confirm || gen_on() || mac_latch || lock_held())
         return 0;
     if (ui.home) {
-        if (home_macros())
+        if (home_macros() || (UMB_ON && home_bare()))   /* ((UMBRA OBSCURA) WELCOME, the MACROS pages: no knobs) */
             return 0;
         *d = home_param(k, &vp);
     } else {

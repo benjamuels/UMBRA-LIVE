@@ -2,7 +2,7 @@
  * Copyright (C) 2026 UMBRA OBSCURA contributors */
 /* UMBRA OBSCURA: HOME's plates in place of the ecosystem. Included by ui_lzhome.c before eco_draw.
  *
- * Six plates (HOME > ECO > PLATE, KNOB 1), one drawn at a time, all from the same ring of notes (voice.c trk_note_on's
+ * Six plates (SELECT in TOTALITY), one drawn at a time, all from the same ring of notes (voice.c trk_note_on's
  * umb_q: keys, sequencer, arp, MIDI; a note let go: velocity 0):
  *   0 CINDER   cold embers: a heat field that rises and cools under a crust of cracks      (ui_umbra_field.c)
  *   1 SAROS    the melody as string art on the circle of fifths                             (ui_umbra_melody.c)
@@ -15,14 +15,14 @@
  * These are built to the FM-1's limits: a byte field or none, a table read and a palette read a pixel, no lighting pass, fades
  * in steps, still between notes, so the blit (gfx.c cv_blit_cells) sends little. Their state shares one block of the pool
  * (umb's union): a plate chosen starts afresh. TOTALITY (ui_umbra_tot.c), a HOME tap on HOME, is the plate alone over the
- * whole screen, KNOB 1..4 routed by HOME > ECO > ROUTING (ui_umbra_plate.c), FX its visual effects. */
+ * whole screen, KNOB 1..4 routed as HOME > ECO > ROUTING (gone, 2026-11-09) left them, FX its visual effects. */
 #define UMB_ON 1
 #define UMB_N 60                                        /* a field's side: 60 x 60 cells of 4 x 4 px */
 #define UMB_S (UMB_N * UMB_N)
 #define UMB_T 32                                        /* the noise table: 32 x 32, tiling */
 #define UMP_NPL 6u                                      /* the plates */
-/* HOME > ECO > PLATE (ui_lens.c CE_HOME, the group's third page; ALGORITHM the plate): KNOB 1..3 the plate's own three
- * settings, KNOB 4 LIGHT (one for all), kept with the settings in spare favourite bytes (ui.c; settings_persist.c): the
+/* (set on HOME > ECO > PLATE until 2026-11-09; TOTALITY turns them) the plate's own three
+ * settings and LIGHT (one for all), kept with the settings in spare favourite bytes (ui.c; settings_persist.c): the
  * plate engine 15's [31] (bit 7: these bytes laid out so), the plates' first two [15][4 + 2 x plate ..] (4 .. 15: bytes
  * 4 .. 12 the hints' before 0.9.5, 13 .. 16 free), their third TRIO's retired row's [6][8 + plate] (bytes 8 .. 18 always
  * 0, bt.c), LIGHT [15][16], each as the value ^ its default (0, never set: the default). The third: CINDER's SWAY, SAROS's,
@@ -107,7 +107,7 @@ static void umt_put(uint32_t i, int32_t v)
     umv_dirty = 1;
     umv_ms = fm1_ms;
 }
-/* NOTE MOVEMENT (HOME > ECO > NOTES, MOVEMENT [10]): where a track's notes land on a plate moves along a path of the track's
+/* NOTE MOVEMENT (set on HOME > ECO > NOTES until 2026-11-09, MOVEMENT [10]): where a track's notes land on a plate moves along a path of the track's
  * own (a Lissajous figure, its ratios and its start the track's), an offset each plate adds to the note's own place (umn_at;
  * across the plate either way, folded back at its edges: a track's notes keep their shape among themselves).
  *   STATIC  none: each note where its pitch puts it, as ever
@@ -356,4 +356,4 @@ static void umb_backdrop(int32_t x0, int32_t y0)
     }
 }
 #include "ui_umbra_tot.c"                             /* TOTALITY: the plate alone, the visual effects */
-#include "ui_umbra_plate.c"                           /* HOME > ECO > PLATE: the visuals' page */
+#include "ui_umbra_plate.c"                           /* the visuals' settings saved */

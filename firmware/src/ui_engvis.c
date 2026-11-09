@@ -66,6 +66,8 @@
  * Each takes a rectangle (vx_draw: EDIT's left panel, HOME's middle, or a whole panel) and scales to it.
  * State: vxs (in the pool: no global of the RAM region moves). MENU > ANIM OFF: they rest. */
 #define VX_POOL __attribute__((section(".pool")))
+static uint8_t vx_bare VX_POOL;                          /* (UMBRA OBSCURA) drawn over a plate (TOTALITY, HOME > BEING): DRUM-X's,
+                                                         * PHASE's and LOFI's floors left out */
 #define VX_CODE __attribute__((noinline))                 /* (each creature its own function: its size on its own) */
 #define VX_SEG BTAPP_FN                                  /* (V10.48) LOFI's, ANIMAL's and STRING's creatures in the Bluetooth
                                                          * segment (the app slot full): without it vx_draw says none (the
@@ -785,7 +787,7 @@ static void vx_dot(const vxf_t *f, int32_t x, int32_t y, int32_t r, int32_t h)
     X = (X - 8) >> 4;
     Y = (Y - 8) >> 4;
     for (r = 0; r < 4; r++)
-        og_plot(X + (r & 1), Y + (r >> 1), c, 256);
+        og_plot(X + (r & 1), Y + (r >> 1), c, 256 - og_dim);   /* (UMBRA OBSCURA: og_dim, TOTALITY's fade) */
 }
 /* the bichos' face (DRUM-X's beings, the 0.9.6 creatures): two eyes ex either side of x at ey (shut: short lines,
  * else dots of er Q4 px), the mouth at my: a line mw either side, or open (mo) an ellipse mx wide; their heats */
@@ -875,7 +877,8 @@ static void vx_kit(const track_t *t, int32_t cx, int32_t cy, int32_t s, int32_t 
         if (en || e[i])                                  /* (its time runs with the sound: in silence it rests) */
             vxs.tl[i] += dt * (uint32_t)(60 * 256 + e[i] * 300) * 30u / 256000u;
     }
-    vx_line(&f, -60 * 16, 40 * 16, 60 * 16, 40 * 16, 26);   /* the floor */
+    if (!vx_bare)                                        /* the floor ((UMBRA OBSCURA) none over a plate) */
+        vx_line(&f, -60 * 16, 40 * 16, 60 * 16, 40 * 16, 26);
     /* the crash (BELL) on its stem */
     vx_line(&f, 46 * 16, -24 * 16, 48 * 16, 40 * 16, 41);
     vx_bug(&f, 44 * 16, -30 * 16, 16 * 16, 4 * 16, e[VK_BELL], ag[VK_BELL], vxs.tl[VK_BELL] + 3000u, 9, 40, 0, lt[VK_BELL]);
@@ -1613,7 +1616,8 @@ static VX_CODE void vx_phase(const track_t *t, const int32_t *A, int32_t en_home
         if (i) vx_line(&f, px, py, x, y, 64 + (s < 0 ? -s : s) * 102 / 4096 + en / 4);
         px = x; py = y;
     }
-    vx_line(&f, -60 * 16, 36 * 16, 60 * 16, 36 * 16, 26);
+    if (!vx_bare)                                        /* ((UMBRA OBSCURA) over a plate, no floor) */
+        vx_line(&f, -60 * 16, 36 * 16, 60 * 16, 36 * 16, 26);
     {   /* the head: the eyestalks (they pull in on a note), the tentacles, the mouth shouting with the level */
         int32_t hx = -44 * 16, hy = 18 * 16, st = 144 * (sh ? 115 : 256) / 256 * (256 + en / 5) / 256, mo = (en * 42 >> 8);
         for (k = 0; k < 2; k++) {
@@ -1701,7 +1705,8 @@ static VX_SEG void vx_lofi(const track_t *t, const int32_t *A, int32_t en_home)
         sy[i] = 6 * 16 + ((og_sin(cr * 22u / 10u - (uint32_t)i * 8344u) * amp) >> 15) - (i ? 0 : 64);
     }
 #define VR(i) ((i) ? 147 - (i) * 8 : 176)
-    vx_line(&f, -54 * 16, 33 * 16, 54 * 16, 33 * 16, 26);
+    if (!vx_bare)                                        /* (UMBRA OBSCURA: over a plate, no floor) */
+        vx_line(&f, -54 * 16, 33 * 16, 54 * 16, 33 * 16, 26);
     for (i = 1; i <= 8; i++) {                           /* legs: lifted where the bit is high */
         int32_t r = VR(i), b = bc[8 - i], sw = (og_sin(cr * 4u + (uint32_t)i * 13560u) * 22) >> 15, k;
         for (k = -1; k <= 1; k += 2) {

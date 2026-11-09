@@ -238,13 +238,12 @@ static void eco_draw(int32_t x0, int32_t y0, int words)
     uint32_t c, k, still = ANIM_OFF() != 0;
     int32_t bx[ECO_N], by[ECO_N], bot = eco_bot(), hud = hud_home();
     if (UMB_ON) {                                       /* (UMBRA OBSCURA) the plate in place of the beings (ui_umbra.c); the */
-        umb_backdrop(x0, y0);                           /* MACROS words still over it */
+        umb_backdrop(x0, y0);                           /* WELCOME's words over it */
         cv_oy = -y0;
         goto words;
     }
     (void)eco_step();                                   /* (the swim, once a frame) */
     (void)bg_energy();                                  /* (the output's level kept as it was read: once a frame) */
-    char b[16];
     cv_oy = -y0;
     for (k = 0; k < 22u; k++) {                         /* the cytoplasm: granules drifting */
         uint32_t h = k * 2654435761u;
@@ -269,17 +268,19 @@ static void eco_draw(int32_t x0, int32_t y0, int words)
                        hud ? T_TEXT : T_MID, T_SURF);   /* (0.9.0 HUD: TEXT, over the beings; 0.9.7: a mutation, white) */
     }
 words:
-    if (UMB_ON && words && umb_vis()) {                 /* (UMBRA OBSCURA) PLATE, NOTES, ROUTING: the plate (ALGORITHM) */
-        int32_t y = hud ? (int32_t)graph_y() + 3 : 2;
-        cv_text(6, y, &AF_X, UMV_PL[umb_pl()], hud ? T_TEXT : T_DIM);
-        cv_text_r(234, y, &AF_X, "ALGORITHM", T_DIM, T_SURF);
-    }
-    if (words && home_set()) {                          /* MACROS: the routes, LATCH */
-        int32_t y = hud ? (int32_t)graph_y() + 3 : 2;
-        fmt_int(b, (int32_t)routes_count());
-        str_cpy(b + str_len(b), " ROUTES", 8);
-        cv_text(6, y, &AF_X, b, hud ? T_TEXT : T_DIM);
-        cv_text_r(234, y, &AF_X, mac_latch ? "LATCH" : "HOLD LFO", mac_latch ? T_ACCENT : hud ? T_TEXT : T_DIM, T_SURF);
+    if (UMB_ON && words && !ui.hset[0]) {              /* (UMBRA OBSCURA) WELCOME: its words in the middle of what the */
+        static const char *const W[] = {"Welcome!", "Works like Jiant except", "Tap HOME to enter TOTALITY",   /* header and */
+                                        "(fullscreen mode)", "Tap again exits", "", "UMBRA tab is to set",   /* the footer */
+                                        "custom TOTALITY controls"};   /* leave, every skin (COLORS: in the panel, under */
+        uint8_t ha = cv_halo;                           /* the bare row), outlined over the plate (the user's words; the two */
+        int32_t y = LA_HOME_CARD_Y + ((int32_t)foot_y() - LA_HOME_CARD_Y - (int32_t)NELEM(W) * 11 + 4) / 2 -   /* too wide */
+                    (hud ? 0 : (int32_t)graph_y());     /* for the screen in two lines; HUD, AIR: drawn on the screen's y) */
+        if (y < 2)
+            y = 2;
+        cv_halo = 1;
+        for (k = 0; k < NELEM(W); k++, y += 11)
+            cv_text_in(-x0, y, 240, &AF_X, W[k], k ? T_TEXT : T_THEME, T_SURF);
+        cv_halo = ha;
     }
     cv_oy = 0;
 }
@@ -307,21 +308,34 @@ static void organ(uint32_t k, int32_t cx, int32_t cy)
     GFX_HOOK_ALIGN(gx - 30, 0, gx + 30, 0, AL_H, "BEING organ name centred");
     cv_text_in(gx - 30, gy - 28, 60, &AF_X, d->label, hot ? T_ACCENT : T_MID, T_SURF);
 }
+/* the being: graph_being's size, its HOME knobs, the track's own level; (UMBRA OBSCURA) at (cx, cy) px, k / 16 as large
+ * (TOTALITY's too: ui_umbra_tot.c) */
+static void being_fig(uint32_t c, int32_t cx, int32_t cy, int32_t k)
+{
+    const genome_t *g = eco_genome(c);
+    const engine_t *e = trk_engp(&trk[c]);
+    bfeat_t f;
+    if (e == &ENG_ANIMAL || e == &ENG_LOFI)             /* (UMBRA OBSCURA) the bird / insect / mammal and the caterpillar */
+        k = k * 3 / 4;                                  /* a quarter smaller, as the others */
+    eco_feat(c, &f, 2);
+    if (vx_draw(&trk[c], cx - 73 * k / 16, cy - 56 * k / 16, 146 * k / 16, 112 * k / 16, eco_off(c) ? 0 : eco.en[c]))
+        ;                                           /* (0.9.4 / 0.9.6: the engines' own creatures, ui_engvis.c) */
+    else if (eco_off(c))
+        bg_outline(g, &f, cx * 16, cy * 16, 30 * k, 1, eco.tm[c], T_DIM);
+    else
+        being_lines(g, &f, cx * 16, cy * 16, 30 * k * (256 + eco.en[c] / 3) / 256, eco.en[c], eco.tm[c] + c * 20000u);
+}
 static void graph_home_being(void)
 {
     uint32_t c = song.sel % NTRK, k;
-    int32_t cx = 120, cy = 68, bx = cx * 16, by = cy * 16;
+    int32_t cx = 120, cy = 68;
     (void)eco_step();
     (void)bg_energy();
     char b[16];
-    if (home_set()) {                                   /* ROUTES: the being small, the macros and their routes */
-        uint32_t m, i, j, row = 0;
+    if (home_set()) {                                   /* ROUTES: the being small, the macros and their routes ((UMBRA */
+        uint32_t m, i, j, row = 0;                      /* OBSCURA) BEING's figure, small, not HOME's being) */
         int32_t ry[12];
-        cx = 128;
-        cy = 66;
-        bx = cx * 16;
-        by = cy * 16;
-        eco_being(c, bx, by, (13 * 16) * (256 + eco.en[c] * 5 / 4 + (bg_sin(eco.tm[c] / 3u) >> 11)) / 256);
+        being_fig(c, 128, 66, 10);
         for (m = 0; m < 4u; m++) {
             int32_t y = 16 + (int32_t)m * 34, n = 0;
             char mn[3] = {'M', (char)('1' + m), 0};
@@ -353,19 +367,12 @@ static void graph_home_being(void)
         (void)ry;
         return;
     }
+    umb_backdrop(0, (int32_t)graph_y());               /* (UMBRA OBSCURA) the plate playing behind (as on ECO) */
     for (k = 0; k < 4u; k++)
         organ(k, cx, cy);
-    {   /* the being: graph_being's size, its HOME knobs, the track's own level */
-        const genome_t *g = eco_genome(c);
-        bfeat_t f;
-        eco_feat(c, &f, 2);
-        if (vx_draw(&trk[c], cx - 73, cy - 56, 146, 112, eco_off(c) ? 0 : eco.en[c]))
-            ;                                       /* (0.9.4 / 0.9.6: the engines' own creatures, ui_engvis.c) */
-        else if (eco_off(c))
-            bg_outline(g, &f, bx, by, (30 * 16), 1, eco.tm[c], T_DIM);
-        else
-            being_lines(g, &f, bx, by, (30 * 16) * (256 + eco.en[c] / 3) / 256, eco.en[c], eco.tm[c] + c * 20000u);
-    }
+    vx_bare = 1;
+    being_fig(c, cx, cy, 16);
+    vx_bare = 0;
     sound_name(&trk[c], b);
     GFX_HOOK_ALIGN(60, 0, 180, 0, AL_H, "BEING sound name centred");
     cv_text_in(60, 129, 120, &AF_X, b[0] ? b : trk_engp(&trk[c])->name, T_MID, T_SURF);

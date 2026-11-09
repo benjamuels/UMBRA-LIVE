@@ -54,10 +54,13 @@ static inline void og_plot(int32_t x, int32_t y, uint16_t c, int32_t a)
     b = (o & 31u) + ((((int32_t)(c & 31u) - (int32_t)(o & 31u)) * a) >> 8);
     *p = swap16((uint16_t)(r << 11 | g << 5 | b));
 }
+/* (UMBRA OBSCURA) every line and dot this much fainter, 0..256 (0: as drawn): TOTALITY's being fading in and out */
+static uint16_t og_dim __attribute__((section(".pool")));
 /* an antialiased line between Q4 points, at strength a (0..256) */
 static void og_line_a(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c, int32_t a)
 {
     int32_t dx = x1 - x0, dy = y1 - y0, adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy, t, g, p, e, f;
+    a = a * (256 - og_dim) >> 8;
     if (adx >= ady) {                                    /* along x: y in Q8, two pixels per column */
         if (x0 > x1) { t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; }
         g = adx ? ((y1 - y0) << 8) / (x1 - x0) : 0;      /* dy / dx, Q8 */
@@ -193,9 +196,9 @@ static void og_node(int32_t cx, int32_t cy, int32_t r, uint16_t c)
         for (i = -r; i <= r; i++) {
             int32_t d = i * i + j * j - r * r;          /* inside: d <= 0; the rim: 0 .. 2r */
             if (d <= -r)
-                og_plot(x0 + i, y0 + j, c, 256);
+                og_plot(x0 + i, y0 + j, c, 256 - og_dim);
             else if (d < r)
-                og_plot(x0 + i, y0 + j, c, 128 - d * 128 / r);
+                og_plot(x0 + i, y0 + j, c, (128 - d * 128 / r) * (256 - og_dim) >> 8);
         }
 }
 /* a reference letter in a circle (the plates' cyan A B C): centre (cx, cy) in px */
