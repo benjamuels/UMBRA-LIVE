@@ -34,12 +34,12 @@ static struct {
     uint16_t ba;                                        /* .. their strength now, 0..256 (fading: umb_full) */
 } umt;
 static const char *const UMT_TN[UMT_NT - 3] = {"LIGHT", "SPEED", "REACT", "MOVEMENT", "TRAVEL", "DISSOLVE", "MIRROR", "MOSAIC",
-                                                "GLITCH", "SOLAR", "BEING"};   /* the targets past the plate's three */
+                                                "GLITCH", "SOLAR", "BEING", "INVERT"};   /* the targets past the plate's three */
 #define UMT_FXN (UMT_TN + UMT_MIR - 3)                  /* the effects (FX): MIRROR MOSAIC GLITCH SOLAR */
 static const char *const UMT_MIRN[4] = {"OFF", "L-R", "T-B", "QUAD"};
 static const char *umt_tname(uint32_t pl, uint32_t t)   /* target t's name on plate pl */
 {
-    return t < 3u ? UMV_N[pl % UMP_NPL][t] : UMT_TN[(t - 3u) % (UMT_NT - 3u)];
+    return t < 3u ? umb_cname(pl, t) : UMT_TN[(t - 3u) % (UMT_NT - 3u)];
 }
 static uint32_t umt_where(void)
 {
@@ -49,6 +49,13 @@ static uint32_t umt_where(void)
 /* TOTALITY drawn now (not under the menu, a dialog, NAME, a layer's map, the MACRO layer's cards) */
 static int umb_bare(void) { return umt.on; }
 static int umt_shown(void) { return umt.on && !ui.menu && !ui.confirm && !ui.layer && !mac_latch && !name_on(); }
+/* (the user, 2026-11-09) a layer held in TOTALITY whose map is not drawn: FX, SCL, LFO (MACRO, latched too), EDIT, GLO. The
+ * keys, the knobs and the LEDs are the layer's as ever (ui_input.c); the screen stays the plate's (ui_draw.c) */
+static int umt_ly(void)
+{
+    return umt.on && (mac_latch || ui.layer == LAYER_FX || ui.layer == LAYER_SCL || ui.layer == LAYER_MACRO ||
+                      ui.layer == LAYER_EDIT || ui.layer == LAYER_GLO);
+}
 static void umt_say(const char *a, const char *b)
 {
     if (!umt.info)                                      /* (the words are off until SEQ is tapped) */
@@ -75,7 +82,7 @@ static void umt_enter(uint32_t song)
     umt.qr = umb_q.w;                                   /* (GLITCH: from the next note, not the ones before) */
     umt.ge = 0;
     umt.sig = umt_where();
-    umt_say(UMV_PL[umb_pl()], 0);
+    umt_say(umb_pname(umb_pl()), 0);
     ui.force = 1;
 }
 static void umt_leave(void)                             /* HOME: back to the page under it */
@@ -104,14 +111,17 @@ static int umt_home(void)
         return 0;
     return 1;
 }
-static void umt_select(int32_t s)                       /* SELECT: the next plate, round */
+static void umt_select(int32_t s)                       /* SELECT: the next plate there, round (the bank's after the six) */
 {
-    uint32_t pl = (umb_pl() + (s > 0 ? 1u : UMP_NPL - 1u)) % UMP_NPL;
+    uint32_t pl = umb_pl(), k;
+    for (k = 0; k < UMB_NPLT; k++)
+        if (umb_has(pl = (pl + (s > 0 ? 1u : UMB_NPLT - 1u)) % UMB_NPLT))
+            break;
     umb_plate = (uint8_t)(0x80u | pl);
     umv_dirty = 1;
     umv_ms = fm1_ms;
     umt.fms = umt.on ? fm1_ms | 1u : 0u;                /* (DISSOLVE: from here) */
-    umt_say(UMV_PL[pl], 0);
+    umt_say(umb_pname(pl), 0);
 }
 static void umt_seq_tap(void)                           /* SEQ: the words at the foot on, or off again (lit while on) */
 {
@@ -175,7 +185,9 @@ static void umt_glitch_tick(void)
 }
 /* the canvas (the strip at screen row y), the plate drawn in it: MIRROR (L-R the left half again, turned; T-B: the top
  * drawn here again, upside down), SOLAR (the pixels brighter than its edge, negative), MOSAIC (blocks of 2 .. 16 px,
- * each its middle's colour), GLITCH (bands of rows torn sideways, a new tear each frame while its energy lasts) */
+ * each its middle's colour), GLITCH (bands of rows torn sideways, a new tear each frame while its energy lasts), INVERT
+ * (routed only, LIVE VIZ CTRLS: the whole picture negative while it is 50 or more: a hit a flash as long as it is hard,
+ * an LFO a strobe; a hard switch, so the panel is sent the whole screen only as it turns) */
 static void umt_fx(uint32_t y, uint32_t mir)
 {
     uint16_t *px = cv_px, t[240];
@@ -226,6 +238,9 @@ static void umt_fx(uint32_t y, uint32_t mir)
             }
         }
     }
+    if (umq_o[UMT_INV] > 50u)                           /* INVERT (its value + 1: 50 or more) */
+        for (x = 0; x < n; x++)
+            px[x] = (uint16_t)~px[x];
 }
 static void being_fig(uint32_t c, int32_t cx, int32_t cy, int32_t k);   /* (ui_lzhome.c) */
 /* the being (SCL) over the strip at screen row y, at strength a (0..256): the selected track's, as HOME > BEING draws it
@@ -269,7 +284,7 @@ static void umb_full(void)
         umb_backdrop(0, (mir & 2u) ? 0 : (int32_t)y);
 #if UMB_LAYERS > 1
         if (umb_ovl)                                    /* (the emulator's test of two at once: FILAMENT's light over it) */
-            umb_lay_draw(1u, 2u, 0, (mir & 2u) ? 0 : (int32_t)y, UMB_DRAW_ADD);
+            umb_lay_draw(1u, 2u, &umb_plate_filament, 0, (mir & 2u) ? 0 : (int32_t)y, UMB_DRAW_ADD);
 #endif
         umt_fx(y, mir);
         if (ba && bs)                                   /* (over the effects: the being stays whole) */

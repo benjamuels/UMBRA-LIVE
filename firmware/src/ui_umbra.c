@@ -36,28 +36,39 @@ static const uint8_t UMV_D[UMP_NPL][2] = {{45, 50}, {30, 45}, {50, 50}, {35, 45}
 #define UMV_LD 99u                                      /* LIGHT's default */
 static uint8_t umv_dirty;                               /* turned: saved once the knobs rest (umv_poll) */
 static uint32_t umv_ms;
-/* the plate (0 .. 5); the first time with these settings, the bytes as KILN, SAROS and FILAMENT kept them (three each)
- * cleared: the defaults (KILN's place CINDER's) */
-static uint32_t umb_pl(void)
+static int umb_has(uint32_t pl);                        /* (below: the plate modules) */
+struct umb_plate_s;
+static const struct umb_plate_s *umb_mod(uint32_t pl);
+static uint32_t umv_def(uint32_t pl, uint32_t j);
+/* the plate as chosen (0 .. 5 the known ones, 6 + i the bank's slot i: below), in [31]'s low six bits; the first time
+ * with these settings, the bytes as KILN, SAROS and FILAMENT kept them (three each) cleared: the defaults (KILN's place
+ * CINDER's) */
+static uint32_t umb_pick(void)
 {
     uint8_t *f = favorites.factory[15];
     if (!(f[31] & 0x80u)) {
         memset(f + 4, 0, 13);
         f[31] = (uint8_t)(f[31] % 3u | 0x80u);
     }
-    return (f[31] & 7u) < UMP_NPL ? f[31] & 7u : 0u;
+    return f[31] & 0x3Fu;
 }
-static uint8_t *umv_at(uint32_t pl, uint32_t j, uint32_t *d)   /* plate pl's setting j's byte (3: LIGHT), its default */
+static uint32_t umb_pl(void) { return umb_has(umb_pick()) ? umb_pick() : 4u; }   /* .. drawn: CORONA while it is not
+                                                         * there (on the FM-1, a plate not loaded: the choice is kept) */
+static uint8_t *umv_at(uint32_t pl, uint32_t j, uint32_t *d)   /* plate pl's setting j's byte (3: LIGHT), its default (a
+                                                         * slot's plate of another name: none kept, 0) */
 {
-    *d = j > 2u ? UMV_LD : j > 1u ? 50u : UMV_D[pl][j];
-    return j > 2u ? &favorites.factory[15][16] : j > 1u ? &favorites.factory[6][8u + pl] : &favorites.factory[15][4u + pl * 2u + j];
+    *d = j > 2u ? UMV_LD : pl >= UMP_NPL ? umv_def(pl, j) : j > 1u ? 50u : UMV_D[pl][j];
+    return j > 2u ? &favorites.factory[15][16] : pl >= UMP_NPL ? 0 : j > 1u ? &favorites.factory[6][8u + pl]
+                                                                    : &favorites.factory[15][4u + pl * 2u + j];
 }
 /* (MACROS - VISUALS, ui_umbra_mac.c) each target's value where a route reaches it, + 1 (0: none), worked out once a frame
  * (umq_tick); UMT_* below */
-static uint8_t umq_o[14] __attribute__((section(".pool")));
+static uint8_t umq_o[15] __attribute__((section(".pool")));
 static uint32_t umv_raw(uint32_t pl, uint32_t j)        /* plate pl's setting j (2: its third, 3: LIGHT), 0..99, as set */
 {
-    uint32_t d, v = *umv_at(pl, j, &d) ^ d;
+    uint32_t d;
+    const uint8_t *b = umv_at(pl, j, &d);
+    uint32_t v = b ? *b ^ d : d;
     return v > 99u ? 99u : v;
 }
 static __attribute__((noinline)) uint32_t umv(uint32_t pl, uint32_t j) { return umq_o[j] ? umq_o[j] - 1u : umv_raw(pl, j); }   /* .. as routed */
@@ -65,6 +76,8 @@ static void umv_put(uint32_t pl, uint32_t j, uint32_t v)
 {
     uint32_t d;
     uint8_t *b = umv_at(pl, j, &d);
+    if (!b)
+        return;
     *b = (uint8_t)((v > 99u ? 99u : v) ^ d);
     umv_dirty = 1;
     umv_ms = fm1_ms;
@@ -82,7 +95,8 @@ static int32_t umv_sc(uint32_t pl)
  * (FX), 8 SPEED, 9 REACT, 10 MOVEMENT, 11 TRAVEL. [20 ..] held each plate's KNOB 1..4 (gone: TOTALITY's knobs are the
  * macros M1..M4, MACROS - VISUALS sends them on; its routes in those bytes, ui_umbra_mac.c) */
 enum { UMT_A, UMT_B, UMT_C, UMT_LIGHT, UMT_SPEED, UMT_REACT, UMT_MOVE, UMT_TRAVEL, UMT_FADE, UMT_MIR, UMT_MOS, UMT_GLI, UMT_SOL,
-       UMT_BEING, UMT_NT };                             /* MACROS - VISUALS' targets: the plate's own three, LIGHT .. */
+       UMT_BEING, UMT_INV, UMT_NT };                    /* LIVE VIZ CTRLS' targets: the plate's own three, LIGHT .. ((the user,
+                                                         * 2026-11-09) INVERT: the picture's negative, routed only) */
 _Static_assert(UMT_NT == sizeof umq_o, "umq_o: a byte a target");
 #define UMT_NS 12u
 static const uint8_t UMT_D[UMT_NS] = {50, 0, 0, 0, 0, 0, 0, 0, 50, 50, 1, 50};
@@ -186,49 +200,9 @@ static void umb_tabs(void)
     for (k = 0; k < 32u * 32u; k++)
         umb_tn[k] = (uint8_t)((umb_oct(k & 31u, k >> 5, 4u, 719u) * 159 + umb_oct(k & 31u, k >> 5, 8u, 720u) * 97) >> 8);
 }
-/* SAROS and FILAMENT (ui_umbra_melody.c) */
-#define UMM_TH 48                                       /* SAROS: threads at most */
-#define UMM_ND 12                                       /* .. the notes' points glowing */
-typedef struct {
-    uint8_t ta[UMM_TH], tb[UMM_TH], tc[UMM_TH], tf[UMM_TH];   /* SAROS: a thread's notes (a < b), track, the note before */
-    uint16_t te[UMM_TH];                                /* .. its energy (Q8: burned up to 2.5) */
-    uint32_t tt[UMM_TH];                                /* .. when it was last played (ms) */
-    int32_t lx[UMM_TH], ly[UMM_TH], lsx[UMM_TH], lsy[UMM_TH];   /* .. as this frame draws it: from, a sample's step (px, Q8) */
-    int16_t ln[UMM_TH];                                 /* .. its samples */
-    uint8_t lc[UMM_TH][3];                              /* .. its light */
-    uint8_t nn[UMM_ND], nc[UMM_ND], nv[UMM_ND];         /* the notes' points: note, track, velocity .. */
-    uint32_t nt[UMM_ND];                                /* .. when */
-    int16_t ux[12], uy[12];                             /* the twelve places on the circle of fifths, turned (Q15) */
-    uint8_t nth, nnd, last[NTRK];                       /* threads in use, the next point; each track's last note + 1 */
-    uint32_t th, tms;                                   /* the turn (2^32 a turn) and its clock */
-} umm_t;
-/* CINDER, GRANULE, CORONA, TARN (ui_umbra_field.c) */
-typedef struct {
-    uint8_t h[UMB_S];                                   /* the heat, a byte a cell */
-    uint8_t rp[UMB_N], rc[UMB_N];                       /* the step's rows as they were: the one above, this one */
-    uint8_t pw[256], sm[256], c1[256], c2[256];         /* curves: the heat's glow (^0.75), the hot glow, the crust's layers */
-    uint8_t hx[NTRK], hy[NTRK], hr[NTRK], hv[NTRK], hn[NTRK];   /* each track's held note: where (cells), how wide (Q4),
-                                                         * how hard; the note + 1 */
-    uint32_t T;                                         /* the steps */
-    uint8_t t[UMB_S], tr[UMB_N];                        /* the heat's tint, a byte a cell (ump_tint: tracks 3 and 4's warm
-                                                         * share, carried with it); the step's row as it was */
-} ump_ci_t;
-#define UMG_G 12u                                       /* GRANULE: 12 x 12 granules .. */
-#define UMG_N (UMG_G * UMG_G)
-#define UMG_C 20                                        /* .. 20 px apart */
-#define UMG_NB 12u                                      /* .. bright points at most */
-typedef struct {
-    uint8_t lab[UMB_S], prof[UMB_S];                    /* each 4 x 4 px block's granule, and its light's profile there */
-    uint8_t sx[UMG_N], sy[UMG_N], amb[UMG_N], col[UMG_N][3];   /* a granule: its heart (px), its glow at rest, its colour */
-    uint16_t E[UMG_N];                                  /* .. its light (Q8, up to 1.6) */
-    uint32_t born[UMG_N];                               /* .. when it was born (it fades in) */
-    uint8_t gb[UMG_N];                                  /* .. this frame's: the glow, */
-    uint16_t gl[UMG_N];                                 /* .. the light (in 16 steps) */
-    uint8_t bx[UMG_NB], by[UMG_NB], bv[UMG_NB], bc[UMG_NB];   /* the bright points (the hats): where, how hard, the lane */
-    uint32_t bt[UMG_NB];                                /* .. when */
-    uint8_t nb;
-    uint32_t tb;                                        /* the boil's clock */
-} ump_gr_t;
+/* the plates' shared block (umb's union): CORONA's own state (resident, ui_umbra_field.c), else a module's (umb_plate.h:
+ * CINDER, SAROS, FILAMENT, GRANULE, TARN and the bank's), at most UMB_BLK bytes (TARN's water, the largest) */
+#define UMB_BLK 10752u
 #define UMR_NA 128u                                     /* CORONA: streamers round */
 typedef struct {
     uint8_t pa[UMB_S], pr[UMB_S];                       /* a quarter of the screen in 2 x 2 px blocks: the angle (256 a
@@ -247,27 +221,13 @@ typedef struct {
     uint8_t ph[4], bv[10], np, nbd;                     /* .. how high, how hard */
     uint32_t pt[4], bt[10];                             /* .. when */
 } ump_co_t;
-#define UMT_N 48                                        /* TARN: the water 48 x 48 cells of 5 x 5 px */
-typedef struct {
-    int16_t h[2][UMT_N * UMT_N];                        /* its height, now and a step before (swapped) */
-    uint8_t rl[1024];                                   /* the reflection by r^2 / 32 */
-    int16_t gr[2][UMT_N * 2];                           /* two rows of slopes (by parity), x and y */
-    int16_t grj[2];
-    uint8_t cur;                                        /* which of h is now */
-    uint8_t tx[8], ty[8], tv[8], nt;                    /* stars glinting (the hats) */
-    uint32_t tt[8];
-} ump_ta_t;
 typedef struct {
     union {                                             /* (one plate draws at a time: a plate chosen starts afresh) */
-        umm_t m;
-        ump_ci_t ci;
-        ump_gr_t gr;
         ump_co_t co;
-        ump_ta_t ta;
+        uint32_t blk[UMB_BLK / 4u];                     /* (a module's: umb_lay) */
     };
     uint32_t f0, qr, rs, ms, last;                      /* the frame worked out, the notes read, the dice, the steps' clock,
                                                          * the last frame's time */
-    uint8_t init;                                       /* (SAROS, FILAMENT: 0 when they start afresh) */
     uint8_t bare;                                       /* TOTALITY being drawn: the whole screen the plate's, nothing darkened */
 } umb_t;
 static umb_t umb __attribute__((section(".pool")));    /* (V10: in the pool, zeroed at boot; RAM's full) */
@@ -345,66 +305,157 @@ static const uint8_t UMB_LANE_POS[NLANE] = {3, 5, 6, 2, 1, 4, 7, 0};   /* KICK i
 /* A plate built as a module (umb_plate.h) runs on a layer: its block, the notes it has read, its frame. Layer 0 is the
  * ground, its block the plates' shared one (umb's union: one plate draws there at a time); layer 1 (the emulator's test
  * of two at once, UMB_LAYERS 2) an overlay with its own. The firmware reads the notes and hands each layer its own; NOTE
- * MOVEMENT steps on the ground's only. FILAMENT is the first module (resident: built into the image). */
+ * MOVEMENT steps on the ground's only.
+ * Where the modules come from: on the FM-1, the bank (umb_slot.c: the plate files loaded from the web, in projects 5..8's
+ * flash); built in (UMB_RESIDENT), in the emulator and the host tests, every one of them. CORONA is not a module (the
+ * welcome uses its state): it is always there. The plates are numbered so: 0 .. 5 the six known ones by name, as their
+ * settings are kept (CINDER, SAROS, FILAMENT, GRANULE, CORONA, TARN: the first slot holding a plate of that name is
+ * that plate), 6 + i the bank's slot i holding another (a plate of a name the firmware does not know: its controls'
+ * defaults, nothing kept) */
 #include "umb_plate.h"
-#include "plates/filament.c"                          /* FILAMENT, through the plate API */
+#ifndef UMB_RESIDENT
+#define UMB_RESIDENT (FELUCCA_WEB || !FELUCCA_FLASH)
+#endif
+#if UMB_RESIDENT
+#include "plates/cinder.c"
+#include "plates/saros.c"
+#include "plates/filament.c"
+#include "plates/granule.c"
+#include "plates/tarn.c"
+static const umb_plate_t *const UMB_RES[UMP_NPL] = {&umb_plate_cinder, &umb_plate_saros, &umb_plate_filament,
+                                                   &umb_plate_granule, 0, &umb_plate_tarn};
+_Static_assert(sizeof(plc_t) <= UMB_BLK && sizeof(pls_t) <= UMB_BLK && sizeof(plf_t) <= UMB_BLK && sizeof(plg_t) <= UMB_BLK &&
+               sizeof(plt_t) <= UMB_BLK, "a plate's block");
+#endif
+_Static_assert(sizeof(ump_co_t) <= UMB_BLK, "CORONA's block");
 _Static_assert(NTRK == UMB_NTRK, "the plate API's tracks");
+#if FELUCCA_FLASH && !FELUCCA_WEB
+#define UMB_NSLOT 16u                                   /* the bank's slots (umb_slot.c) */
+static const umb_plate_t *ups_plate(uint32_t i);       /* umb_slot.c: slot i's plate file, if one is to run */
+#else
+#define UMB_NSLOT 0u
+#define ups_plate(i) ((const umb_plate_t *)0)
+#endif
+#define UMB_NPLT (UMP_NPL + UMB_NSLOT)                  /* the plates' numbers */
+static uint8_t ups_gen;                                 /* the bank changed (umb_slot.c: a slot written or erased) */
+static int umb_named(const umb_plate_t *p, const char *n)   /* plate p is called n */
+{
+    uint32_t i;
+    for (i = 0; i < 10u && p->name[i] == n[i] && n[i]; i++)
+        ;
+    return i < 10u && p->name[i] == n[i];
+}
+/* plate pl's module (0: CORONA, resident, or none: a plate not loaded) */
+static const umb_plate_t *umb_mod(uint32_t pl)
+{
+#if !UMB_RESIDENT
+    const umb_plate_t *p;
+    uint32_t i;
+#endif
+    if (pl >= UMP_NPL)
+        return pl < UMB_NPLT ? ups_plate(pl - UMP_NPL) : 0;
+#if UMB_RESIDENT
+    return UMB_RES[pl];
+#else
+    if (pl == 4u)
+        return 0;
+    for (i = 0; i < UMB_NSLOT; i++)
+        if ((p = ups_plate(i)) != 0 && umb_named(p, UMV_PL[pl]))
+            return p;
+    return 0;
+#endif
+}
+/* plate pl there to draw: CORONA always; a known one built in or loaded; a slot's other plate (a slot holding a known
+ * plate is that plate's number, never twice) */
+static int umb_has(uint32_t pl)
+{
+    const umb_plate_t *p;
+    uint32_t k;
+    if (pl == 4u)
+        return 1;
+    if (pl >= UMB_NPLT || !(p = umb_mod(pl)))
+        return 0;
+    for (k = 0; pl >= UMP_NPL && k < UMP_NPL; k++)
+        if (umb_named(p, UMV_PL[k]))
+            return 0;
+    return 1;
+}
+static const char *umb_pname(uint32_t pl)              /* plate pl's name, as the screen shows it */
+{
+    const umb_plate_t *p;
+    return pl < UMP_NPL ? UMV_PL[pl] : (p = umb_mod(pl)) != 0 ? p->name : "";
+}
+static const char *umb_cname(uint32_t pl, uint32_t t)  /* .. its control t's (0..2) */
+{
+    const umb_plate_t *p;
+    return pl < UMP_NPL ? UMV_N[pl][t % 3u] : (p = umb_mod(pl)) != 0 && t < p->nctl ? p->ctl[t].name : "";
+}
+static uint32_t umv_def(uint32_t pl, uint32_t j)       /* a slot's plate's control j's default */
+{
+    const umb_plate_t *p = umb_mod(pl);
+    return p && j < p->nctl && p->ctl[j].def <= 99u ? p->ctl[j].def : 50u;
+}
 #ifndef UMB_LAYERS
 #define UMB_LAYERS 1
 #endif
 #define UMB_VGN 150u                                    /* a strip's rows at most (gfx.c CV_MAX / 240) */
 static int32_t umb_api_move(const umb_note_t *n, uint32_t ax, int32_t v, int32_t span) { return umn_fold(n->mo[ax & 1u], v, span); }
-static const umb_api_t umb_api = {UMB_API, umb_api_move, SINE, UMB_EVC};
-#if FELUCCA_FLASH && !FELUCCA_WEB
-static const umb_plate_t *ups_plate(void);             /* umb_slot.c: the plate file in flash, if one is to run */
-#else
-#define ups_plate() ((const umb_plate_t *)0)
-#endif
+static const umb_api_t umb_api = {UMB_API, umb_api_move, SINE, UMB_EVC, umb_tn, umb_E, umb_ln, ump_lut};
 typedef struct {
-    const umb_plate_t *p;                               /* the plate it draws (its module's header): resident .. */
-    const umb_plate_t *pp;                              /* .. or the slot's in its place (umb_slot.c), the one last drawn */
+    const umb_plate_t *pp;                              /* the plate it last drew (its module's header) */
     void *st;                                           /* its block .. */
     uint32_t cap;                                       /* .. of these bytes */
     uint32_t qr, f0, last;                              /* the notes read, the frame worked out, its time */
     uint8_t on;                                         /* the plate it last drew + 1 (0: none: it starts afresh) */
     uint8_t mov;                                        /* its notes step NOTE MOVEMENT (the ground's) */
+    uint8_t gen;                                        /* the bank as it was (ups_gen) */
 } umb_layer_t;
 #if UMB_LAYERS > 1
 static uint8_t umb_ovl;                                 /* (the emulator: web_umb(97, 1)) FILAMENT over the plate in TOTALITY */
 static uint32_t umb_ost[(sizeof(plf_t) + 3u) / 4u] __attribute__((section(".pool")));
 #endif
 static umb_layer_t umb_lay[UMB_LAYERS] = {
-    {&umb_plate_filament, 0, &umb, __builtin_offsetof(umb_t, f0), 0, 0, 0, 0, 1},
+    {0, &umb, __builtin_offsetof(umb_t, f0), 0, 0, 0, 0, 1},
 #if UMB_LAYERS > 1
-    {&umb_plate_filament, 0, umb_ost, sizeof umb_ost, 0, 0, 0, 0, 0},
+    {0, umb_ost, sizeof umb_ost, 0, 0, 0, 0, 0},
 #endif
 };
 static int16_t umb_vg[UMB_VGN] __attribute__((section(".pool")));   /* the strip's rows' light (umb_strip_t.vg) */
-/* layer li's plate (as plate pl: its settings) over the canvas as the screen's x0, y0 .., in draw mode mode */
-static void umb_lay_draw(uint32_t li, uint32_t pl, int32_t x0, int32_t y0, uint32_t mode)
+static void umb_lay_tracks(umb_lctx_t *c)              /* the tracks now: NOTE MOVEMENT's offsets, the roots */
+{
+    uint32_t t;
+    for (t = 0; t < NTRK; t++) {
+        c->mo[t][0] = umn.o[t][0];
+        c->mo[t][1] = umn.o[t][1];
+        c->root[t] = (uint8_t)((uint32_t)trk[t].p[P_ROOT] % 12u);
+    }
+}
+/* layer li's plate p (as plate pl: its settings) over the canvas as the screen's x0, y0 .., in draw mode mode */
+static void umb_lay_draw(uint32_t li, uint32_t pl, const umb_plate_t *p, int32_t x0, int32_t y0, uint32_t mode)
 {
     umb_layer_t *L = &umb_lay[li];
-    const umb_plate_t *p = ups_plate();
     umb_lctx_t c;
     umb_strip_t s;
     uint32_t j, h = cv_h < UMB_VGN ? cv_h : UMB_VGN;
-    if (!p || p->state > L->cap || !(p->modes & UMB_MODE(mode)))
-        p = L->p;                                       /* (none in the slot, or not one for this layer: the resident) */
-    if (p->magic != UMB_PLATE_MAGIC || p->api > UMB_API || p->state > L->cap || !(p->modes & UMB_MODE(mode)))
+    if (!p || p->magic != UMB_PLATE_MAGIC || !p->api || p->api > UMB_API || p->state > L->cap || !(p->modes & UMB_MODE(mode)))
         return;                                         /* (not a plate, a newer one, too big, or not this way: nothing) */
-    if (p != L->pp) {                                   /* (another plate in its place: it starts afresh) */
+    if (p != L->pp || L->gen != ups_gen) {              /* (another plate in its place, or the bank changed under it:
+                                                         * it starts afresh) */
         L->pp = p;
+        L->gen = ups_gen;
         L->on = 0;
     }
     for (j = 0; j < UMB_NCTL; j++)                      /* (the routes, MACROS - VISUALS, move the ground's plate only: */
-        c.k[j] = (uint8_t)(j < 3u ? li ? umv_raw(pl, j) : umv(pl, j) : 0u);   /* the overlay its own, as stored) */
+        c.k[j] = (uint8_t)(j < 3u ? li ? umv_raw(pl, j) : umv(pl, j) : j < p->nctl ? p->ctl[j].def : 0u);   /* the
+                                                         * overlay its own, as stored) */
     c.light = li ? ((int32_t)umv_raw(pl, 3u) * 256 + 49) / 99 : umv_light(pl);
     c.now = umb_now;
     c.dt = 0;
     c.bare = umb.bare;
     c.tracks = (uint8_t)trk_live;
     c.layer = (uint8_t)li;
-    c.rsv = 0;
+    c.rsv = c.rsv2[0] = c.rsv2[1] = 0;
+    umb_lay_tracks(&c);
     if (L->on != pl + 1u) {                             /* chosen: its block zeroed, the notes from now */
         memset(L->st, 0, p->state);
         L->on = (uint8_t)(pl + 1u);
@@ -435,6 +486,7 @@ static void umb_lay_draw(uint32_t li, uint32_t pl, int32_t x0, int32_t y0, uint3
             n.mo[1] = umb_qo[q][1];
             p->note(L->st, &c, &umb_api, &n);
         }
+        umb_lay_tracks(&c);                             /* (after the notes: where they left the tracks) */
         p->frame(L->st, &c, &umb_api);
     }
     for (j = 0; j < h; j++)
@@ -452,22 +504,20 @@ static void umb_lay_draw(uint32_t li, uint32_t pl, int32_t x0, int32_t y0, uint3
 static void umb_backdrop(int32_t x0, int32_t y0)
 {
     uint32_t pl = umb_pl();
+    const umb_plate_t *p = umb_mod(pl);
     umb_tabs();                                         /* (the noise, once) */
+    if (!ump_lut[3][255])                               /* (the palette as the panel takes it: once) */
+        ump_lut_make();
     umb_clock();
-    if (pl == 2u) {                                     /* FILAMENT: a module (plates/filament.c) */
+    if (p) {                                            /* a module (plates/*.c, the bank's) */
         ump_on = 0xFFu;
-        umm_on = 0;
-        umb_lay_draw(0u, pl, x0, y0, UMB_DRAW_REPLACE);
-    } else if (pl == 1u) {                              /* SAROS */
-        ump_on = 0xFFu;
-        umb_lay[0].on = 0;
-        umm_backdrop(pl, x0, y0);
-    } else {
-        umm_on = 0;
+        umb_lay_draw(0u, pl, p, x0, y0, UMB_DRAW_REPLACE);
+    } else {                                            /* CORONA */
         umb_lay[0].on = 0;
         ump_backdrop(pl, x0, y0);
     }
 }
 #include "ui_umbra_tot.c"                             /* TOTALITY: the plate alone, the visual effects */
+#include "ui_umbra_welcome.c"                         /* HOME > WELCOME's pages */
 #include "ui_umbra_mac.c"                             /* HOME > UMBRA's MACROS - AUDIO and MACROS - VISUALS */
 #include "ui_umbra_plate.c"                           /* the visuals' settings saved */

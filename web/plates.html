@@ -1,6 +1,6 @@
 <!doctype html>
-<!-- SPDX-License-Identifier: GPL-3.0-only. UMBRA OBSCURA: the plates page (plans/umbra-plate-bank.md, phase 1). Sends a
-     plate file (build/plates/*.plate, tools/build.py plate_files) into the FM-1's plate slot over USB-MIDI SysEx:
+<!-- SPDX-License-Identifier: GPL-3.0-only. UMBRA OBSCURA: the plates page (plans/umbra-plate-bank.md, phase 2). Sends
+     plate files (build/plates/*.plate, tools/build.py plate_files) into the FM-1's plate bank over USB-MIDI SysEx:
      EDITOR_PROTOCOL.md "Plates" (cmds 96..100; firmware/src/editor_plate.c, umb_slot.c). Chrome or Edge (Web MIDI). -->
 <html lang="en">
 <head>
@@ -17,6 +17,8 @@
   p { margin: 0 0 12px; color: var(--dim); }
   .row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
   .row:last-child { border-bottom: 1px solid var(--line); }
+  .slot { font-variant-numeric: tabular-nums; color: var(--dim); width: 2.2em; }
+  .note { border: 1px solid #3a2f22; border-radius: 6px; padding: 10px 14px; color: var(--warn); font-size: 13px; margin: 0 0 12px; }
   .name { flex: 1; }
   .name b { font-weight: 500; letter-spacing: .08em; }
   .name small { display: block; color: var(--dim); font-size: 13px; }
@@ -34,16 +36,21 @@
 <body>
 <main>
   <h1>UMBRA OBSCURA</h1>
-  <p>Plates: load a plate file into the FM-1's plate slot. A plate there takes FILAMENT's place (HOME › PLATE, or in
-    TOTALITY). Loading stops playback and pauses the sound for a moment, so do it between sets.</p>
+  <p>Plates: load plate files into the FM-1's plate bank. CORONA is built into the firmware; every other plate lives in
+    the bank, and SELECT in TOTALITY steps through what is loaded. Loading stops playback and pauses the sound for a
+    moment, so do it between sets.</p>
+  <p class="note">The bank uses the flash where projects 5 to 8 were kept (UMBRA keeps four projects). Loading a plate
+    overwrites what was stored there: back up from the editor first if you had songs in projects 5 to 8.</p>
   <div class="row"><div class="name"><b id="dev">FM-1</b><small id="devinfo">Not connected. Connect it by USB, then press Connect (Chrome or Edge).</small></div>
     <button id="connect">Connect</button></div>
 
-  <h2>THE SLOT</h2>
-  <div class="row"><div class="name"><b id="slotname">—</b><small id="slotinfo">Connect to see what it holds.</small></div>
-    <button id="erase" disabled>Empty it</button></div>
+  <h2>THE BANK</h2>
+  <div id="bank"><p>Connect to see what it holds.</p></div>
 
   <h2>PLATE FILES</h2>
+  <div class="row"><div class="name"><b>Every plate</b><small>CINDER, SAROS, FILAMENT, GRANULE and TARN: the plates UMBRA
+    came with. A plate already in the bank is replaced where it is.</small></div>
+    <button id="all" class="load" disabled>Load all</button></div>
   <div id="lib"><p>Loading the list…</p></div>
   <div class="row"><div class="name"><b>A file of your own</b><small>A .plate file built for this firmware's plate API.</small></div>
     <label class="file" id="filelbl">Choose…<input type="file" id="file" accept=".plate"></label></div>
@@ -57,10 +64,16 @@
 const CMD = { LIST: 96, BEGIN: 97, WRITE: 98, END: 99, ERASE: 100 };
 const RC = { 1: "the FM-1 refused the request", 2: "the file was refused (its checksum or header): the slot is empty",
              3: "stop playback first", 4: "a flash write failed" };
-const DESC = { "filament.plate": "FILAMENT as built into the firmware: loading it changes nothing you can see.",
-               "filament-ember.plate": "FIL EMBER, a test: FILAMENT with warm strings at rest. If the strings turn warm, the slot's plate is running." };
+const DESC = { "cinder.plate": "Cold embers: heat rising and cooling under a crust of cracks.",
+               "saros.plate": "The melody as string art on the circle of fifths, turning round a dark umbra.",
+               "filament.plate": "A taut string a track, plucked and bowed.",
+               "granule.plate": "The sun's surface: a honeycomb of granules, a note lights its own.",
+               "tarn.plate": "The eclipse reflected in dark water, a note a drop.",
+               "filament-ember.plate": "FIL EMBER, a test: FILAMENT with warm strings at rest." };
+const ALL = ["cinder.plate", "saros.plate", "filament.plate", "granule.plate", "tarn.plate"];
+const SLOT = 0x2000, RELOC = 0x434C5255;                /* a slot's size (umb_slot.c); a plate file's "URLC" */
 const $ = (id) => document.getElementById(id);
-let dev = null;
+let dev = null, bank = [], nslot = 0;
 
 function say(t, bad) { $("status").textContent = t; $("status").className = bad ? "bad" : ""; }
 const u32 = (n) => [0, 7, 14, 21, 28].map((s) => (n >>> s) & 127);
@@ -77,6 +90,23 @@ function pack7(b) {                                   /* groups: a byte of top b
 const CRC = (() => { const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
   return (b) => { let c = 0xFFFFFFFF; for (const x of b) c = t[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }; })();
+/* a plate file (tools/build.py plate_files): its image, linked for slot 0, and the words in it that hold an address;
+ * null: not one */
+function parse(f) {
+  if (f.length < 12 + 128) return null;
+  const v = new DataView(f.buffer, f.byteOffset, f.byteLength), e = f.length;
+  const len = v.getUint32(e - 4, true), magic = v.getUint32(e - 8, true), n = v.getUint32(e - 12, true);
+  if (magic !== RELOC || len % 4 || len + 4 * n + 12 !== e || len < 128 || len > SLOT - 32) return null;
+  const rel = []; for (let i = 0; i < n; i++) rel.push(v.getUint32(len + 4 * i, true));
+  if (rel.some((w) => w % 4 || w + 4 > len)) return null;
+  const name = String.fromCharCode(...f.subarray(8, 18)).replace(/\0.*$/s, "");
+  return { img: f.slice(0, len), rel, name };
+}
+function moved(p, slot) {                             /* its image for slot: each address moved there */
+  const b = p.img.slice(), v = new DataView(b.buffer);
+  for (const w of p.rel) v.setUint32(w, (v.getUint32(w, true) + slot * SLOT) >>> 0, true);
+  return b;
+}
 
 /* one request, one reply (the same command), in turn */
 function request(cmd, args, ms = 3000) {
@@ -111,61 +141,103 @@ async function connect() {
   await refresh();
 }
 async function refresh() {
-  let a;
-  try { a = await request(CMD.LIST, []); }
-  catch (e) { $("devinfo").textContent = "It does not answer plate requests: install the UMBRA OBSCURA firmware with plates first."; dev = null;
-              $("connect").disabled = false; return; }
-  const st = a[2], z = a.indexOf(0, 3), name = String.fromCharCode(...a.slice(3, z)), len = fromU32(a.slice(z + 1, z + 6));
-  $("devinfo").textContent = `Connected. Plate API ${a[0]}.`;
-  $("slotname").textContent = st ? name : "Empty";
-  $("slotinfo").textContent = st === 1 ? `${len} bytes, running in FILAMENT's place.` :
-    st === 2 ? `${len} bytes, held back: the FM-1 restarted after a crash or hang. Switch it off and on to run it again, or empty the slot.` :
-    "FILAMENT runs as built into the firmware.";
-  $("erase").disabled = !st;
+  let api = 0;
+  bank = []; nslot = 0;
+  try {
+    for (let first = 0; first === 0 || first < nslot; first += 8) {
+      const a = await request(CMD.LIST, [first]);
+      if (!first && (a[1] < 2 || a.length < 4)) throw new Error("old");   /* (phase 1's single slot: no bank) */
+      api = a[0]; nslot = a[1];
+      for (let i = 3, k = a[2]; i < a.length && k < nslot && k < first + 8; k++) {
+        const st = a[i], z = a.indexOf(0, i + 1);
+        bank[k] = { st, name: String.fromCharCode(...a.slice(i + 1, z)), len: fromU32(a.slice(z + 1, z + 6)) };
+        i = z + 6;
+      }
+    }
+  } catch (e) {
+    $("devinfo").textContent = "It does not answer plate bank requests: install the UMBRA OBSCURA firmware with the plate bank first.";
+    dev = null; $("connect").disabled = false; return;
+  }
+  $("devinfo").textContent = `Connected. Plate API ${api}, ${nslot} slots, ${bank.filter((b) => b && b.st).length} in use.`;
+  const el = $("bank"); el.innerHTML = "";
+  const row = (slot, name, info, erase) => {
+    const r = document.createElement("div"); r.className = "row";
+    r.innerHTML = `<span class="slot"></span><div class="name"><b></b><small></small></div>` + (erase ? `<button class="erase">Empty</button>` : "");
+    r.querySelector(".slot").textContent = slot; r.querySelector("b").textContent = name; r.querySelector("small").textContent = info;
+    if (erase) r.querySelector("button").onclick = () => erase();
+    el.appendChild(r);
+  };
+  row("", "CORONA", "Built into the firmware: always there.", null);
+  bank.forEach((b, k) => {
+    if (!b || !b.st) return;
+    row(String(k + 1), b.name, b.st === 1 ? `${b.len} bytes.` :
+        `${b.len} bytes, held back: the FM-1 restarted after a crash or hang. Switch it off and on to run it again, or empty the slot.`,
+        () => erase(k));
+  });
+  const free = bank.filter((b) => b && !b.st).length;
+  row("", free ? `${free} empty slots` : "The bank is full", free ? "A plate loads into the first empty one." : "Empty a slot to load another plate.", null);
   document.querySelectorAll("button.load").forEach((b) => { b.disabled = false; });
 }
 function check(a, what) { if (a[1]) throw new Error(`${what}: ${RC[a[1]] || "rc " + a[1]}`); }
-async function send(bytes, label) {
+/* where plate p goes: the slot holding a plate of its name, else the first empty one (-1: none) */
+function slotFor(p) {
+  const k = bank.findIndex((b) => b && b.st && b.name === p.name);
+  return k >= 0 ? k : bank.findIndex((b) => b && !b.st);
+}
+async function put(p, label) {                        /* plate p into its slot (BEGIN, WRITEs, END) */
+  const slot = slotFor(p);
+  if (slot < 0) throw new Error(`The bank is full: empty a slot for ${label}.`);
+  const bytes = moved(p, slot);
+  say(`Sending ${label} to slot ${slot + 1}…`);
+  check(await request(CMD.BEGIN, [slot, ...u32(bytes.length)], 5000), "start");
+  for (let o = 0; o < bytes.length; o += 256) {
+    check(await request(CMD.WRITE, [slot, ...u32(o), ...pack7(bytes.subarray(o, o + 256))]), "write");
+    say(`Sending ${label} to slot ${slot + 1}… ${Math.min(100, Math.round((o + 256) * 100 / bytes.length))}%`);
+  }
+  check(await request(CMD.END, [slot, ...u32(CRC(bytes))], 5000), "finish");
+  bank[slot] = { st: 1, name: p.name, len: bytes.length };
+  return slot;
+}
+async function send(files) {                          /* [[bytes, label]..] into the bank, in turn */
   if (!dev) { say("Connect the FM-1 first.", true); return; }
+  if (!files.length) { say("No plate files published here.", true); return; }
   const busy = document.querySelectorAll("button"); busy.forEach((b) => { b.disabled = true; });
+  let done = [];
   try {
-    if (bytes.length < 128 || bytes.length > 4064) throw new Error(`${label} is ${bytes.length} bytes: not a plate file for this slot`);
-    say(`Sending ${label}…`);
-    check(await request(CMD.BEGIN, [0, ...u32(bytes.length)], 5000), "start");
-    for (let o = 0; o < bytes.length; o += 256) {
-      check(await request(CMD.WRITE, [0, ...u32(o), ...pack7(bytes.subarray(o, o + 256))]), "write");
-      say(`Sending ${label}… ${Math.min(100, Math.round((o + 256) * 100 / bytes.length))}%`);
+    for (const [bytes, label] of files) {
+      const p = parse(bytes);
+      if (!p) throw new Error(`${label} is not a plate file for the bank (an older or damaged file?)`);
+      done.push(`${label} in slot ${(await put(p, label)) + 1}`);
     }
-    check(await request(CMD.END, [0, ...u32(CRC(bytes))], 5000), "finish");
-    say(`${label} is in the slot.`);
-  } catch (e) { say(e.message, true); }
+    say(done.length > 1 ? `Loaded: ${done.join(", ")}.` : `${done[0]}.`);
+  } catch (e) { say((done.length ? `Loaded: ${done.join(", ")}. ` : "") + e.message, true); }
   finally { busy.forEach((b) => { b.disabled = false; }); $("connect").disabled = !!dev; await refresh().catch(() => {}); }
 }
-async function erase() {
-  try { check(await request(CMD.ERASE, [0], 5000), "empty"); say("The slot is empty: FILAMENT runs as built in."); }
+async function erase(k) {
+  try { check(await request(CMD.ERASE, [k], 5000), "empty"); say(`Slot ${k + 1} is empty.`); }
   catch (e) { say(e.message, true); }
   await refresh().catch(() => {});
 }
+const fetchPlate = async (n) => new Uint8Array(await (await fetch(n, { cache: "no-store" })).arrayBuffer());
 async function library() {
   let names = [];
   try { names = await (await fetch("plates.json", { cache: "no-store" })).json(); } catch (e) { /* none here */ }
   $("lib").innerHTML = names.length ? "" : "<p>No plate files published here.</p>";
+  names.sort((a, b) => (ALL.indexOf(a) + 1 || 99) - (ALL.indexOf(b) + 1 || 99));
   for (const n of names) {
     const row = document.createElement("div"); row.className = "row";
     row.innerHTML = `<div class="name"><b></b><small></small></div><button class="load">Load</button>`;
     row.querySelector("button").disabled = !dev;
     row.querySelector("b").textContent = n.replace(/\.plate$/, "").toUpperCase();
     row.querySelector("small").textContent = DESC[n] || "";
-    row.querySelector("button").onclick = async () => {
-      const b = new Uint8Array(await (await fetch(n, { cache: "no-store" })).arrayBuffer());
-      await send(b, n.replace(/\.plate$/, "").toUpperCase());
-    };
+    row.querySelector("button").onclick = async () => send([[await fetchPlate(n), n.replace(/\.plate$/, "").toUpperCase()]]);
     $("lib").appendChild(row);
   }
+  $("all").onclick = async () => send(await Promise.all(ALL.filter((n) => names.includes(n))
+    .map(async (n) => [await fetchPlate(n), n.replace(/\.plate$/, "").toUpperCase()])));
 }
 $("connect").onclick = connect;
-$("erase").onclick = erase;
-$("file").onchange = async (e) => { const f = e.target.files[0]; if (f) await send(new Uint8Array(await f.arrayBuffer()), f.name); e.target.value = ""; };
+$("file").onchange = async (e) => { const f = e.target.files[0]; if (f) await send([[new Uint8Array(await f.arrayBuffer()), f.name]]); e.target.value = ""; };
 if (!navigator.requestMIDIAccess) say("This browser has no Web MIDI: use Chrome or Edge.", true);
 library();
 </script>

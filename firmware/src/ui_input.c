@@ -87,6 +87,9 @@ static int layer_set_open(void);                       /* (ui_layer.c) */
 #define OCT_BREATH_DN 8u                                /* OCT- breathing (the menu: the previous value) */
 static uint32_t oct_leds(void)
 {
+    if (UMB_ON && umw_on())                             /* ((UMBRA OBSCURA) WELCOME: OCT+ the next page, breathing; on the
+                                                         * last both, which take it away held together) */
+        return umw_pg == UMW_NP - 1u ? OCT_BREATH | OCT_BREATH_DN : OCT_BREATH;
     if (name_on() && !ui.confirm && !ui.menu)           /* NAME: OCT- cancels, OCT+ (breathing) writes */
         return 1u | OCT_BREATH;
     if (layer_set_open())                               /* a SET layer: OCT± do nothing (TONIC: no put back); */
@@ -1432,7 +1435,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
 sect:
     if (pg->graph == GR_SLOTS && slot == 0u) {            /* (0.6.12) KNOB 1 the project: its sections, the music kept */
-        int32_t n = clamp((int32_t)song_cur + (steps > 0 ? 1 : -1), 0, (int32_t)NSONG - 1);
+        int32_t n = clamp((int32_t)song_cur + (steps > 0 ? 1 : -1), 0, (int32_t)NSONG_USE - 1);
         if ((uint32_t)n != song_cur) (void)song_open((uint32_t)n);
         return;
     }
@@ -2338,8 +2341,9 @@ static void ui_input_frame(void)
     if (((pressed >> panel.btn[B_SAVE]) & 1u) && ui.ly == LAYER_SAVE)
         ui.save_t0 |= 2u;                               /* (SAVE too: layer_tap opens its pages) */
     layer_oct_open(pressed);                            /* (OCT± with a SET layer's button down: it opens now) */
-    oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open());
+    oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || umw_on());
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
+    umw_input(oct);                                     /* ((UMBRA OBSCURA) WELCOME: its pages, OCT- + OCT+ held: gone) */
     if (!ui.home && !ui.menu && !ui.confirm && !ui.ly && cur_page()->graph == GR_TOOLS && ((pressed >> panel.btn[B_OCTUP]) & 1u))
         tools_arm();
     if (tl_t0) {                                        /* (V10.24) TOOLS: OCT+ held TL_HOLD does the action */
@@ -2698,7 +2702,8 @@ static void ui_input_frame(void)
         case B_OCTDN:
         case B_OCTUP: {
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
-            if (act_cols() || layer_set_open() || gen_on())   /* action pages: enter / back (below); SET layers: OCT-; GEN */
+            if (act_cols() || layer_set_open() || gen_on() || umw_on())   /* action pages: enter / back (below); SET
+                                                         * layers: OCT-; GEN; (UMBRA OBSCURA) WELCOME: its pages */
                 break;
             if (live_page())                            /* (p2) LIVE: OCT- RETURN / held BYPASS, OCT+ COMMIT */
                 break;                                  /* (ui_live.c live_frame) */

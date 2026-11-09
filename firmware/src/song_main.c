@@ -34,6 +34,8 @@ static void song_index_load(void)
         song_idx.version = SONG_IDX_V;
         for (k = 0; k < NSONG; k++)
             song_rows_fix(&song_idx.rows[k]);
+        if (song_idx.cur >= NSONG_USE)              /* ((UMBRA OBSCURA) projects 5..8 retired: the first instead) */
+            song_idx.cur = 0;
         song_cur = song_idx.cur;
         return;
     }
@@ -397,7 +399,7 @@ static int song_switch(uint32_t n, int load_a)
 {
     char nm[PROJ_NAME_LEN + 1u];
     uint32_t k;
-    if (n >= NSONG || n == song_cur)
+    if (n >= NSONG_USE || n == song_cur)
         return 1;
     if (transport_busy()) {
         ui_message(load_a ? "STOP TO CHANGE SONG" : "STOP TO CHANGE PROJECT");

@@ -18,7 +18,8 @@
 #define UMB_PLATE_H
 #include <stdint.h>
 
-#define UMB_API 1u
+#define UMB_API 2u                                      /* (2: the context's tracks' offsets and roots, the
+                                                         * services' tables: what the field plates read) */
 #define UMB_PLATE_MAGIC 0x544C5055u                     /* "UPLT", first in a plate's header */
 #define UMB_NTRK 6u                                     /* tracks (a note's track is 0 .. UMB_NTRK - 1) */
 #define UMB_NCTL 8u                                     /* controls a plate may declare (KNOB 1.., two pages) */
@@ -55,6 +56,11 @@ typedef struct {                                        /* a layer, worked out o
     uint8_t tracks;                                     /* tracks playing (TRACKS: 4 or 6) */
     uint8_t layer;                                      /* 0: the ground, 1: the overlay */
     uint8_t rsv;
+    /* (API 2) */
+    int16_t mo[UMB_NTRK][2];                            /* each track's NOTE MOVEMENT offset now (its last note's), across
+                                                         * and down (Q8 of a span; umb_note_t.mo as it is now) */
+    uint8_t root[UMB_NTRK];                             /* each track's root, 0..11 (C..B) */
+    uint8_t rsv2[2];
 } umb_lctx_t;
 
 typedef struct {                                        /* the strip being drawn */
@@ -71,6 +77,12 @@ typedef struct {                                        /* the firmware's servic
                                                          * axis 0 across, 1 down) where note n's offset moves it, folded */
     const int16_t *sine;                                /* a sine turn, 1024 points + the first again, +-32767 */
     const uint8_t (*colour)[3];                         /* the notes' eight colours, r g b (a track's: (track x 3) % 8) */
+    /* (API 2) the firmware's tables, made at power-on */
+    const uint8_t *noise;                               /* 32 x 32 bytes of value noise that tiles (row by row) */
+    const uint8_t *fade;                                /* 256 points: 255 exp(-i / 32) */
+    const uint16_t *log;                                /* 160 points: 512 ln(r / 16), r 16 .. 175 */
+    const uint16_t (*pal)[256];                         /* the cold palette as the panel takes it (RGB565, bytes swapped),
+                                                         * a 2 x 2 dither each: [(y & 1) x 2 + (x & 1)]; [1] undithered */
 } umb_api_t;
 
 typedef struct umb_plate_s {                            /* (not umb_plate: ui_umbra.c's stored plate) */

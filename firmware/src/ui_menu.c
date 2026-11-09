@@ -35,6 +35,35 @@ static void draw_about_qr(int32_t x, int32_t y)
  * text, 1 theme, 2 mid) + 3 x the gap before it / 4 px), its text, a zero; a zero ends the list. The URLs without
  * "https://" (as they were shown) */
 #define MENU_DOC_H 196                                /* the document: screen rows 24..220 */
+/* (UMBRA OBSCURA) the fork's release: its number and its name, MENU > ABOUT's first lines (the JIANT it is built on:
+ * FELUCCA_VERSION, beside them) */
+#ifndef UMBRA_RELEASE
+#define UMBRA_RELEASE "1.0"
+#endif
+#ifndef UMBRA_NAME
+#define UMBRA_NAME "FIRST CONTACT"
+#endif
+/* (UMBRA OBSCURA) what UMBRA is, beside JIANT, in the slot (always there: not the segment's), as ABOUT_PROJECT's lines */
+static const char ABOUT_UMBRA[] =
+    "\001A live-visuals fork of JIANT FM for AV sets: all of JIANT's instrument (its sound engines, sequencer, effects, songs) "
+    "as it is, with generative visuals played by the notes in place of HOME's ecosystem.\0"
+    "\005ADDED\0"
+    "\001HOME > WELCOME: this guide (MENU > SYSTEM > WELCOME brings it back).\0"
+    "\001HOME > UMBRA: LIVE AUDIO CTRLS (the macros M1..M4 sent to the sound), LIVE VIZ CTRLS (ten routes from the macros, "
+    "the notes, the LFOs, the steps, the level and the beat to the picture), BEING, ROUTES.\0"
+    "\001TOTALITY: HOME tapped on HOME, the plate over the whole screen. SELECT the plates, KNOB 1..4 the macros, FX tapped: "
+    "the visual effects, SCL tapped: the track's being, SEQ tapped: the words. FX, SCL, LFO, EDIT, GLO held: their keys as "
+    "ever, the plate stays.\0"
+    "\001Plates: CORONA built in; CINDER, SAROS, FILAMENT, GRANULE, TARN and new ones in a bank of 16, loaded from the plates "
+    "page.\0"
+    "\005LEFT OUT FOR THE ROOM\0"
+    "\001HOME's ecosystem and beings, projects 5..8 (their flash is the plate bank), USB audio input, USB host, the serial "
+    "console.\0"
+    "\005PLATES PAGE, EMULATOR\0"
+    "\003benjamuels.github.io/UMBRA-OBSCURA\0"
+    "\001UMBRA's reports are its own: please never send them to JIANT's author.\0"
+    "\005JIANT FM\0"
+    "\001Everything else here is Juan Jiant's: his project, its credits and its licences follow.\0";
 static const char ABOUT_PROJECT[] BTAPP_RO =
     "\002THE PROJECT\0"
     "\001Made in Argentina by Juan Jiant, visual artist and musician, a dad of two: an independent project, free for everyone.\0"
@@ -221,8 +250,24 @@ BTAPP_FN static int32_t about_load(int32_t y, int draw)
     }
     return y;
 }
+static int32_t umb_about(int32_t y, int draw)           /* (UMBRA OBSCURA) ABOUT_UMBRA's lines (menu_lines' kinds) */
+{
+    const char *s;
+    for (s = ABOUT_UMBRA; *s; s += str_len(s) + 1u) {
+        uint32_t k = (uint8_t)*s - 1u, c = k % 3u;
+        y = menu_text(s + 1, y + 4 * (int32_t)(k / 3u), c == 1u ? T_THEME : c == 2u ? T_MID : T_TEXT, draw);
+    }
+    return y;
+}
 static int32_t menu_document(int32_t y, int draw)
 {
+    if (draw) {                                         /* (UMBRA OBSCURA) the fork first: its release, the JIANT under it */
+        cv_text(6, y + 2, &AF_M, "UMBRA OBSCURA", T_THEME);
+        cv_text(6, y + 28, &AF_S, UMBRA_RELEASE " \xB7 " UMBRA_NAME, T_TEXT);
+        cv_text(6, y + 46, &AF_S, "Built on JIANT FM " FELUCCA_VERSION, T_TEXT);
+        cv_text(6, y + 64, &AF_S, "Built " __DATE__, T_MID);
+    }
+    y = umb_about(y + 86, draw) + 12;
     if (draw) {
         cv_text(6, y + 2, &AF_L, "JIANT FM", T_THEME);
         cv_text(6, y + 38, &AF_S, "Firmware for the MVAVE FM-1", T_TEXT);
@@ -332,10 +377,10 @@ static void menu_panel(void)
     }
     if (ui.mlv == 1u) {                                /* TAB: its rows */
         cv_text(10, 6 - AF_X_CAP_Y, &AF_X, MTAB_NAME[t], T_THEME);
-        cv_text_r(228, 6 - AF_X_CAP_Y, &AF_X, "ALGO: TAB \xB7 SELECT: ROW", T_DIM, T_SURF);
+        cv_text_r(228, 6 - AF_X_CAP_Y, &AF_X, "SELECT: TAB \xB7 ALGO: ROW", T_DIM, T_SURF);
         for (r = 0; r < n; r++) {               /* (0.8.9: seven rows fit, 17 apart; 0.9.7: eight, 15) */
             uint32_t row = f + r, in = r / 4u == menu_set();
-            int32_t y = 14 + (int32_t)r * (n > 7u ? 15 : n > 6u ? 17 : 20), h = n > 7u ? 14 : n > 6u ? 16 : 18;
+            int32_t y = 14 + (int32_t)r * (n > 8u ? 14 : n > 7u ? 15 : n > 6u ? 17 : 20), h = n > 8u ? 13 : n > 7u ? 14 : n > 6u ? 16 : 18;
             uint16_t bg = in ? T_TINT : T_RAISE;
             cv_rect(8, y, 224, h, bg);
             if (row == ui.menu_sel)
@@ -507,7 +552,7 @@ static void draw_menu(void)
         }
         cv_begin(240, 240 - (H_HEAD + MENU_DOC_H), T_BG);
         {
-            static const khint_t KH[2] = {{KC_SELECT, "SCROLL"}, {KC_OCTDN, "BACK"}};
+            static const khint_t KH[2] = {{KC_ALGO, "SCROLL"}, {KC_OCTDN, "BACK"}};   /* ((UMBRA OBSCURA) ALGORITHM) */
             cv_key_row(8, 232, 4, KH, 2, 3u, T_BG);
         }
         cv_blit(0, H_HEAD + MENU_DOC_H);
@@ -575,19 +620,22 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         enc_drop();
         return;
     }
-    if (ui.menu == 2) {                                /* ABOUT: SELECT scrolls (bounded), OCT- back to the tabs */
+    if (ui.menu == 2) {                                /* ABOUT: ALGORITHM scrolls (bounded; (UMBRA OBSCURA) the lists' knob,
+                                                         * was SELECT), OCT- back to the tabs */
         if (dn)
             ui.menu = 1, ui.force = 1;
-        else if ((s = panel_enc(EN_SELECT)) != 0)
+        else if ((s = panel_enc(EN_ALGO)) != 0)
             ui.menu_scroll = (uint16_t)clamp((int32_t)ui.menu_scroll + clamp(s, -128, 128) * 18, 0, menu_scroll_max());
         enc_drop();
         return;
     }
-    if ((s = panel_enc(EN_SELECT)) != 0)                /* (0.9.2) SELECT: every row, one a detent */
-        ui.menu_sel = (uint8_t)clamp((int32_t)ui.menu_sel + s, 0, MI_COUNT - 1);
+    if ((s = panel_enc(EN_SELECT)) != 0)                /* ((UMBRA OBSCURA, the user 2026-11-09) SELECT: the tabs, right and */
+        menu_tab_go(s);                                 /* left, as it walks the pages; was every row, a tab ALGORITHM's) */
     ui.mlv = 1;                                         /* (the tab's rows) */
-    if ((s = panel_enc(EN_ALGO)) != 0)
-        menu_tab_go(s);
+    if ((s = panel_enc(EN_ALGO)) != 0) {                /* .. ALGORITHM: up and down the tab's rows, as it does a list */
+        uint32_t t = menu_tab(), f = mtab_first(t);
+        ui.menu_sel = (uint8_t)clamp((int32_t)ui.menu_sel + s, (int32_t)f, (int32_t)(f + mtab_rows(t)) - 1);
+    }
     for (s = 0, k = 0; k < 4u; k++) {                  /* (V10.27, a tester) KNOB k its card's row, as the cards and the */
         int32_t sk = panel_enc(EN_K1 + k);              /* rows' numbers show (was: any knob the selected row) */
         uint32_t t = menu_tab(), r = mtab_first(t) + menu_set() * 4u + k;

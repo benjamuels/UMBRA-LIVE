@@ -520,33 +520,63 @@ def build_app():
 
 
 # (UMBRA OBSCURA) plate files (plans/umbra-plate-bank.md; src/umb_plate.h): a plate built alone, linked for the plate
-# slot (firmware/plate.ld: flash 0xDA000, src/umb_slot.c), its header first: build/plates/<name>.plate, what the plates
-# page (web/plates.html) sends to the FM-1. FIL EMBER is FILAMENT with warm strings at rest: on the FM-1 it shows that
-# the slot's plate is the one running
-PLATE_MAGIC, PLATE_ROOM = 0x544C5055, 0x1000 - 32
-PLATES = [("filament", "filament", []),
+# bank's slot 0 (firmware/plate.ld: flash 0xB8000, src/umb_slot.c), its header first: build/plates/<name>.plate, what the
+# plates page (web/plates.html) sends to the FM-1. A plate goes into any of the bank's slots: its file lists the words
+# that hold an address in it (each linked again 15 slots on: the words that moved by exactly that much), and the page adds
+# the slot's distance to them before sending. Anything else that moved (an address split across instructions) fails the
+# build: such a plate could only run in slot 0. The file: the image, then the words' offsets (u32 each), their count, the
+# magic "URLC" and the image's length (u32 each, little-endian). FIL EMBER is FILAMENT with warm strings at rest: on the
+# FM-1 it shows that the bank's plate is the one running
+PLATE_MAGIC, PLATE_ROOM, PLATE_BASE, PLATE_RELOC = 0x544C5055, 0x2000 - 32, 0x020B4000, 0x434C5255
+PLATE_MOVE = 15 * 0x2000                       # (the second link: slot 15's place; a slot is 8 KiB)
+PLATES = [("cinder", "cinder", []), ("saros", "saros", []), ("filament", "filament", []), ("granule", "granule", []),
+          ("tarn", "tarn", []),
           ("filament-ember", "filament", ["-DPLF_REST_RGB=150,70,26", '-DPLF_NAME="FIL EMBER"'])]
 
 
 def plate_files():
     (OUT / "plates").mkdir(exist_ok=True)
     made = []
+    for k, base in enumerate((PLATE_BASE, PLATE_BASE + PLATE_MOVE)):
+        ld = (FW / "plate.ld").read_text()
+        if "0x020B4000" not in ld:
+            raise SystemExit("plate.ld: slot 0's address (0x020B4000) not found")
+        (OUT / f"plate_{k}.ld").write_text(ld.replace("0x020B4000", f"{base:#010X}".replace("X", "x", 1)))
     for name, src, defs in PLATES:
-        o, elf, out = OUT / f"plate_{name}.o", OUT / f"plate_{name}.elf", OUT / "plates" / f"{name}.plate"
+        o = OUT / f"plate_{name}.o"
         tc("cc", *CFLAGS, "-fdata-sections", "-ffreestanding", *defs,
            '-DUMB_PLATE_HEAD=__attribute__((section(".umb_head"), used))', "-Ifirmware/src", "-c",
            FW / "src" / "plates" / f"{src}.c", "-o", o)
-        # (a call into anything outside the file fails the link: a plate reaches the firmware through umb_api_t only)
-        tc("pi32v2/bin/ld", "--gc-sections", "-e", f"umb_plate_{src}", "-T", FW / "plate.ld", o, "-o", elf)
-        for ln in tc("common/bin/objdump", "-h", elf).splitlines():
-            f = ln.split()
-            if len(f) > 3 and f[1].startswith((".data", ".sdata", ".bss", ".sbss")) and int(f[2], 16):
-                raise SystemExit(f"plate {name}: {f[1]} of {int(f[2], 16)} B: a plate keeps no state of its own")
-        tc("common/bin/objcopy", "-O", "binary", "-j", ".plate", elf, out)
-        b = out.read_bytes()
+        img = []
+        for k in range(2):
+            elf, out = OUT / f"plate_{name}_{k}.elf", OUT / f"plate_{name}_{k}.bin"
+            # (a call into anything outside the file fails the link: a plate reaches the firmware through umb_api_t only)
+            tc("pi32v2/bin/ld", "--gc-sections", "-e", f"umb_plate_{src}", "-T", OUT / f"plate_{k}.ld", o, "-o", elf)
+            for ln in tc("common/bin/objdump", "-h", elf).splitlines():
+                f = ln.split()
+                if len(f) > 3 and f[1].startswith((".data", ".sdata", ".bss", ".sbss")) and int(f[2], 16):
+                    raise SystemExit(f"plate {name}: {f[1]} of {int(f[2], 16)} B: a plate keeps no state of its own")
+            tc("common/bin/objcopy", "-O", "binary", "-j", ".plate", elf, out)
+            img.append(out.read_bytes())
+        b, m = img
         if len(b) > PLATE_ROOM or len(b) < 8 or struct.unpack_from("<I", b)[0] != PLATE_MAGIC:
             raise SystemExit(f"plate {name}: {len(b)} B (room {PLATE_ROOM}), or its header is not first")
-        made.append(f"{name} {len(b)} B")
+        if len(m) != len(b) or len(b) % 4:
+            raise SystemExit(f"plate {name}: linked elsewhere it is {len(m)} B, not {len(b)}")
+        rel = []
+        for w in range(0, len(b), 4):
+            x, y = struct.unpack_from("<I", b, w)[0], struct.unpack_from("<I", m, w)[0]
+            if x == y:
+                continue
+            if (y - x) & 0xFFFFFFFF != PLATE_MOVE or not PLATE_BASE <= x < PLATE_BASE + len(b):
+                raise SystemExit(f"plate {name}: the word at {w:#x} moved by {(y - x) & 0xFFFFFFFF:#x}, not as an address "
+                                 f"in the plate: it could only run in slot 0")
+            rel.append(w)
+        if len(rel) < 4:
+            raise SystemExit(f"plate {name}: {len(rel)} addresses found, its header has 4 entry points")
+        (OUT / "plates" / f"{name}.plate").write_bytes(b + struct.pack(f"<{len(rel)}I", *rel) +
+                                                       struct.pack("<III", len(rel), PLATE_RELOC, len(b)))
+        made.append(f"{name} {len(b)} B ({len(rel)} addresses)")
     print(f"plates: {', '.join(made)} -> build/plates/")
 
 

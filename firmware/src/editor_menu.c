@@ -28,6 +28,7 @@ static const uint8_t ED_MENU[][2] = {
     {MI_CPU, 23},                                      /* (p1, main 0.9.12) CPU CORES 2 / 1, a row of SYSTEM (23 as main's) */
     {MI_MIDIMAP, 25},                                  /* (p1) MIDI MAP FACTORY / CUSTOM ADD / CUSTOM, a row of CONTROL (LEARN,
                                                         * the device's own gesture, is not offered) */
+    {MI_WELCOME, 26},                                  /* (UMBRA OBSCURA) WELCOME OFF / ON, a row of SYSTEM */
 };
 #define ED_MENU_N NELEM(ED_MENU)
 

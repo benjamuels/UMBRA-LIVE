@@ -338,7 +338,8 @@ static void layer_let_go(uint32_t quiet)
     if (ui.ly == LAYER_FX && !perf_latch_on)
         perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
     if (ui.ly == LAYER_FX && (ui.ly_t0 & LY_OPEN) && !(ui.ly_t0 & (LY_DEAD | LY_COMBO)) &&
-        !lys.used && !kb_layer && layer_allowed()) {
+        !lys.used && !kb_layer && layer_allowed() && !(UMB_ON && umt.on)) {   /* ((UMBRA OBSCURA) not in TOTALITY: its
+                                                         * map unseen there, a lock would stay unseen) */
         fx_lock = 1;                                    /* (0.6.44) held open, nothing used, let go: locked open;
                                                          * (0.6.64) whatever FX LATCH (the effects' own: momentary by
                                                          * default) */
@@ -351,7 +352,9 @@ static void layer_let_go(uint32_t quiet)
         undo_ui();
         quiet = 0;
     }
-    if (ui.ly == LAYER_MACRO && (ui.ly_t0 & LY_OPEN) && !(ui.ly_t0 & LY_DEAD)) {   /* (JIANT 0.4) MACRO opened, let go: */
+    if (ui.ly == LAYER_MACRO && (ui.ly_t0 & LY_OPEN) && !(ui.ly_t0 & LY_DEAD) && !(UMB_ON && umt.on)) {   /* (JIANT 0.4)
+                                                         * MACRO opened, let go ((UMBRA OBSCURA) not in TOTALITY: its knobs
+                                                         * are the macros there anyway): */
         mac_latch = 1;                                  /* latched (its knobs at once: no quiet time) */
         quiet = 0;
         ui.force = 1;
@@ -809,7 +812,7 @@ static void layer_knob(uint32_t k, int32_t s)
     } else if (l == LAYER_SAVE) {                       /* KNOB 1: the song (in when SAVE lets go); 2..4: none */
         if (k == 0u)
             lys.song = (uint8_t)(clamp((int32_t)(lys.song ? lys.song - 1u : song_cur) + (s > 0 ? 1 : -1), 0,
-                                       NSONG - 1) + 1);
+                                       NSONG_USE - 1) + 1);
     } else if (l == LAYER_MACRO) {                      /* M1..M4 (the project's; the MOD slots that name them) */
         macro_v[k] = (uint8_t)clamp(macro_v[k] + accel(EN_K1 + k, s, 127), 0, 127);
     } else if (l == LAYER_REC) {                        /* K1 CLICK, K2 REC Q */
@@ -1212,7 +1215,7 @@ static void layer_cards(uint32_t l)
     } else if (l == LAYER_SAVE) {                       /* the section, LOOP / SONG, SONG REC, the song row */
         uint32_t n = lys.song ? lys.song - 1u : song_cur;
         fmt_int(val, (int32_t)n + 1);
-        draw_column(0, "SONG", val, n != song_cur ? "NEXT" : "", VAL(0u), (int32_t)(n * 1000u / (NSONG - 1u)),
+        draw_column(0, "SONG", val, n != song_cur ? "NEXT" : "", VAL(0u), (int32_t)(n * 1000u / (NSONG_USE - 1u)),
                     ICON_X_SONG);
         val[0] = live.cur >= 0 ? (char)('A' + live.cur) : '-'; val[1] = 0;
         text_column(1, "SECT", val, live.cur >= 0 ? VAL(1u) : T_DIM);

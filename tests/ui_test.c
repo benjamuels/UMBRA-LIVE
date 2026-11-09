@@ -2690,48 +2690,49 @@ static int test_menu_tabs(void)
         ok &= n >= 1u && n <= MTAB_ROWS && f < MI_COUNT;
         for (i = 0; i < MI_COUNT; i++)                  /* its rows in one run */
             ok &= (MI_TAB[i] == t) == (i >= f && i < f + n);
-        ok &= 14 + (int32_t)n * (n > 7u ? 15 : n > 6u ? 17 : 20) <= LZ_GRAPH_H;   /* (0.8.5 the lens: TAB's rows in the panel;
-                                                         * 0.8.9 seven: 17 apart; 0.9.7 eight: 15) */
+        ok &= 14 + (int32_t)n * (n > 8u ? 14 : n > 7u ? 15 : n > 6u ? 17 : 20) <= LZ_GRAPH_H;   /* (0.8.5 the lens: TAB's
+                                                         * rows in the panel; 0.8.9 seven: 17 apart; 0.9.7 eight: 15;
+                                                         * (UMBRA OBSCURA) nine: 14) */
         for (i = f; i < f + n; i++)                     /* .. ROW's chips, every value */
             ok &= i >= MI_VALUES || 16 + (int32_t)((menu_n(i) + 2u) / 3u) * 20 <= LZ_GRAPH_H;
     }
     for (i = 0; i < MI_COUNT; i++) ok &= MI_TAB[i] < MTAB_COUNT;
     ui_prefs = 0;
-    bad += check("MENU tabs: DISPLAY CONTROL AUDIO SYSTEM (8 8 7 8 rows: 0.8.9 SKIN, 0.9.7 SCOPE, 0.9.9-stab CPU CLOCK, p1 CPU CORES, MIDI MAP, LEARN, LOAD in AUDIO; V10.12 BLUETOOTH), 1..8 each in a run, their rows and values fit the lens's panel",
+    bad += check("MENU tabs: DISPLAY CONTROL AUDIO SYSTEM (8 8 7 9 rows: 0.8.9 SKIN, 0.9.7 SCOPE, 0.9.9-stab CPU CLOCK, p1 CPU CORES, MIDI MAP, LEARN, LOAD in AUDIO; V10.12 BLUETOOTH; UMBRA WELCOME), 1..9 each in a run, their rows and values fit the lens's panel",
                  ok && MTAB_COUNT == 4u && str_eq(MTAB_NAME[0], "DISPLAY") && mtab_rows(MTAB_DISPLAY) == 8u &&
-                 mtab_rows(MTAB_CONTROL) == 8u && mtab_rows(MTAB_AUDIO) == 7u && mtab_rows(MTAB_SYSTEM) == 8u);   /* (0.6.58: INIT SYSTEM;
+                 mtab_rows(MTAB_CONTROL) == 8u && mtab_rows(MTAB_AUDIO) == 7u && mtab_rows(MTAB_SYSTEM) == 9u);   /* (0.6.58: INIT SYSTEM;
                                                                          * 0.6.72: MIDI OUT in CONTROL; 0.9.9-stab: CPU CLOCK in SYSTEM) */
 
     ui_power_on();
     hold(B_HOME);
     ok = ui.menu == 1 && ui.menu_sel == MI_COLOR && menu_tab() == MTAB_DISPLAY;
-    for (i = 0; i < 7u; i++) turn(EN_SELECT, 1);     /* (0.9.2: SELECT every row, tab after tab; was PRESETS in a tab, round;
-                                                     * 0.9.7: SCOPE a row more) */
+    for (i = 0; i < 7u; i++) turn(EN_ALGO, 1);       /* ((UMBRA OBSCURA, the user 2026-11-09) ALGORITHM: the tab's rows, as a
+                                                     * list; was SELECT every row, tab after tab (0.9.2)) */
     ok &= ui.menu_sel == MI_SCROFF;
-    turn(EN_SELECT, 1); ok &= ui.menu_sel == MI_HOLD && menu_tab() == MTAB_CONTROL;   /* (into the next tab) */
-    turn(EN_SELECT, -1); ok &= ui.menu_sel == MI_SCROFF;
-    turn(EN_SELECT, -40); ok &= ui.menu_sel == MI_COLOR; /* (no wrap) */
+    turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_SCROFF && menu_tab() == MTAB_DISPLAY;   /* (the tab kept) */
+    turn(EN_ALGO, -1); ok &= ui.menu_sel == MI_LEDS;
+    turn(EN_ALGO, -40); ok &= ui.menu_sel == MI_COLOR;   /* (no wrap) */
     turn(EN_PRESET, 1); ok &= ui.menu_sel == MI_COLOR;   /* (PRESETS: nothing, rule 3) */
-    turn(EN_SELECT, 40); ok &= ui.menu_sel == MI_ABOUT;
-    turn(EN_SELECT, -40);
-    bad += check("0.9.2 MENU: SELECT walks every row (COLOR .. ABOUT, tab after tab, no wrap); PRESETS does nothing", ok);
-    turn(EN_ALGO, 1); ok = ui.menu_sel == MI_HOLD && menu_tab() == MTAB_CONTROL;
-    turn(EN_SELECT, 2); ok &= ui.menu_sel == MI_LATCH;
-    turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_LOWCUT && menu_tab() == MTAB_AUDIO;
-    turn(EN_ALGO, -1); ok &= ui.menu_sel == MI_HOLD;    /* (its first row) */
-    turn(EN_ALGO, -1); ok &= ui.menu_sel == MI_COLOR;
-    turn(EN_ALGO, -1); ok &= ui.menu_sel == MI_COLOR && menu_tab() == MTAB_DISPLAY;   /* (no wrap) */
-    turn(EN_ALGO, 3); ok &= ui.menu_sel == MI_SERIAL && menu_tab() == MTAB_SYSTEM;
-    turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_SERIAL;
-    bad += check("0.9.2 MENU: ALGORITHM jumps to the next / previous tab's first row, no wrap (was round, at the row left)", ok && ui.menu == 1);
-    ui.menu_sel = MI_LATCH; turn(EN_SELECT, -1);       /* CONTROL: from FX LATCH up to KNOB ACCEL */
+    bad += check("(UMBRA OBSCURA) MENU: ALGORITHM walks the tab's rows (no wrap, the tab kept); PRESETS does nothing", ok);
+    turn(EN_SELECT, 1); ok = ui.menu_sel == MI_HOLD && menu_tab() == MTAB_CONTROL;
+    turn(EN_ALGO, 2); ok &= ui.menu_sel == MI_LATCH;
+    turn(EN_SELECT, 1); ok &= ui.menu_sel == MI_LOWCUT && menu_tab() == MTAB_AUDIO;
+    turn(EN_SELECT, -1); ok &= ui.menu_sel == MI_HOLD;  /* (its first row) */
+    turn(EN_SELECT, -1); ok &= ui.menu_sel == MI_COLOR;
+    turn(EN_SELECT, -1); ok &= ui.menu_sel == MI_COLOR && menu_tab() == MTAB_DISPLAY;   /* (no wrap) */
+    turn(EN_SELECT, 3); ok &= ui.menu_sel == MI_SERIAL && menu_tab() == MTAB_SYSTEM;
+    turn(EN_SELECT, 1); ok &= ui.menu_sel == MI_SERIAL;
+    turn(EN_ALGO, 40); ok &= ui.menu_sel == MI_ABOUT;
+    turn(EN_SELECT, -3); ok &= ui.menu_sel == MI_COLOR;
+    bad += check("(UMBRA OBSCURA) MENU: SELECT the next / previous tab's first row, no wrap (was ALGORITHM's)", ok && ui.menu == 1);
+    ui.menu_sel = MI_LATCH; turn(EN_ALGO, -1);         /* CONTROL: from FX LATCH up to KNOB ACCEL */
     ok = ui.menu_sel == MI_ACCEL;
     for (i = 0; i < 4u; i++) {                         /* any of KNOB 1..4: right ON, left OFF */
         turn(EN_K1 + i, 1); ok &= !(ui_prefs & PREF_ACCEL_OFF);
         turn(EN_K1 + i, -1); ok &= (ui_prefs & PREF_ACCEL_OFF) != 0u;
     }
     ui_prefs |= PREF_ACCEL_OFF;
-    turn(EN_ALGO, 1); turn(EN_SELECT, 1);             /* AUDIO: USB LEVEL */
+    turn(EN_SELECT, 1); turn(EN_ALGO, 1);             /* AUDIO: USB LEVEL */
     ok &= ui.menu_sel == MI_USB;
     turn(EN_K4, 1); ok &= (ui_prefs & PREF_USB_FIXED) && fx_usb_fixed;
     turn(EN_K2, -1); ok &= !(ui_prefs & PREF_USB_FIXED) && !fx_usb_fixed;
@@ -2815,7 +2816,7 @@ static int test_menu_tabs(void)
     hold(B_HOME);
     bad += check("MENU: HOME pressed closes it, held too (no reopen); held opens it again at the same tab and row",
                  ok && ui.menu == 1 && ui.menu_sel == MI_USB);
-    turn(EN_SELECT, 40);                               /* SYSTEM: ABOUT */
+    turn(EN_SELECT, 1); turn(EN_ALGO, 40);             /* SYSTEM: ABOUT */
     ok = ui.menu_sel == MI_ABOUT;
     frame();
     ok &= oct_leds() == OCT_BREATH;                     /* (OCT+ opens, OCT- does nothing: dark) */
@@ -2824,11 +2825,11 @@ static int test_menu_tabs(void)
     press(B_OCTUP); ok &= ui.menu == 2;
     ok &= oct_leds() == 1u;                             /* (ABOUT: OCT- back, lit) */
     press(B_OCTDN); ok &= ui.menu == 1 && ui.menu_sel == MI_ABOUT;
-    turn(EN_SELECT, -1); ok &= ui.menu_sel == MI_INIT;   /* (0.6.58) INIT SYSTEM: OCT+ its dialog, the menu closed */
+    turn(EN_ALGO, -1); ok &= ui.menu_sel == MI_INIT;     /* (0.6.58) INIT SYSTEM: OCT+ its dialog, the menu closed */
     press(B_OCTUP); ok &= ui.menu == 0 && ui.confirm == CF_INIT_SYS;
     press(B_OCTDN); ok &= ui.confirm == CF_NONE;        /* (OCT- cancels: nothing changed) */
     hold(B_HOME); ok &= ui.menu == 1 && ui.menu_sel == MI_INIT;
-    turn(EN_SELECT, -1); ok &= ui.menu_sel == MI_PANEL;
+    turn(EN_ALGO, -1); ok &= ui.menu_sel == MI_PANEL;
     press(B_OCTDN); ok &= ui.menu == 1 && ui.menu_sel == MI_PANEL;
     {   /* CALIBRATION: OCT+ starts the setup (nothing pressed here: it times out and keeps the table) */
         panel_t p0 = panel;
@@ -2847,12 +2848,12 @@ static int test_menu_tabs(void)
         ok &= !memcmp(&p0, &panel, sizeof panel) && msg_is("SETUP CANCELLED") && ui.menu == 1 && fm1_ms - t < 1000u;
     }
     bad += check("MENU SYSTEM: OCT+ opens ABOUT (OCT- back to the tab) and CALIBRATION; OCT- does nothing on them", ok);
-    turn(EN_SELECT, 2); press(B_OCTUP);                /* ABOUT (past INIT SYSTEM), HOME: closed, from the document */
+    turn(EN_ALGO, 2); press(B_OCTUP);                  /* ABOUT (past INIT SYSTEM), HOME: closed, from the document */
     ok = ui.menu == 2;
     press(B_HOME);
     ok &= !ui.menu && ui.home;
     hold(B_HOME); ok &= ui.menu == 1 && ui.menu_sel == MI_ABOUT;   /* (opened at the tabs, ABOUT's row) */
-    turn(EN_ALGO, -1); frame();
+    turn(EN_SELECT, -1); frame();
     {   /* a value row: OCT- and OCT+ both breathe, each while that way has a value to go to; none lit */
         uint32_t r = ui.menu_sel, want = (menu_step(r, -1) != menu_get(r) ? OCT_BREATH_DN : 0u) |
                                          (menu_step(r, 1) != menu_get(r) ? OCT_BREATH : 0u);
@@ -2871,18 +2872,18 @@ static int test_menu_tabs(void)
     hold(B_HOME);
     frame();
     ok = ui.menu == 1 && ui.mlv == 1u && lz_on() && lz_fam() == LZ_MENU && lz_tabs() == 4u && lz_tab_lit(0) &&
-         lz_crumb_is("MENU \xB7 DISPLAY \xB7 COLOR") && lz_count_is("1/31");
-    turn(EN_SELECT, 1); frame();
-    ok &= ui.mlv == 1u && lz_tab_lit(0) && lz_crumb_is("MENU \xB7 DISPLAY \xB7 SKIN") && lz_count_is("2/31");
+         lz_crumb_is("MENU \xB7 DISPLAY \xB7 COLOR") && lz_count_is("1/32");
     turn(EN_ALGO, 1); frame();
+    ok &= ui.mlv == 1u && lz_tab_lit(0) && lz_crumb_is("MENU \xB7 DISPLAY \xB7 SKIN") && lz_count_is("2/32");
+    turn(EN_SELECT, 1); frame();
     ok &= menu_tab() == MTAB_CONTROL && lz_tab_lit(1) && lz_crumb_is("MENU \xB7 CONTROL \xB7 HOLD");
-    turn(EN_SELECT, 2); frame();
+    turn(EN_ALGO, 2); frame();
     ok &= ui.menu_sel == MI_LATCH;
     turn(EN_K3, 1); frame();
     ok &= (fx_latch & 1u) != 0u;
     turn(EN_K3, -1); frame();
     menu_close();
-    bad += check("0.9.2 MENU: four tabs (the row's lit), MENU . TAB . ROW and n/31 (0.9.7: SCOPE; 0.9.9-stab: CPU CLOCK; p1: CPU CORES, MIDI MAP, LEARN; V10.12: BLUETOOTH); ALGORITHM the tab, any knob the value", ok && MI_COUNT == 31u);
+    bad += check("0.9.2 MENU: four tabs (the row's lit), MENU . TAB . ROW and n/32 (0.9.7: SCOPE; 0.9.9-stab: CPU CLOCK; p1: CPU CORES, MIDI MAP, LEARN; V10.12: BLUETOOTH; UMBRA: WELCOME); SELECT the tab, any knob the value", ok && MI_COUNT == 32u);
 
     /* (V10.12) MENU > SYSTEM > BLUETOOTH: OFF by default (no mark: older settings), refused while playing, ON kept in
      * TRIO's retired favourites row with its mark; here (no radio, no segment) ON reads NO SEG; OFF again; the boot
@@ -3124,33 +3125,37 @@ static int test_information(void)
     press(B_OCTUP);
     ui_draw();
     bad += check("ABOUT opens one document with scrollable license text and credits", ui.menu == 2 && !ui.menu_scroll && menu_scroll_max() > MENU_DOC_H);
+    ui.menu_scroll = (uint16_t)(umb_about(86, 0) + 12);  /* ((UMBRA OBSCURA) JIANT's part after UMBRA's: its first line on top) */
+    ui.force = 1; ui_draw();
     for (y = 146; y < 220; y++)
         for (x = 158; x < 232; x++)
             if (x < 166 || x >= 224 || y < 154 || y >= 212)
                 quiet &= host_screen[y * 240 + x] == swap16(UI_QR_LIGHT);
     bad += check("ABOUT QR keeps its complete white quiet zone above the fixed footer", quiet);
+    ui.menu_scroll = 0; ui.force = 1; ui_draw();
     memcpy(header, host_screen, sizeof header);
     memcpy(footer, host_screen + 221 * 240, sizeof footer);
-    turn(EN_SELECT, 3);
+    turn(EN_ALGO, 3);
     ui_draw();
-    bad += check("0.9.2 SELECT (was PRESETS) scrolls ABOUT with its header and controls fixed",
+    bad += check("(UMBRA OBSCURA) ALGORITHM (was SELECT, PRESETS) scrolls ABOUT with its header and controls fixed",
                  ui.menu == 2 && ui.menu_scroll > 0 && !memcmp(header, host_screen, sizeof header) &&
                  !memcmp(footer, host_screen + 221 * 240, sizeof footer));
-    turn(EN_SELECT, 12);
+    turn(EN_ALGO, 12);
     ui_draw();
-    bad += check("0.9.2 SELECT continues from ABOUT into CREDITS without changing pages",
+    bad += check("(UMBRA OBSCURA) ALGORITHM continues from ABOUT into CREDITS without changing pages",
                  ui.menu == 2 && ui.menu_scroll > 216 && !memcmp(header, host_screen, sizeof header) &&
                  !memcmp(footer, host_screen + 221 * 240, sizeof footer));
     uint16_t position = ui.menu_scroll;
     press(B_OCTUP);
     bad += check("OCT+ does not switch pages or alter the octave in the document",
                  ui.menu == 2 && ui.menu_scroll == position && song.octave == 0);
-    turn(EN_SELECT, 10000);
-    turn(EN_SELECT, 10000);
+    turn(EN_ALGO, 10000);
+    turn(EN_ALGO, 10000);
     ui_draw();
     bad += check("the continuous document stops at its final credit",
                  ui.menu == 2 && ui.menu_scroll == menu_scroll_max());
-    turn(EN_SELECT, -10000);
+    turn(EN_ALGO, -10000);
+    turn(EN_ALGO, -10000);                             /* ((UMBRA OBSCURA) UMBRA's part first: a longer way back) */
     bad += check("scrolling back through CREDITS returns to ABOUT's top", ui.menu == 2 && !ui.menu_scroll);
     press(B_OCTDN);
     bad += check("OCT- returns to the menu without changing sounds or patterns",
@@ -3795,8 +3800,8 @@ static int test_presets_knob(void)
     i = ui.menu_sel;
     turn(EN_PRESET, 1);
     bad += check("0.9.2 the menu: PRESETS does nothing (rule 3; was the row)", ui.menu == 1 && ui.menu_sel == i);
-    turn(EN_SELECT, 1);
-    bad += check("0.9.2 the menu: SELECT the next row", ui.menu == 1 && ui.menu_sel == i + 1u);
+    turn(EN_ALGO, 1);
+    bad += check("(UMBRA OBSCURA) the menu: ALGORITHM the next row (was SELECT)", ui.menu == 1 && ui.menu_sel == i + 1u);
     ui_power_on();
     return bad;
 }
@@ -6942,7 +6947,8 @@ static int test_screen_off(void)
     ui_power_on();                                    /* in the MENU: OCT+ / a knob step it */
     menu_put(MI_SCROFF, 3u);
     hold(B_HOME);
-    for (i = 0; i < 7u; i++) turn(EN_SELECT, 1);   /* (0.8.9: SKIN a row more; 0.9.2: SELECT, was PRESETS; 0.9.7: SCOPE) */
+    for (i = 0; i < 7u; i++) turn(EN_ALGO, 1);     /* (0.8.9: SKIN a row more; 0.9.2: SELECT, was PRESETS; 0.9.7: SCOPE;
+                                                     * (UMBRA OBSCURA) ALGORITHM the rows) */
     ok = ui.menu == 1 && ui.menu_sel == MI_SCROFF;
     press(B_OCTUP); ok &= scr_get() == 4u;
     press(B_OCTUP); ok &= scr_get() == 4u;           /* (stops at the end) */
@@ -9960,25 +9966,25 @@ static int test_click_menu(void)
     bad += check("MENU > AUDIO: CLICK OFF / REC / ON, CLICK LEVEL LOW / MID / HIGH, COUNT-IN OFF / 1 BAR / 2 BARS; OFF MID OFF by default", ok);
     hold(B_HOME);
     ui.menu_sel = MI_LOWCUT; ui.force = 1; ui_draw();
-    turn(EN_SELECT, 1); turn(EN_SELECT, 1);
+    turn(EN_ALGO, 1); turn(EN_ALGO, 1);
     ok = ui.menu_sel == MI_CLICK;
     turn(EN_K1, 1); ok &= click_mode == CLICK_REC;
     turn(EN_K2, 1); ok &= click_mode == CLICK_ON;
     turn(EN_K2, 1); ok &= click_mode == CLICK_ON;      /* (stops at the end) */
-    turn(EN_SELECT, 1); ok &= ui.menu_sel == MI_CLKLVL;
+    turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_CLKLVL;
     press(B_OCTDN); ok &= click_lvl == 0u;
     press(B_OCTUP); press(B_OCTUP); ok &= click_lvl == 2u;
-    turn(EN_SELECT, 1); ok &= ui.menu_sel == MI_COUNTIN;
+    turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_COUNTIN;
     turn(EN_K4, 1); ok &= cin_bars == 1u;
     turn(EN_K4, 1); ok &= cin_bars == 2u;
-    turn(EN_SELECT, 1); ok &= ui.menu_sel == MI_TRACKS;
+    turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_TRACKS;
     turn(EN_K1, -1); frame(); ok &= trk_live == 4u && !(ui_rec_prefs & 0x80u);   /* (0.6.18) TRACKS 4 */
     turn(EN_K1, 1); frame(); ok &= trk_live == NTRK && (ui_rec_prefs & 0x80u);   /* 6 */
-    turn(EN_SELECT, 1); ok &= ui.menu_sel == MI_LOAD;     /* (p1: LOAD in AUDIO, as main 0.9.12) */
-    turn(EN_SELECT, 1); ok &= ui.menu_sel == MI_SERIAL;   /* (0.9.2: on into SYSTEM; was round within AUDIO) */
+    turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_LOAD;       /* (p1: LOAD in AUDIO, as main 0.9.12) */
+    turn(EN_ALGO, 1); ok &= ui.menu_sel == MI_LOAD;       /* ((UMBRA OBSCURA) ALGORITHM stays in its tab) */
     press(B_HOME);
     ok &= !ui.menu;
-    bad += check("0.9.2 MENU > AUDIO: SELECT (was PRESETS) to CLICK, CLICK LEVEL, COUNT-IN, TRACKS; knobs / OCT step them, applied at once", ok);
+    bad += check("(UMBRA OBSCURA) MENU > AUDIO: ALGORITHM (was SELECT, PRESETS) to CLICK, CLICK LEVEL, COUNT-IN, TRACKS; knobs / OCT step them, applied at once", ok);
     {   /* (0.6.18) TRACKS 4 LOW: T5 takes no note and sounds nothing (its voices off); TRACKS 6: it plays again */
         uint32_t k, on = 0, sel = song.sel;
         ui_rec_prefs &= (uint8_t)~0x80u; frame();
@@ -10627,7 +10633,7 @@ static int test_bpm_lock(void)
     b0 = song.g[G_BPM];
     turn(EN_SELECT, 3);
     ok = str_eq(MI_NAME[MI_BPMLOCK], "BPM LOCK") && ui.menu == 1u && song.g[G_BPM] == b0;   /* (the menu: no tempo) */
-    ok &= ui.menu_sel == MI_BPMLOCK + 3u;               /* (0.9.2: SELECT the rows) */
+    ok &= ui.menu_sel == mtab_first(MTAB_SYSTEM);       /* ((UMBRA OBSCURA) SELECT the tabs: CONTROL, AUDIO, SYSTEM) */
     ui.menu_sel = MI_BPMLOCK;
     turn(EN_K1, 1); ok &= (ui_prefs & PREF_BPM_LOCK) != 0u;          /* right: ON */
     turn(EN_K1, -1); ok &= !(ui_prefs & PREF_BPM_LOCK);              /* left: OFF */
@@ -11232,8 +11238,8 @@ static int test_skin(void)
          * (GEN 1..3), one chain by SELECT, WELCOME at power-on; WELCOME and the MACROS pages: no knobs (KNOB 1..4 turn
          * nothing, the knob row bare), the plate behind (AIR: the whole screen), WELCOME its words; BEING its HOME knobs,
          * ROUTES M1..M4 as before; a HOME tap on WELCOME: TOTALITY */
-        static const char *const CR[6] = {"HOME \xB7 WELCOME \xB7 WELCOME", "HOME \xB7 UMBRA \xB7 MACROS - AUDIO",
-                                          "HOME \xB7 UMBRA \xB7 MACROS - VISUALS", "HOME \xB7 UMBRA \xB7 BEING",
+        static const char *const CR[6] = {"HOME \xB7 WELCOME \xB7 WELCOME", "HOME \xB7 UMBRA \xB7 LIVE AUDIO CTRLS",
+                                          "HOME \xB7 UMBRA \xB7 LIVE VIZ CTRLS", "HOME \xB7 UMBRA \xB7 BEING",
                                           "HOME \xB7 UMBRA \xB7 ROUTES", "HOME \xB7 GEN \xB7 GEN 1"};
         static const uint8_t TAB[6] = {0, 1, 1, 1, 1, 2};
         char cn[8];
@@ -11262,7 +11268,7 @@ static int test_skin(void)
         ui_skin = SKIN_AIR;
         nav_go(SEC_HOME, 0, 0); frames(64);                         /* (AIR: WELCOME's words over the plate, MACROS - */
         ok &= hud_home() && home_bare();                           /* VISUALS its routes) */
-        for (w0 = 0, y = 90; y < 180u; y++) for (x = 0; x < 240u; x++) w0 += lg_px((int32_t)x, (int32_t)y) == T_TEXT;
+        for (w0 = 0, y = 90; y < 180u; y++) for (x = 0; x < 240u; x++) w0 += lg_px((int32_t)x, (int32_t)y) == T_THEME;   /* ("Welcome!") */
         nav_go(SEC_HOME, 2, 0); frames(64);
         for (w1 = 0, y = 70; y < 180u; y++) for (x = 0; x < 240u; x++) w1 += lg_px((int32_t)x, (int32_t)y) == T_TEXT;
         ok &= hud_home() && w0 > 300u && w1 > 300u;
@@ -11438,6 +11444,104 @@ static int test_skin(void)
         memset(favorites.factory[6] + 8, 0, 6);
         favorites.factory[6][18] = 0;                              /* (MACROS - VISUALS' routes as at first) */
         bad += check("(UMBRA OBSCURA) DISSOLVE: the next plate from the middle, the corners kept until it reaches them; over in its time", ok);
+    }
+    {   /* (UMBRA OBSCURA, the user 2026-11-09) HOME > WELCOME's six pages (ui_umbra_welcome.c): OCT+ the next (breathing),
+         * OCT- the one before, round both ways; the octave never moves there; on the last both breathe; OCT- held: the
+         * count after a second, let go before its end WELCOME stays (no page back); held to its end (6 s): WELCOME gone
+         * from HOME's pages (its tab too), LIVE AUDIO CTRLS shown; OCT- + OCT+ together: no count (UPDATE MODE's); MENU >
+         * SYSTEM > WELCOME ON: back. Elsewhere OCT is the octave as ever */
+        uint32_t dn = 1u << panel.btn[B_OCTDN], both = dn | (1u << panel.btn[B_OCTUP]), k, l;
+        ui_power_on(); ui.hlv = 0; frame();
+        ok = umw_on() && umw_pg == 0u && lz_tabs() == 3u && (oct_leds() & OCT_BREATH) && !(oct_leds() & OCT_BREATH_DN);
+        for (k = 1; k <= 6u; k++) {
+            press(B_OCTUP); frame();
+            ok &= umw_pg == k % 6u && song.octave == 0;
+            if (k == 5u) ok &= (oct_leds() & OCT_BREATH) && (oct_leds() & OCT_BREATH_DN) != 0u;   /* (the last: both) */
+        }
+        press(B_OCTDN); frame();
+        ok &= umw_pg == 5u && song.octave == 0;                    /* (round: the first's OCT-, the last) */
+        press(B_OCTDN); frame();
+        ok &= umw_pg == 4u;
+        fm1_in.buttons |= both; host_pressed |= both;
+        for (k = 0; k < 130u; k++) frame();                        /* (both: ~2 s, no count) */
+        ok &= !umw_t0 && umw_on() && !umw_gone();
+        fm1_in.buttons &= ~both; frame(); frame();
+        fm1_in.buttons |= dn; host_pressed |= dn;
+        for (k = 0; k < 130u; k++) frame();                        /* (OCT- ~2 s: the count shows) */
+        ok &= umw_t0 && umw_eat && umw_on() && !umw_gone() && umw_pg == 4u;
+        fm1_in.buttons &= ~dn; frame(); frame();
+        ok &= umw_on() && !umw_gone() && umw_pg == 4u && !umw_eat; /* (let go: it stays, no page back) */
+        fm1_in.buttons |= dn; host_pressed |= dn;
+        for (k = 0; k < 330u; k++) frame();                        /* (~5.3 s: not yet) */
+        ok &= !umw_gone() && umw_on();
+        for (k = 0; k < 60u; k++) frame();                         /* (past 6 s: gone) */
+        l = ui.hset[0];
+        ok &= umw_gone() && !umw_on() && l == 1u && ui.home && !ui.hlv && lz_tabs() == 2u && lz_crumb_is("HOME \xB7 UMBRA \xB7 LIVE AUDIO CTRLS") &&
+              song.octave == 0;
+        fm1_in.buttons &= ~dn; frame();
+        ok &= song.octave == 0 && !umw_eat;
+        nav_go(SEC_HOME, 0, 0); frame();
+        ok &= ui.hset[0] == 1u;                                    /* (WELCOME asked for: not there, the next) */
+        press(B_OCTUP); frame();
+        ok &= song.octave == 1;                                    /* (OCT: the octave again) */
+        press(B_OCTDN); frame();
+        ok &= menu_get(MI_WELCOME) == 0u && str_eq(MI_NAME[MI_WELCOME], "WELCOME") && MI_TAB[MI_WELCOME] == MTAB_SYSTEM;
+        menu_put(MI_WELCOME, 1u);
+        ok &= !umw_gone() && menu_get(MI_WELCOME) == 1u;
+        nav_go(SEC_HOME, 0, 0); frame();
+        ok &= umw_on() && lz_tabs() == 3u;
+        bad += check("(UMBRA OBSCURA) WELCOME: six pages by OCT+ / OCT- round, the octave kept; OCT- held: the count from 1 s, let go it stays, to its end gone (saved), LIVE AUDIO CTRLS; MENU > SYSTEM > WELCOME ON: back", ok);
+    }
+    {   /* (UMBRA OBSCURA, the user 2026-11-09) in TOTALITY FX, SCL, LFO, EDIT, GLO held: their layer as ever (keys, knobs,
+         * LEDs), its map not drawn, the plate stays (ui_umbra_tot.c umt_ly); let go: no FX lock, no MACRO latch there */
+        static const uint8_t LB[5] = {B_FX, B_SCL, B_LFO, B_EDIT, B_GLO};
+        uint32_t k, j;
+        ui_power_on(); frame();
+        nav_go(SEC_HOME, 1, 0); frame(); press(B_HOME); frames(64);
+        ok = umt.on;
+        for (k = 0; k < 5u; k++) {
+            fm1_in.buttons |= 1u << panel.btn[LB[k]]; host_pressed |= 1u << panel.btn[LB[k]];
+            for (j = 0; j < 52u; j++) frame();
+            ok &= ui.layer != 0u && umt_ly() && umt.on;
+            fm1_in.buttons &= ~(1u << panel.btn[LB[k]]); frame(); frames(200);
+            ok &= umt.on && !fx_lock && !mac_latch && !ui.layer;
+            if (!ok) { printf("  held %u\n", k); break; }
+        }
+        press(B_HOME); frame();
+        bad += check("(UMBRA OBSCURA) TOTALITY: FX SCL LFO EDIT GLO held, their layer, the plate stays; let go: no lock, no latch", ok);
+    }
+    {   /* (UMBRA OBSCURA, the user 2026-11-09) LIVE VIZ CTRLS' INVERT: routed only (its own setting 0), the picture negative
+         * in TOTALITY from 50 up */
+        uint32_t v[4];
+        uint16_t a;
+        ui_power_on(); frame();
+        favorites.factory[6][18] = 0;
+        memset(macro_v, 0, sizeof macro_v);
+        umq_get(0u, v);
+        v[1] = UMT_INV; v[2] = 0u; v[3] = 99u;
+        umq_put(0u, v);
+        nav_go(SEC_HOME, 1, 0); frame(); press(B_HOME); frames(200);
+        ok = umt.on && umq_raw(UMT_INV) == 0u && str_eq(umt_tname(0u, UMT_INV), "INVERT") && umq_o[UMT_INV] == 1u;
+        a = host_screen[120u * 240u + 3u];
+        macro_v[0] = 127u; frames(200);
+        ok &= umq_o[UMT_INV] == 100u && host_screen[120u * 240u + 3u] != a;
+        macro_v[0] = 0u; frames(200);
+        ok &= umq_o[UMT_INV] == 1u;
+        press(B_HOME); frame();
+        favorites.factory[6][18] = 0;
+        bad += check("(UMBRA OBSCURA) LIVE VIZ CTRLS: INVERT routed (M1 0..99), the picture negative from 50 up", ok);
+    }
+    {   /* (UMBRA OBSCURA) the plates as modules (umb_plate.h, plates/*.c, all built in here): the six by name and number;
+         * a known plate's settings kept as before; another number than the six (the bank's, none here): CORONA drawn */
+        ui_power_on(); frame();
+        ok = umb_has(0u) && umb_has(1u) && umb_has(2u) && umb_has(3u) && umb_has(4u) && umb_has(5u) && !umb_has(UMP_NPL) &&
+             umb_mod(4u) == 0 && umb_mod(0u) == &umb_plate_cinder && umb_mod(5u) == &umb_plate_tarn &&
+             str_eq(umb_pname(3u), "GRANULE") && str_eq(umb_cname(1u, 0u), "SPIN") && umb_plate_cinder.api == UMB_API;
+        umb_plate = (uint8_t)(0x80u | UMP_NPL);                    /* (a slot's plate, none here) */
+        ok &= umb_pl() == 4u;
+        umb_plate = 0x80u;
+        ok &= umb_pl() == 0u;
+        bad += check("(UMBRA OBSCURA) plate modules: the six by name and number, built in; a plate not there: CORONA", ok);
     }
     for (sk = 0; sk < SKIN_N; sk++) {                             /* every lens page in each skin */
         int okp = 1;
@@ -11678,22 +11782,24 @@ static int test_menu_prefs(void)
     ui_prefs = 0;
     hold(B_HOME);
     ui.menu_sel = 0;
-    for (k = 0; k < MTAB_COUNT; k++) {              /* (0.9.2) ALGORITHM the tabs' first rows, SELECT through every row */
-        ok &= menu_tab() == k && ui.menu_sel == mtab_first(k);
+    for (k = 0; k < MTAB_COUNT; k++) {              /* ((UMBRA OBSCURA) SELECT the tabs' first rows, ALGORITHM through a tab's */
+        ok &= menu_tab() == k && ui.menu_sel == mtab_first(k);   /* rows; was ALGORITHM and SELECT (0.9.2)) */
         ui.force = 1; ui_draw();
         memcpy(shot[k], host_screen, sizeof shot[k]);
         for (j = 0; j < k; j++) ok &= memcmp(shot[j], shot[k], sizeof shot[k]) != 0;
-        turn(EN_ALGO, 1);
+        for (j = 0; j < mtab_rows(k); j++) {
+            seen |= 1u << ui.menu_sel;
+            turn(EN_ALGO, 1);
+        }
+        ok &= ui.menu_sel == mtab_first(k) + mtab_rows(k) - 1u;
+        if (k + 1u < MTAB_COUNT)
+            turn(EN_SELECT, 1);
     }
-    turn(EN_ALGO, -4);
-    for (j = 0; j < MI_COUNT; j++) {
-        seen |= 1u << ui.menu_sel;
-        turn(EN_SELECT, 1);
-    }
-    ok &= seen == (1u << MI_COUNT) - 1u && ui.menu_sel == MI_COUNT - 1u;
-    turn(EN_SELECT, -40);
+    ok &= seen == (uint32_t)((1ull << MI_COUNT) - 1u) && ui.menu_sel == MI_COUNT - 1u;   /* ((UMBRA OBSCURA) 32 rows: not a
+                                                         * 32-bit shift) */
+    turn(EN_SELECT, -4);
     ok &= ui.menu_sel == 0u;
-    bad += check("0.9.2 MENU: SELECT reaches every row, ALGORITHM each tab's first, each tab a page of its own (was PRESETS)", ok);
+    bad += check("(UMBRA OBSCURA) MENU: ALGORITHM reaches every row of a tab, SELECT each tab's first, each tab a page of its own", ok);
     /* ANIM */
     ui.menu_sel = MI_ANIM;
     ok = str_eq(MI_NAME[MI_ANIM], "ANIM") && !(ui_prefs & PREF_ANIM_OFF);

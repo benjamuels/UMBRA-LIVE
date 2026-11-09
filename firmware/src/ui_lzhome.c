@@ -268,19 +268,12 @@ static void eco_draw(int32_t x0, int32_t y0, int words)
                        hud ? T_TEXT : T_MID, T_SURF);   /* (0.9.0 HUD: TEXT, over the beings; 0.9.7: a mutation, white) */
     }
 words:
-    if (UMB_ON && words && !ui.hset[0]) {              /* (UMBRA OBSCURA) WELCOME: its words in the middle of what the */
-        static const char *const W[] = {"Welcome!", "Works like Jiant except", "Tap HOME to enter TOTALITY",   /* header and */
-                                        "(fullscreen mode)", "Tap again exits", "", "UMBRA tab is to set",   /* the footer */
-                                        "custom TOTALITY controls"};   /* leave, every skin (COLORS: in the panel, under */
-        uint8_t ha = cv_halo;                           /* the bare row), outlined over the plate (the user's words; the two */
-        int32_t y = LA_HOME_CARD_Y + ((int32_t)foot_y() - LA_HOME_CARD_Y - (int32_t)NELEM(W) * 11 + 4) / 2 -   /* too wide */
-                    (hud ? 0 : (int32_t)graph_y());     /* for the screen in two lines; HUD, AIR: drawn on the screen's y) */
-        if (y < 2)
-            y = 2;
-        cv_halo = 1;
-        for (k = 0; k < NELEM(W); k++, y += 11)
-            cv_text_in(-x0, y, 240, &AF_X, W[k], k ? T_TEXT : T_THEME, T_SURF);
-        cv_halo = ha;
+    if (UMB_ON && words && !ui.hset[0] && !umw_gone()) {   /* (UMBRA OBSCURA) WELCOME: its page in the middle of what the
+                                                         * header and the footer leave, every skin (COLORS: in the panel,
+                                                         * under the bare row; HUD, AIR: on the screen's y), outlined over the
+                                                         * plate (ui_umbra_welcome.c) */
+        int32_t b = hud ? 0 : (int32_t)graph_y();
+        umw_draw(x0, LA_HOME_CARD_Y - b, (int32_t)foot_y() - b);
     } else if (umk_on() && words) {                     /* MACROS - AUDIO / VISUALS: the routes over the plate, under the */
         int32_t gy = hud ? (int32_t)graph_y() : 0;      /* tabs, over the knobs (ui_umbra_mac.c) */
         umk_draw(x0, gy + 4, (hud ? (int32_t)card_y() - gy : (int32_t)graph_h()) - 6);

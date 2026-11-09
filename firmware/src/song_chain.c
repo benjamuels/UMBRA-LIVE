@@ -22,7 +22,10 @@ static chain_config_t chain_config;           /* the current song's rows */
 #define dice_secs (chain_config.rsv[1])       /* (JIANT 0.6.81) the sections DICE ALL / GEN wrote (bit s); (gen6c) kept with
                                               * the song's rows in flash: after a power cycle GEN's FORM writes them again
                                               * (in RAM they were lost, and every section looked the player's) */
-#define NSONG 8u                              /* songs: four sections each (storage.c: where they are kept) */
+#define NSONG 8u                              /* songs: four sections each (storage.c: where they are kept); the index's
+                                               * layout, as stored */
+#define NSONG_USE 4u                          /* (UMBRA OBSCURA) the projects played and kept: 1..4; 5..8's flash is the
+                                               * plate bank (umb_slot.c), their index rows kept unused */
 #define SONG_MAGIC 0x474E4F53u                /* "SONG" */
 /* (JIANT) a row's scene: when the row goes in (a song, not a quick chain) the tracks' mutes, DRUM's group mutes, the
  * macros and the punch-in MIDI effects become what was stored; they stay through the rows after it that have none.

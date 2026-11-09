@@ -1649,7 +1649,7 @@ static void draw_columns(void)
             draw_act_column(1, "ERASE", used ? T_THEME : T_DIM, ICON_AUTO);   /* (V10.17; the name: the card) */
         } else {
             fmt_int(val, (int32_t)song_cur + 1);
-            hot_gauge_column(0, "PROJECT", val, (int32_t)song_cur * 1000 / (int32_t)(NSONG - 1u));
+            hot_gauge_column(0, "PROJECT", val, (int32_t)song_cur * 1000 / (int32_t)(NSONG_USE - 1u));
             val[0] = (char)('A' + (k & 3u)); val[1] = 0;
             hot_gauge_column(1, "SECT", val, (int32_t)(k & 3u) * 1000 / 3);
         }
@@ -2463,7 +2463,9 @@ static void ui_draw_body(uint32_t counting)
         name_draw();
         return;
     }
-    if (ui.layer || mac_latch) {                        /* a layer's map over the page (ui_layer.c); (JIANT 0.4) the MACRO
+    if ((ui.layer || mac_latch) && !(UMB_ON && umt_ly())) {   /* a layer's map over the page (ui_layer.c); (JIANT 0.4) the MACRO
+                                                         * ((UMBRA OBSCURA) in TOTALITY FX, SCL, LFO, EDIT, GLO held: none,
+                                                         * the plate stays, ui_umbra_tot.c umt_ly); the MACRO
                                                          * layer latched: its cards (no layer open) */
         uint8_t hm = !ui.layer;
         static uint8_t hm_was;

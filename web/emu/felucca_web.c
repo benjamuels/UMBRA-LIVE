@@ -468,9 +468,9 @@ EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) 99: th
 {
     uint32_t pl = umb_pl();
     if (i == 99u) {
-        if (umt.on && pl != v % UMP_NPL)
+        if (umt.on && pl != v % UMB_NPLT)
             umt.fms = fm1_ms | 1u;                      /* (ui_umbra_tot.c DISSOLVE) */
-        umb_plate = (uint8_t)(0x80u | v % UMP_NPL);
+        umb_plate = (uint8_t)(0x80u | v % UMB_NPLT);
     } else if (i == 98u) {
         nav_go(SEC_HOME, 0, 0);                         /* (ui_umbra_tot.c) */
         umt_enter(0);

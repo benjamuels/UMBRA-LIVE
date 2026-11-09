@@ -40,7 +40,7 @@ typedef struct { const char *t, *nm; uint8_t g, lv; } nv_t;   /* PAGES title (HO
 typedef struct { const char *nm, *tab; } ng_t;                /* a group: its name, its tab's when the name is too wide */
 typedef struct { const nv_t *e; const ng_t *g; uint8_t n, ng; } ch_t;
 #define NV(t, nm, g, lv) {t, nm, g, lv}
-static const nv_t CE_HOME[] = {NV(0, "WELCOME", 0, 0), NV(0, "MACROS - AUDIO", 1, 0), NV(0, "MACROS - VISUALS", 1, 0),
+static const nv_t CE_HOME[] = {NV(0, "WELCOME", 0, 0), NV(0, "LIVE AUDIO CTRLS", 1, 0), NV(0, "LIVE VIZ CTRLS", 1, 0),
                                NV(0, "BEING", 1, 1), NV(0, "ROUTES", 1, 1), NV(0, "GEN 1", 2, 2), NV(0, "GEN 2", 2, 2),
                                NV(0, "GEN 3", 2, 2)};
 #define HOME_E_BEING 3u                                 /* (UMBRA OBSCURA, the user 2026-11-09: WELCOME, then UMBRA's MACROS -
@@ -49,7 +49,10 @@ static const nv_t CE_HOME[] = {NV(0, "WELCOME", 0, 0), NV(0, "MACROS - AUDIO", 1
                                                          * those three set stays as it was set: TOTALITY reads it, ui_umbra.c).
                                                          * WELCOME and the MACROS pages: ui.hset[0] 0..2, the plate behind the
                                                          * whole screen, no knobs (home_bare)) BEING's entries, GEN's first */
-#define HOME_E_GEN 5u
+#define HOME_E_GEN 5u                                   /* ((UMBRA OBSCURA, the user 2026-11-09) MACROS - AUDIO and MACROS -
+                                                         * VISUALS are LIVE AUDIO CTRLS and LIVE VIZ CTRLS; WELCOME, once
+                                                         * dismissed, is not among them: ui_umbra_welcome.c) */
+static int umw_gone(void);
 static const ng_t CG_HOME[] = {{"WELCOME", 0}, {"UMBRA", 0}, {"GEN", 0}};
 static const nv_t CE_SYN[] = {NV("EDIT 1", 0, 0, 0), NV("EDIT 2", 0, 0, 0), NV("FILTER", 0, 1, 1), NV("MORPH", 0, 1, 1),
                               NV("RETRIG", 0, 1, 1), NV("ROTOR", 0, 1, 1), NV("WORDS", 0, 1, 1), NV("STEREO", 0, 1, 1),
@@ -150,7 +153,7 @@ static uint32_t nv_page(uint32_t sec, uint32_t e)
             return i;
     return NPAGES;
 }
-static int nv_ok(uint32_t sec, uint32_t e) { return sec == SEC_HOME ? e < NELEM(CE_HOME) : nv_page(sec, e) < NPAGES; }
+static int nv_ok(uint32_t sec, uint32_t e) { return sec == SEC_HOME ? e < NELEM(CE_HOME) && (e || !umw_gone()) : nv_page(sec, e) < NPAGES; }
 /* the entry shown: HOME's from its state (ui.hlv, ui.hset, GEN's page); the others the one remembered when it is the page
  * shown, else the page's own (put by code: in the group left, the default page's, then the chain's first), else
  * (PHRASES, CHANCE: out of the chain) the one left */

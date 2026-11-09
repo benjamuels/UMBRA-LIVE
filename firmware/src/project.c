@@ -2186,7 +2186,7 @@ static uint32_t lib_scan(uint32_t n, char *b)
         return m;
     }
 #if FELUCCA_FLASH
-    if (!flash_ok || n >= NSONG)
+    if (!flash_ok || n >= NSONG_USE)
         return 0;
     for (k = 0; k < 4u; k++) {
         uint32_t obj = n ? OBJ_SONG1 + (n - 1u) * 4u + k : OBJ_PROJECT0 + k;

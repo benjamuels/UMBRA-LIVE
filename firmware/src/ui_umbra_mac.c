@@ -157,7 +157,7 @@ static uint32_t umq_raw(uint32_t t)                     /* target t's own settin
     if (t <= UMT_LIGHT)
         return umv_raw(umb_pl(), t);
     for (i = 0; i < UMT_NS && UMT_Q[i] != t; i++) {}
-    return i < UMT_NS ? umt_raw(i) : 99u;               /* (the being: whole) */
+    return i < UMT_NS ? umt_raw(i) : t == UMT_INV ? 0u : 99u;   /* (the being: whole; INVERT: none) */
 }
 /* source s now, 0 .. 256 */
 static int32_t umq_sv(uint32_t s)

@@ -1347,7 +1347,7 @@ static void lib_poll(void)                              /* (graph_signature, onc
         lib.gen = lib_gen();
         lib.next = 0;
     }
-    if (lib.next < NSONG) {
+    if (lib.next < NSONG_USE) {
 #if FELUCCA_FLASH
         lib.mask[lib.next] = (uint8_t)lib_scan(lib.next, lib.name[lib.next]);
 #endif

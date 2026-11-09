@@ -26,7 +26,7 @@ static uint16_t lz_sec(uint32_t s, int used, int half)
 static void graph_lib(void)
 {
     uint32_t i, j;
-    for (i = 0; i < NSONG; i++) {
+    for (i = 0; i < NSONG_USE; i++) {
         int32_t x = LZ_TX(i % 4u), y = (int32_t)(i / 4u) * 70;
         int cur = i == song_cur;
         uint16_t bg = cur ? T_TINT : T_RAISE;
