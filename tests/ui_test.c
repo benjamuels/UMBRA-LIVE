@@ -11418,7 +11418,11 @@ static int test_skin(void)
         press(B_HOME); frame();
         ok &= !umt.on && ui.home && ui.hset[0] == 1u && !ui.hlv;   /* (MACROS - AUDIO again) */
         press(B_HOME); frame(); press(B_EDIT); frame();
+        ok &= umt.on && ui.home;                                   /* (EDIT's tap a route's, at first: TOTALITY stays) */
+        { uint32_t rv[4]; umq_get(6u, rv); rv[0] = 0; umq_put(6u, rv); }   /* (no route takes it: EDIT's own tap, its page) */
+        press(B_EDIT); frame();
         ok &= !umt.on && !ui.home;
+        favorites.factory[6][18] = 0;
         favorites.factory[4][16] = 0;
         macro_v[2] = 0;
         bad += check("(UMBRA OBSCURA) TOTALITY: HOME on HOME; SELECT plates round, KNOBs the macros, FX effects; LEDs dark; HOME back; EDIT ends it", ok);
@@ -11488,10 +11492,11 @@ static int test_skin(void)
         ui_skin = SKIN_AIR;
         nav_go(SEC_HOME, 0, 0); frames(64);                         /* (AIR: WELCOME's words over the plate, MACROS - */
         ok &= hud_home() && home_bare();                           /* VISUALS its routes) */
-        for (w0 = 0, y = 90; y < 180u; y++) for (x = 0; x < 240u; x++) w0 += lg_px((int32_t)x, (int32_t)y) == T_THEME;   /* ("Welcome!") */
+        for (w0 = 0, y = 90; y < 180u; y++) for (x = 0; x < 240u; x++) { uint32_t q = lg_px((int32_t)x, (int32_t)y);   /* ("W E L C O M E": its ink, or a level off it) */
+            w0 += (q >> 11) >= 17u && (q >> 11) <= 24u && ((q >> 5) & 63u) >= 46u && (q & 31u) >= 22u && (q & 31u) <= 30u; }
         nav_go(SEC_HOME, 2, 0); frames(64);
         for (w1 = 0, y = 70; y < 180u; y++) for (x = 0; x < 240u; x++) w1 += lg_px((int32_t)x, (int32_t)y) == T_TEXT;
-        ok &= hud_home() && w0 > 300u && w1 > 300u;
+        ok &= hud_home() && w0 > 150u && w1 > 300u;
         nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(64);
         ok &= umt.on;
         press(B_HOME); frame();
@@ -11519,6 +11524,8 @@ static int test_skin(void)
         umq_get(3u, v);
         ok &= v[0] == UMQ_M1 + 3u && v[1] == UMT_LIGHT && v[2] == UMQ_SET && !v[3];
         umq_get(4u, v);
+        ok &= v[0] == UMQ_TAP && v[1] == UMT_INV && v[3] == 99u;   /* (ENV TAP: INVERT) */
+        umq_get(7u, v);
         ok &= !v[0];
         nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(32);
         ok &= umt.on && umv(0u, 3u) == umv_raw(0u, 3u) && umv(0u, 0u) == umv_raw(0u, 0u);   /* (the macros at 0: as set) */
@@ -11526,34 +11533,46 @@ static int test_skin(void)
         turn(EN_K4, 127); turn(EN_K1, 127); frames(32);
         ok &= macro_v[3] == 127u && macro_v[0] == 127u && umv(0u, 3u) == 0u && umv(0u, 0u) == 99u && str_eq(umt.say, "M1 100");
         ok &= umv_raw(0u, 3u) == UMV_LD;                           /* (LIGHT as set, kept) */
+        press(B_ENV); frame();                                     /* (ENV tapped: its route fires, TOTALITY stays) */
+        ok &= umt.on && umq.tap[0] > 128u;
         press(B_HOME); frame();
         memset(macro_v, 0, sizeof macro_v);
-        nav_go(SEC_HOME, 1, 0); frame();                           /* MACROS - AUDIO */
-        uma_sel = UMA_NEW;
+        nav_go(SEC_HOME, 1, 0); frame();                           /* LIVE AUDIO CTRLS */
+        uma_slot = 0;
         s0 = song.sel;
-        turn(EN_K1, 1);                                            /* (+ NEW: M1, the selected track's first slot) */
-        sl = s0 * 4u;
-        ok &= uma_sel == sl && trk[s0].p[P_M1SRC] == MS_M1 && !trk[s0].p[P_M1DST];
+        turn(EN_K2, 1);                                            /* (SOURCE: M1, the selected track's first slot) */
+        ok &= trk[s0].p[P_M1SRC] == MS_M1 && !trk[s0].p[P_M1DST];
         turn(EN_K3, 1); turn(EN_K4, 10);
         ok &= trk[s0].p[P_M1DST] != 0 && trk[s0].p[P_M1AMT] == 10;
+        turn(EN_K1, 2);                                            /* (SLOT 3) */
+        ok &= uma_slot == 2u;
         if (trk_live > 1u) {
-            turn(EN_K2, 1);                                        /* (TRACK: to the next track's free slot) */
-            sl = (s0 + 1u) % trk_live * 4u;
-            ok &= uma_sel == sl && !trk[s0].p[P_M1SRC] && !trk[s0].p[P_M1AMT] && trk[sl / 4u].p[P_M1SRC] == MS_M1 &&
-                  trk[sl / 4u].p[P_M1AMT] == 10;
+            turn(EN_ALGO, 1);                                      /* (ALGORITHM: the next track, and back) */
+            ok &= song.sel == s0 + 1u;
+            turn(EN_ALGO, -1);
         }
-        turn(EN_ALGO, -1);
-        ok &= uma_sel == UMA_NEW && song.sel == s0;                /* (+ NEW, first; the track as it was) */
-        turn(EN_ALGO, 1);
-        ok &= uma_sel == sl;
-        nav_go(SEC_HOME, 2, 0); frame();                           /* MACROS - VISUALS */
+        ok &= song.sel == s0;
+        press(B_OCTUP); frame();                                   /* SETUP: the track's first free slot, a question at a time */
+        ok &= umz == 1u && uma_slot == 1u;
+        press(B_OCTUP); frame(); turn(EN_K4, 2);                   /* (any knob the answer: the SOURCE, M2) */
+        ok &= umz == 2u && trk[s0].p[P_M1SRC + 3] == MS_M1 + 1;
+        press(B_OCTDN); frame();
+        ok &= umz == 1u;
+        press(B_OCTDN); frame();
+        ok &= !umz;
+        nav_go(SEC_HOME, 2, 0); frame();                           /* LIVE VIZ CTRLS */
         umq_sel = 0;
-        turn(EN_ALGO, 4);
-        ok &= umq_sel == 4u && song.sel == s0;
-        turn(EN_K1, (int32_t)UMQ_HIT); turn(EN_K2, (int32_t)UMT_SPEED);   /* (T1's hits to SPEED, 0 .. 99) */
-        umq_get(4u, v);
-        ok &= v[0] == UMQ_HIT && v[1] == UMT_SPEED;
-        v[2] = 0; v[3] = 99u; umq_put(4u, v);
+        turn(EN_K1, 7);                                            /* (ROUTE 8) */
+        ok &= umq_sel == 7u && song.sel == s0;
+        k = umb_pl();
+        turn(EN_ALGO, 1);                                          /* (ALGORITHM: the next plate, and back) */
+        ok &= umb_pl() != k && song.sel == s0;
+        turn(EN_ALGO, -1);
+        ok &= umb_pl() == k;
+        turn(EN_K2, (int32_t)UMQ_HIT); turn(EN_K3, (int32_t)UMT_SPEED);   /* (T1's hits to SPEED, 0 .. 99) */
+        umq_get(7u, v);
+        ok &= v[0] == UMQ_HIT && v[1] == UMT_SPEED && v[2] == UMQ_SET;
+        v[2] = 0; v[3] = 99u; umq_put(7u, v);
         frames(400);
         ok &= umt_get(8u) == 0u;
         umb_q.c[umb_q.w % UMB_NQ] = 0; umb_q.vel[umb_q.w % UMB_NQ] = 127; umb_q.w++;   /* (a note on T1) */
@@ -11562,18 +11581,18 @@ static int test_skin(void)
         frames(400);
         ok &= umt_get(8u) == 0u;                                   /* (over in 0.3 s) */
         trk[0].p[P_MSLEN] = 1; trk[0].p[P_MS0] = 127;              /* (T1's step, full: TRAVEL 0 .. 99 and again 0 .. 50) */
-        v[0] = UMQ_STEP; v[1] = UMT_TRAVEL; v[2] = 0; v[3] = 99u; umq_put(5u, v);
-        v[3] = 50u; umq_put(6u, v);
+        v[0] = UMQ_STEP; v[1] = UMT_TRAVEL; v[2] = 0; v[3] = 99u; umq_put(8u, v);
+        v[3] = 50u; umq_put(9u, v);
         frame(); frame();
         ok &= umt_get(11u) == 99u;                                 /* (0 + 98 + 50, at most 99) */
         trk[0].p[P_MS0] = 0; frame(); frame();
         ok &= umt_get(11u) == 0u;
-        if (!ok) printf("  macros: sel %u/%u speed %u travel %u\n", uma_sel, umq_sel, umt_get(8u), umt_get(11u));
+        if (!ok) printf("  macros: slot %u route %u setup %u speed %u travel %u\n", uma_slot, umq_sel, umz, umt_get(8u), umt_get(11u));
         favorites.factory[6][18] = 0;
         memset(favorites.factory[4] + 8, 0, 24);
         for (k = 0; k < NTRK; k++) memset(&trk[k].p[P_M1SRC], 0, 12u * sizeof trk[k].p[0]);
         trk[0].p[P_MSLEN] = 16;
-        bad += check("(UMBRA OBSCURA) MACROS: TOTALITY's knobs M1..M4; VISUALS at first the plate as set; AUDIO + NEW, DEST, AMOUNT, TRACK moves, ALGORITHM the route; VISUALS hits and steps, routes adding", ok);
+        bad += check("(UMBRA OBSCURA) LIVE CTRLS: TOTALITY's knobs M1..M4, ENV TAP; VIZ at first the plate as set; AUDIO SLOT, SOURCE, DEST, AMOUNT, ALGORITHM the track, SETUP by OCT+; VIZ ROUTE, ALGORITHM the plate, hits and steps, routes adding", ok);
     }
     {   /* (UMBRA OBSCURA) NOTE MOVEMENT (its page, HOME > ECO > NOTES, gone: set here as it set it): STATIC MOVE DRIFT RANDOM (MOVE at first);
          * STATIC: no offset, a plate's places as ever; MOVE: a note a step along the track's own path (each track its own);
@@ -11645,10 +11664,14 @@ static int test_skin(void)
         for (k = 0; k < HOME_E_GEN; k++) {                         /* (WELCOME, the MACROS pages, BEING, ROUTES) */
             nav_go(SEC_HOME, k, 0); frame();
             turn(EN_ALGO, trk_live > 1u && sel0 + 1u < trk_live ? 1 : -1);
-            ok &= umb_pl() == 5u && (trk_live < 2u || (k == 1u || k == 2u) == (song.sel == sel0));
+            if (k == 2u)                                           /* (LIVE VIZ CTRLS: the plate, the track kept) */
+                ok &= umb_pl() != 5u && song.sel == sel0;
+            else
+                ok &= umb_pl() == 5u && (trk_live < 2u || song.sel != sel0);
+            umb_plate = 0x85u;
             track_select(sel0);
         }
-        bad += check("(UMBRA OBSCURA) a plate's settings: its third a size, a plate each; on HOME ALGORITHM the track (the MACROS pages: the route), never the plate", ok);
+        bad += check("(UMBRA OBSCURA) a plate's settings: its third a size, a plate each; on HOME ALGORITHM the track (LIVE VIZ CTRLS: the plate)", ok);
         ok = dc_key(120u, 120u) < 64u && dc_key(2u, 2u) >= 188u && dc_gate == 256u;
         nav_go(SEC_HOME, 2, 0); frame(); press(B_HOME); frames(4);   /* (TOTALITY: TARN, from MACROS - VISUALS) */
         for (y = 0; y < 16u; y++) for (x = 0; x < 16u; x++) corner[y * 16u + x] = host_screen[y * 240u + x];
@@ -11676,7 +11699,7 @@ static int test_skin(void)
         for (k = 1; k <= 6u; k++) {
             press(B_OCTUP); frame();
             ok &= umw_pg == k % 6u && song.octave == 0;
-            if (k == 5u) ok &= (oct_leds() & OCT_BREATH) && (oct_leds() & OCT_BREATH_DN) != 0u;   /* (the last: both) */
+            if (k == 5u) ok &= !(oct_leds() & OCT_BREATH) && (oct_leds() & OCT_BREATH_DN) != 0u;   /* (the last: OCT- alone) */
         }
         press(B_OCTDN); frame();
         ok &= umw_pg == 5u && song.octave == 0;                    /* (round: the first's OCT-, the last) */
@@ -11703,7 +11726,11 @@ static int test_skin(void)
         nav_go(SEC_HOME, 0, 0); frame();
         ok &= ui.hset[0] == 1u;                                    /* (WELCOME asked for: not there, the next) */
         press(B_OCTUP); frame();
-        ok &= song.octave == 1;                                    /* (OCT: the octave again) */
+        ok &= song.octave == 0 && umz == 1u;                       /* (LIVE AUDIO CTRLS: OCT+ its SETUP, OCT- out) */
+        press(B_OCTDN); frame();
+        ok &= !umz;
+        nav_go(SEC_HOME, 3, 0); frame(); press(B_OCTUP); frame();
+        ok &= song.octave == 1;                                    /* (BEING: OCT the octave again) */
         press(B_OCTDN); frame();
         ok &= menu_get(MI_WELCOME) == 0u && str_eq(MI_NAME[MI_WELCOME], "WELCOME") && MI_TAB[MI_WELCOME] == MTAB_SYSTEM;
         menu_put(MI_WELCOME, 1u);

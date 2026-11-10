@@ -1,19 +1,24 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 UMBRA OBSCURA contributors */
-/* (included by ui_umbra.c, after TOTALITY) HOME > UMBRA's MACROS pages (the user, 2026-11-09: custom controls and effects
- * for the sound and the picture). TOTALITY's KNOB 1..4 are JIANT's macros M1..M4 (mod.c macro_v: the project's; LFO held
- * turns them anywhere), so one turn moves what both pages send a macro to.
- *   MACROS - AUDIO    every route of JIANT's modulation matrix (each track's four slots, LFO > MOD's) on one page: the
- *                     macros' first, then the tracks' own sources (LFO, STEP ..), a line each, under + NEW. ALGORITHM the
- *                     route, KNOB 1 SOURCE, 2 TRACK (the route moved to a free slot of the next track that has one),
- *                     3 DEST, 4 AMOUNT. Nothing new in the sound: the matrix as JIANT runs it, kept with the project.
- *   MACROS - VISUALS  UMQ_NR routes into the picture, a line each. ALGORITHM the route, KNOB 1 SOURCE (M1..M4; a track's
- *                     hits, its LFO, its step; the level; the beat), 2 TARGET (the plate's own three, LIGHT .. the
- *                     effects, the being), 3 FROM, 4 TO: the target's value with the source at 0 and at full (FROM over TO
- *                     turns it round; SET: the target's own setting). Routes on one target add their moves to the first
- *                     one's FROM; a target no route reaches keeps its setting. Kept with the settings, one set for every
- *                     song (the project's 3,840 bytes are all in use). At first: M1..M3 the plate's three, M4 LIGHT, each
- *                     from SET (as set, with the macro at 0) to 99, LIGHT's to 0 (M4 darkens).
+/* (included by ui_umbra.c, after TOTALITY) HOME > UMBRA's LIVE AUDIO CTRLS and LIVE VIZ CTRLS (the user, 2026-11-09:
+ * custom controls and effects for the sound and the picture; 2026-11-10: no long lists, ALGORITHM the track / the
+ * plate, what the macros do in sight, taps that trigger, a setup wizard). TOTALITY's KNOB 1..4 are JIANT's macros
+ * M1..M4 (mod.c macro_v: the project's; LFO held turns them anywhere), so one turn moves what both pages send a macro to.
+ *   LIVE AUDIO CTRLS  one track at a time: its four slots of JIANT's modulation matrix (LFO > MOD's), a line each, and
+ *                     under them what each macro M1..M4 moves, on every track. ALGORITHM the track, KNOB 1 the SLOT,
+ *                     2 SOURCE, 3 DEST, 4 AMOUNT. Nothing new in the sound: the matrix as JIANT runs it, kept with the
+ *                     project.
+ *   LIVE VIZ CTRLS    UMQ_NR routes into the picture, a few lines in sight under the plate's name. ALGORITHM the plate,
+ *                     KNOB 1 the ROUTE, 2 SOURCE (M1..M4; a track's hits, its LFO, its step; the level; the beat; ENV
+ *                     TAP, LFO TAP, EDIT TAP: in TOTALITY a tap of that button, falling off over 0.4 s, where a route
+ *                     takes it: its own tap then does nothing else there), 3 TARGET (the plate's own three, LIGHT .. the
+ *                     effects, the being), 4 TO: the target's value with the source at full (at 0: FROM, the target's own
+ *                     setting for a route made here). Routes on one target add their moves to the first one's FROM; a
+ *                     target no route reaches keeps its setting. Kept with the settings, one set for every song. At
+ *                     first: M1..M3 the plate's three, M4 LIGHT (to 0: it darkens), ENV TAP INVERT, LFO TAP GLITCH, EDIT
+ *                     TAP MOSAIC.
+ *   OCT+ on either    SETUP: a route made a question at a time, large (which track or plate, which control, what it
+ *                     moves, how far), any knob the answer, OCT+ the next, OCT- back (from the first: out).
  * Built for size, as the main loop is (tools/size_fns.py) */
 #define UMQ_SND 1                                       /* the sound's own sources (HIT LFO STEP LEVEL BEAT) */
 static void text_column(uint32_t c, const char *label, const char *value, uint16_t color);   /* (ui_draw.c) */
@@ -21,72 +26,24 @@ static void text_column(uint32_t c, const char *label, const char *value, uint16
 /* ------------------------------------------------------------------------------------- MACROS - AUDIO --- */
 static const uint8_t UMA_SR[MS_N] = {MS_OFF, MS_M1, MS_M1 + 1, MS_M1 + 2, MS_M1 + 3, MS_LFO, MS_STEP, MS_ENV, MS_ENV2,
                                      MS_VEL, MS_KEY, MS_RAND, MS_NOISE, MS_MODW, MS_AT, MS_EXPR, MS_FOLLOW, MS_PROX};
-#define UMA_NEW 0xFFu
-static uint8_t uma_sel = UMA_NEW;                       /* the route chosen: its track x 4 + its slot; UMA_NEW: + NEW */
-static uint8_t umq_sel;                                 /* MACROS - VISUALS': the route chosen */
+static uint8_t uma_slot;                                /* LIVE AUDIO CTRLS: the selected track's slot chosen, 0..3 */
+static uint8_t umq_sel;                                 /* LIVE VIZ CTRLS: the route chosen */
+static uint8_t umz;                                     /* SETUP: its question + 1 (0: the page) */
 static int16_t *uma_p(uint32_t s) { return &trk[s / 4u % NTRK].p[P_M1SRC + 3u * (s % 4u)]; }   /* SRC DST AMT */
-static uint32_t uma_rank(uint32_t s)                    /* slot s's place in the list: its source's in UMA_SR */
+static uint32_t uma_cur(void) { return (uint32_t)song.sel % NTRK * 4u + uma_slot % 4u; }
+static uint32_t uma_rank(uint32_t s)                    /* slot s's source's place in UMA_SR */
 {
     uint32_t r, v = (uint32_t)uma_p(s)[0];
     for (r = 0; r < MS_N && UMA_SR[r] != v; r++) {}
     return r;
 }
-/* the list into L: + NEW, then the routes (a slot with a source; the one chosen even without) of the tracks that play, by
- * source, then track. How many */
-static uint32_t uma_list(uint8_t *L)
+static void uma_knob(uint32_t k, int32_t s)             /* KNOB k turned s: the SLOT, its SOURCE, DEST, AMOUNT */
 {
-    uint8_t R[NTRK * 4u];
-    uint32_t r, s, n = 1;
-    L[0] = UMA_NEW;
-    for (s = 0; s < trk_live * 4u; s++)
-        R[s] = (uint8_t)uma_rank(s);
-    for (r = 0; r < MS_N; r++)
-        for (s = 0; s < trk_live * 4u; s++)
-            if (R[s] == r && (r || s == uma_sel))
-                L[n++] = (uint8_t)s;
-    return n;
-}
-static uint32_t uma_at(const uint8_t *L, uint32_t n)    /* the chosen one's place in L (gone: + NEW's) */
-{
-    uint32_t i;
-    for (i = n - 1u; i && L[i] != uma_sel; i--) {}
-    return i;
-}
-static uint32_t uma_free(uint32_t c)                    /* track c's first free slot + 1 (0: none) */
-{
-    uint32_t k;
-    for (k = 0; k < 4u; k++)
-        if (!trk[c].p[P_M1SRC + 3u * k])
-            return c * 4u + k + 1u;
-    return 0;
-}
-/* KNOB k turned s. + NEW: KNOB 1 starts a route in a free slot, the selected track's or the next one's that has one; TRACK:
- * the route to the next track (round) with a free slot */
-static void uma_knob(uint32_t k, int32_t s)
-{
-    static const int16_t Z[3];
-    uint32_t c, f = 0, i, nw = uma_sel == UMA_NEW;
-    int16_t *p;
-    if (nw || k == 1u) {
-        if (nw && k)
-            return;
-        for (c = nw ? song.sel : uma_sel / 4u + (s > 0 ? 1u : trk_live - 1u), i = !nw; !f && i < trk_live;
-             i++, c += s > 0 || nw ? 1u : trk_live - 1u)
-            f = uma_free(c % trk_live);
-        if (!f) {
-            ui_message("NO FREE SLOT");
-            return;
-        }
-        memcpy(uma_p(f - 1u), nw ? Z : uma_p(uma_sel), sizeof Z);
-        if (!nw)
-            memset(uma_p(uma_sel), 0, sizeof Z);
-        uma_sel = (uint8_t)(f - 1u);
-        if (k)
-            return;
-    }
-    p = uma_p(uma_sel);
-    if (k == 0u)                                        /* SOURCE, a detent a source in the list's order (OFF first) */
-        p[0] = UMA_SR[clamp((int32_t)uma_rank(uma_sel) + s, 0, MS_N - 1)];
+    int16_t *p = uma_p(uma_cur());
+    if (k == 0u)
+        uma_slot = (uint8_t)clamp((int32_t)uma_slot + s, 0, 3);
+    else if (k == 1u)                                   /* SOURCE, a detent a source (OFF first) */
+        p[0] = UMA_SR[clamp((int32_t)uma_rank(uma_cur()) + s, 0, MS_N - 1)];
     else {                                              /* DEST, AMOUNT: as LFO > MOD turns them */
         const param_desc_t *pd = &TP[P_M1SRC + k - 1u];
         p[k - 1u] = (int16_t)param_turn(pd, p[k - 1u], accel(EN_K1 + k, s, pd->fmt == F_ENUM ? 0 : pd->max - pd->min));
@@ -101,15 +58,16 @@ static void uma_knob(uint32_t k, int32_t s)
 #define UMQ_NR 10u
 #define UMQ_SET 127u
 static const uint8_t UMQ_AT[UMQ_NR] = {0, 3, 20, 23, 26, 29, 9, 32, 35, 46};   /* row 4's byte; + 32: row 6's */
-#define UMQ_MK 0xA7u
+#define UMQ_MK 0xA8u                                    /* (0xA7: before the taps) */
 enum { UMQ_OFF, UMQ_M1, UMQ_HIT = UMQ_M1 + 4, UMQ_LFO = UMQ_HIT + NTRK, UMQ_STEP = UMQ_LFO + NTRK, UMQ_LEVEL = UMQ_STEP + NTRK,
-       UMQ_BEAT, UMQ_NS };
+       UMQ_BEAT, UMQ_TAP, UMQ_NS = UMQ_TAP + 3 };       /* (.. ENV TAP, LFO TAP, EDIT TAP) */
+_Static_assert(UMQ_NS <= 32, "a route's source: 5 bits");
 #if !UMQ_SND
 #undef UMQ_NS
 #define UMQ_NS UMQ_HIT
 #endif
 static struct {
-    uint16_t hit[NTRK];                                 /* each track's hits, falling off (Q8) */
+    uint16_t hit[NTRK], tap[3];                         /* each track's hits, the three taps, falling off (Q8) */
     uint32_t qr, ms;                                    /* the notes read; the last frame's time */
 } umq __attribute__((section(".pool")));
 static uint8_t *umq_b(uint32_t r)
@@ -119,9 +77,11 @@ static uint8_t *umq_b(uint32_t r)
     if (favorites.factory[6][18] != UMQ_MK) {          /* (once: the routes at first) */
         for (i = 0; i < UMQ_NR; i++) {
             q = &favorites.factory[UMQ_AT[i] & 32u ? 6 : 4][UMQ_AT[i] & 31u];
-            q[0] = (uint8_t)(i < 4u ? (UMQ_M1 + i) | i << 5 : 0u);
-            q[1] = (uint8_t)(i < 4u ? UMQ_SET : 0u);
-            q[2] = (uint8_t)(i < 3u ? 99u : 0u);
+            static const uint8_t TT[3] = {UMT_INV, UMT_GLI, UMT_MOS};   /* (the taps' targets at first) */
+            uint32_t tg = i < 4u ? i : i < 7u ? TT[i - 4u] : 0u;
+            q[0] = (uint8_t)(i < 4u ? (UMQ_M1 + i) | tg << 5 : i < 7u ? (UMQ_TAP + i - 4u) | (tg & 7u) << 5 : 0u);
+            q[1] = (uint8_t)(i < 7u ? UMQ_SET | (tg >> 3) << 7 : 0u);
+            q[2] = (uint8_t)(i == 3u ? 0u : i < 7u ? 99u : 0u);
         }
         favorites.factory[6][18] = UMQ_MK;
     }
@@ -178,6 +138,8 @@ static int32_t umq_sv(uint32_t s)
     }
     if (s == UMQ_LEVEL)
         return bg_energy();
+    if (s >= UMQ_TAP)
+        return umq.tap[s - UMQ_TAP];
     {                                                   /* BEAT: full on the beat, falling to the next (stopped: 0) */
         uint32_t q = beat_samples();
         return song.playing && q ? 256 - (int32_t)(ms_clock % q * 256u / q) : 0;
@@ -194,6 +156,8 @@ static void umq_tick(void)
     umq.ms = fm1_ms;
     for (c = 0; c < NTRK; c++)                          /* (a hit falls off over 0.3 s) */
         umq.hit[c] = (uint16_t)(umq.hit[c] > dt * 256u / 300u ? umq.hit[c] - dt * 256u / 300u : 0u);
+    for (c = 0; c < 3u; c++)                            /* (a tap over 0.4 s) */
+        umq.tap[c] = (uint16_t)(umq.tap[c] > dt * 256u / 400u ? umq.tap[c] - dt * 256u / 400u : 0u);
     if (umb_q.w - umq.qr > UMB_NQ)
         umq.qr = umb_q.w - UMB_NQ;
     for (; umq.qr != umb_q.w; umq.qr++) {
@@ -230,110 +194,193 @@ static void umq_val(char *b, uint32_t t, uint32_t v)    /* a FROM or TO's words 
     else
         fmt_int(b, (int32_t)v);
 }
-static void umq_knob(uint32_t k, int32_t s)
+static void umq_knob(uint32_t k, int32_t s)            /* KNOB k turned s: the ROUTE, its SOURCE, TARGET, TO */
 {
     uint32_t v[4], m;
     int32_t r;
+    if (k == 0u) {
+        umq_sel = (uint8_t)clamp((int32_t)umq_sel + s, 0, UMQ_NR - 1);
+        return;
+    }
     umq_get(umq_sel, v);
-    if (k < 2u)                                         /* SOURCE, TARGET, a detent each (FROM and TO kept within its range) */
-        v[k] = (uint32_t)clamp((int32_t)v[k] + s, 0, (k ? UMT_NT : UMQ_NS) - 1);
-    else {                                              /* FROM, TO: SET, then 0 .. its most */
+    if (k < 3u) {                                       /* SOURCE, TARGET, a detent each (FROM and TO kept within its range) */
+        if (k == 1u && !v[0])
+            v[2] = UMQ_SET;                             /* (a route made here: from the target's own setting) */
+        v[k - 1u] = (uint32_t)clamp((int32_t)v[k - 1u] + s, 0, (k == 2u ? UMT_NT : UMQ_NS) - 1);
+    } else {                                            /* TO: SET, then 0 .. its most */
         m = umq_max(v[1]);
-        r = v[k] == UMQ_SET ? 0 : (int32_t)v[k] + 1;
+        r = v[3] == UMQ_SET ? 0 : (int32_t)v[3] + 1;
         r = clamp(r + accel(EN_K1 + k, s, (int32_t)m), 0, (int32_t)m + 1);
-        v[k] = r ? (uint32_t)r - 1u : UMQ_SET;
+        v[3] = r ? (uint32_t)r - 1u : UMQ_SET;
     }
     umq_put(umq_sel, v);
+}
+/* TOTALITY: ENV (0), LFO (1) or EDIT (2) tapped. 1: a route takes that tap (it fires: the button's own tap is left out) */
+static int umq_tap(uint32_t i)
+{
+    uint32_t r, v[4];
+    for (r = 0; r < UMQ_NR; r++) {
+        umq_get(r, v);
+        if (v[0] == UMQ_TAP + i) {
+            umq.tap[i] = 256;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* ------------------------------------------------------------------------------------------- the pages --- */
 static int umk_on(void) { return UMB_ON && !umt.on && home_bare() && ui.hset[0]; }   /* a MACROS page shown */
-/* route i's words, a column each (MACROS - AUDIO: i a slot, or + NEW); 1: it acts (else drawn dim) */
-static int umk_names(uint32_t i, char (*b)[12], int cards)
+/* row i's words, a column each (LIVE AUDIO CTRLS: slot i of the selected track; LIVE VIZ CTRLS: route i): its number, the
+ * SOURCE, the DEST / TARGET, the AMOUNT / TO; 1: it acts (else drawn dim) */
+static int umk_names(uint32_t i, char (*b)[12])
 {
-    uint32_t v[4], k;
+    uint32_t v[4];
     const char *u;
+    fmt_int(b[0], (int32_t)i + 1);
     if (ui.hset[0] == 1u) {
-        const int16_t *p = uma_p(i);                    /* (+ NEW's: none) */
-        for (k = 0; k < 4u; k++)
-            b[k][0] = 0;
-        if (i == UMA_NEW) {
-            str_cpy(b[0], "+ NEW", 12);
-            return 0;
-        }
-        str_cpy(b[0], N_MSRC[clamp(p[0], 0, MS_N - 1)], 12);
-        b[1][0] = 'T', b[1][1] = (char)('1' + i / 4u), b[1][2] = 0;
-        str_cpy(b[2], mod_dst_name(&trk[i / 4u % NTRK], p[1]), 12);
+        const int16_t *p = uma_p((uint32_t)song.sel % NTRK * 4u + i);
+        str_cpy(b[1], N_MSRC[clamp(p[0], 0, MS_N - 1)], 12);
+        str_cpy(b[2], mod_dst_name(&trk[song.sel % NTRK], p[1]), 12);
         param_format(&TP[P_M1AMT], p[2], b[3], &u);    /* (+50: LFO > MOD's) */
         return p[0] && p[1] && p[2];
     }
     umq_get(i, v);
     if (v[0] < UMQ_HIT)                                 /* (OFF, M1 .. M4: the matrix's names) */
-        str_cpy(b[0], N_MSRC[v[0] ? MS_M1 + v[0] - UMQ_M1 : MS_OFF], 12);
+        str_cpy(b[1], N_MSRC[v[0] ? MS_M1 + v[0] - UMQ_M1 : MS_OFF], 12);
 #if UMQ_SND
-    else if (v[0] >= UMQ_LEVEL)
-        str_cpy(b[0], v[0] == UMQ_LEVEL ? "LEVEL" : "BEAT", 12);
-    else {
+    else if (v[0] >= UMQ_LEVEL) {
+        static const char *const SL[5] = {"LEVEL", "BEAT", "ENV TAP", "LFO TAP", "EDIT TAP"};
+        str_cpy(b[1], SL[v[0] - UMQ_LEVEL], 12);
+    } else {
         static const char *const SN[3] = {"HIT", "LFO", "STEP"};
-        b[0][0] = 'T', b[0][1] = (char)('1' + (v[0] - UMQ_HIT) % NTRK), b[0][2] = ' ';
-        str_cpy(b[0] + 3, SN[(v[0] - UMQ_HIT) / NTRK], 9);
+        b[1][0] = 'T', b[1][1] = (char)('1' + (v[0] - UMQ_HIT) % NTRK), b[1][2] = ' ';
+        str_cpy(b[1] + 3, SN[(v[0] - UMQ_HIT) / NTRK], 9);
     }
 #endif
-    str_cpy(b[1], umt_tname(umb_pl(), v[1]), 12);
-    umq_val(b[2], v[1], v[2]);
+    str_cpy(b[2], umt_tname(umb_pl(), v[1]), 12);
     umq_val(b[3], v[1], v[3]);
-    if (!v[0] && !cards)                                /* (OFF: in the list, its source alone) */
-        b[1][0] = b[2][0] = b[3][0] = 0;
     return v[0] != 0u;
 }
-static void umk_algo(int32_t s)                         /* ALGORITHM: the route, a detent each */
+static void umk_algo(int32_t s)                         /* ALGORITHM: the track (LIVE AUDIO CTRLS), the plate (LIVE VIZ CTRLS) */
 {
-    uint8_t L[NTRK * 4u + 1u];
-    uint32_t n;
-    if (ui.hset[0] == 1u) {
-        n = uma_list(L);
-        uma_sel = L[clamp((int32_t)uma_at(L, n) + s, 0, (int32_t)n - 1)];
-    } else
-        umq_sel = (uint8_t)clamp((int32_t)umq_sel + s, 0, UMQ_NR - 1);
+    if (ui.hset[0] == 1u)
+        track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));
+    else
+        umt_select(s);
+    if (umz == 1u && ui.hset[0] == 1u)                  /* (SETUP's first question: the track's first free slot) */
+        for (uma_slot = 0; uma_slot < 3u && uma_p(uma_cur())[0]; uma_slot++) {}
 }
 static void umk_knob(uint32_t k, int32_t s)
 {
+    if (umz == 1u) {                                    /* (SETUP: any knob the answer; the first, ALGORITHM's) */
+        umk_algo(s);
+        return;
+    }
+    if (umz)
+        k = umz - 1u;
     if (ui.hset[0] == 1u)
         uma_knob(k, s);
     else
         umq_knob(k, s);
 }
-static void umk_cards(void)                             /* KNOB 1..4: the chosen route's columns */
+/* each input pass, after the octave keys' taps: OCT+ starts SETUP (a row with no source yet: the track's first free
+ * slot, the first route that is OFF) or goes to its next question (after the last: done); OCT- back, or out */
+static void umz_input(uint32_t oct)
 {
-    static const char *const LB[2][4] = {{"SOURCE", "TRACK", "DEST", "AMOUNT"}, {"SOURCE", "TARGET", "FROM", "TO"}};
+    uint32_t v[4];
+    if (!umk_on()) {
+        umz = 0;
+        return;
+    }
+    if (!oct)
+        return;
+    if (oct & 2u) {
+        if (!umz) {
+            if (ui.hset[0] == 1u)
+                for (uma_slot = 0; uma_slot < 3u && uma_p(uma_cur())[0]; uma_slot++) {}
+            else
+                for (umq_sel = 0; umq_sel < UMQ_NR - 1u && (umq_get(umq_sel, v), v[0]); umq_sel++) {}
+        }
+        umz = (uint8_t)(umz < 4u ? umz + 1u : 0u);
+        if (!umz)
+            ui_message("CONTROL SET");
+    } else if (umz)
+        umz--;
+    ui.force = 1;
+}
+static void umk_cards(void)                             /* KNOB 1..4: the chosen row's columns */
+{
+    static const char *const LB[2][4] = {{"SLOT", "SOURCE", "DEST", "AMOUNT"}, {"ROUTE", "SOURCE", "TARGET", "TO"}};
     char b[4][12];
     uint32_t k, au = ui.hset[0] == 1u;
-    int on = umk_names(au ? uma_sel : umq_sel, b, 1);
+    int on = umk_names(au ? uma_slot : umq_sel, b);
     for (k = 0; k < 4u; k++)
-        text_column(k, LB[!au][k], b[k], on || !k ? VAL(k) : T_DIM);
+        text_column(k, LB[!au][k], b[k], on || k < 2u ? VAL(k) : T_DIM);
 }
-/* the routes over the plate, a line each from canvas row y (h rows), each column over its knob's; the chosen one in the
- * theme's colour, scrolled into sight */
+/* the page over the plate from canvas row y (h rows). LIVE AUDIO CTRLS: the selected track's four slots, then what each
+ * macro moves (its routes on every track: "T2 CUT", as many as fit); LIVE VIZ CTRLS: the plate's name, then the routes
+ * about the chosen one. The chosen row in the theme's colour. SETUP: its question, large, and the answer */
+#define UMK_RH 17                                       /* a row's height (AF_S) */
 static void umk_draw(int32_t x0, int32_t y, int32_t h)
 {
-    uint8_t L[NTRK * 4u + 1u], ha = cv_halo;
-    char b[4][12];
-    uint32_t n, i, k, sel, rows = (uint32_t)h / 11u, au = ui.hset[0] == 1u;
-    if (au) {
-        n = uma_list(L);
-        sel = uma_at(L, n);
-    } else {
-        n = UMQ_NR;
-        sel = umq_sel;
-    }
+    static const uint8_t CX[4] = {6, 26, 104, 186};
+    static const char *const QN[2][4] = {{"WHICH TRACK?", "WHICH CONTROL?", "IT MOVES WHAT?", "HOW MUCH?"},
+                                         {"WHICH PLATE?", "WHICH CONTROL?", "IT CHANGES WHAT?", "HOW FAR?"}};
+    uint8_t ha = cv_halo;
+    char b[4][12], ln[44];
+    uint32_t i, k, c, au = ui.hset[0] == 1u, n = au ? 4u : UMQ_NR, sel = au ? uma_slot : umq_sel, rows;
+    int32_t bot = y + h;
     cv_halo = 1;
-    for (i = sel >= rows ? sel - rows + 1u : 0u, k = i + rows; i < n && i < k; i++, y += 11) {
-        uint32_t c;
-        uint16_t col = umk_names(au ? L[i] : i, b, 0) ? T_TEXT : T_DIM;
+    if (umz) {                                          /* SETUP */
+        const char *a = b[umz - 1u];
+        umk_names(sel, b);
+        if (umz == 1u) {
+            if (au) {
+                ln[0] = 'T', ln[1] = (char)('1' + song.sel % NTRK), ln[2] = ' ';
+                str_cpy(ln + 3, trk_engp(&trk[song.sel % NTRK])->name, sizeof ln - 3u);
+                a = ln;
+            } else
+                a = umb_pname(umb_pl());
+        }
+        cv_text(120 - text_w(&AF_M, QN[!au][umz - 1u]) / 2 - x0, y + h / 2 - 34, &AF_M, QN[!au][umz - 1u], 0xBF7Du);
+        cv_text(120 - text_w(&AF_M, a) / 2 - x0, y + h / 2 - 6, &AF_M, a, T_THEME);
+        cv_text(120 - text_w(&AF_X, "turn any knob") / 2 - x0, y + h / 2 + 22, &AF_X, "turn any knob", T_MID);
+        cv_text(8 - x0, bot - 10, &AF_X, umz > 1u ? "Oct -  back" : "Oct -  out", T_MID);
+        cv_text(232 - text_w(&AF_X, "next  Oct +") - x0, bot - 10, &AF_X, umz < 4u ? "next  Oct +" : "done  Oct +", T_TEXT);
+        cv_halo = ha;
+        return;
+    }
+    if (!au) {
+        cv_text(CX[0] - x0, y, &AF_S, umb_pname(umb_pl()), T_THEME);
+        y += UMK_RH + 3;
+    }
+    rows = au ? 4u : (uint32_t)clamp((bot - y - 12) / UMK_RH, 1, UMQ_NR);
+    for (i = sel >= rows ? sel - rows + 1u : 0u, k = i + rows; i < n && i < k; i++, y += UMK_RH) {
+        uint16_t col = umk_names(i, b) ? T_TEXT : T_DIM;
         if (i == sel)
             col = T_THEME;
         for (c = 0; c < 4u; c++)
-            cv_text(4 + 60 * (int32_t)c - x0, y, &AF_X, b[c], col);
+            if (c < 2u || b[1][0] != 'O' || b[1][1] != 'F')   /* (OFF: its number and its source alone) */
+                cv_text(CX[c] - x0, y, &AF_S, b[c], col);
     }
+    for (k = 0, y += 4; au && k < 4u && y + 20 <= bot; k++, y += 11) {   /* what each macro moves */
+        uint32_t w = 0, more = 0;
+        ln[0] = 0;
+        for (i = 0; i < trk_live * 4u; i++) {
+            const int16_t *p = uma_p(i);
+            if (p[0] != (int16_t)(MS_M1 + k) || !p[1] || !p[2])
+                continue;
+            if (w > 26u) { more++; continue; }
+            ln[w++] = 'T', ln[w++] = (char)('1' + i / 4u), ln[w++] = ' ';
+            str_cpy(ln + w, mod_dst_name(&trk[i / 4u], p[1]), 9);
+            w += str_len(ln + w);
+            ln[w++] = ' ', ln[w++] = ' ', ln[w] = 0;
+        }
+        if (more) { ln[w++] = '+', ln[w++] = (char)('0' + (more > 9u ? 9u : more)), ln[w] = 0; }
+        cv_text(CX[0] - x0, y, &AF_X, N_MSRC[MS_M1 + k], T_THEME);
+        cv_text(CX[1] - x0, y, &AF_X, w ? ln : "-", w ? T_TEXT : T_DIM);
+    }
+    cv_text(232 - text_w(&AF_X, "setup  Oct +") - x0, bot - 10, &AF_X, "setup  Oct +", T_MID);
     cv_halo = ha;
 }

@@ -275,8 +275,8 @@ words:
         int32_t b = hud ? 0 : (int32_t)graph_y();
         umw_draw(x0, LA_HOME_CARD_Y - b, (int32_t)foot_y() - b);
     } else if (umk_on() && words) {                     /* MACROS - AUDIO / VISUALS: the routes over the plate, under the */
-        int32_t gy = hud ? (int32_t)graph_y() : 0;      /* tabs, over the knobs (ui_umbra_mac.c) */
-        umk_draw(x0, gy + 4, (hud ? (int32_t)card_y() - gy : (int32_t)graph_h()) - 6);
+        int32_t gy = hud ? (int32_t)graph_y() : 0;      /* tabs, down to the knobs or the footer (ui_umbra_mac.c) */
+        umk_draw(x0, gy + 4, (hud ? (int32_t)(card_y() > graph_y() ? card_y() : foot_y()) - gy : (int32_t)graph_h()) - 6);
     }
     cv_oy = 0;
 }

@@ -90,6 +90,8 @@ static uint32_t oct_leds(void)
     if (UMB_ON && umw_on())                             /* ((UMBRA OBSCURA) WELCOME: OCT+ the next page, breathing; on the
                                                          * last both, which take it away held together) */
         return umw_pg == UMW_NP - 1u ? OCT_BREATH_DN : OCT_BREATH;   /* (the last page: OCT- alone, which held takes it away) */
+    if (UMB_ON && umk_on())                             /* (LIVE AUDIO / VIZ CTRLS: OCT+ SETUP, its next question) */
+        return OCT_BREATH;
     if (name_on() && !ui.confirm && !ui.menu)           /* NAME: OCT- cancels, OCT+ (breathing) writes */
         return 1u | OCT_BREATH;
     if (layer_set_open())                               /* a SET layer: OCT± do nothing (TONIC: no put back); */
@@ -2654,9 +2656,10 @@ static void ui_input_frame(void)
     if (((pressed >> panel.btn[B_SAVE]) & 1u) && ui.ly == LAYER_SAVE)
         ui.save_t0 |= 2u;                               /* (SAVE too: layer_tap opens its pages) */
     layer_oct_open(pressed);                            /* (OCT± with a SET layer's button down: it opens now) */
-    oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || umw_on());
+    oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || umw_on() || umk_on());
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
     umw_input(oct);                                     /* ((UMBRA OBSCURA) WELCOME: its pages, OCT- + OCT+ held: gone) */
+    umz_input(oct);                                     /* (.. LIVE AUDIO / VIZ CTRLS: SETUP) */
     if (!ui.home && !ui.menu && !ui.confirm && !ui.ly && cur_page()->graph == GR_TOOLS && ((pressed >> panel.btn[B_OCTUP]) & 1u))
         tools_arm();
     if (tl_t0) {                                        /* (V10.24) TOOLS: OCT+ held TL_HOLD does the action */
@@ -2960,6 +2963,8 @@ static void ui_input_frame(void)
         umt_fx_tap();
     else if (lytap && UMB_ON && umt.on && lytap == LAYER_SCL)   /* .. SCL, JIANT's beings over the plate */
         umt_scl_tap();
+    else if (lytap && UMB_ON && umt.on && (lytap == LAYER_MACRO || lytap == LAYER_EDIT) && umq_tap(lytap == LAYER_EDIT ? 2u : 1u))
+        ;                                               /* .. LFO, EDIT: a route's tap (LIVE VIZ CTRLS) */
     else if (lytap)                                     /* a layer's button acts on release (held: the layer) */
         layer_tap(lytap);
     if (UMB_ON && umt.on && seq == BT_TAP)              /* (UMBRA OBSCURA) TOTALITY: SEQ the words at the foot, no page */
@@ -2974,6 +2979,8 @@ static void ui_input_frame(void)
         if (!((pressed >> id) & 1u))
             continue;
         b = panel_btn_of(id);
+        if (UMB_ON && umt.on && b == B_ENV && umt_shown() && umq_tap(0))   /* (UMBRA OBSCURA) TOTALITY: ENV, a route's tap */
+            continue;
         switch (b) {
         case B_PLAY:
             if (layer_play() || tl_play())              /* (GLO held: RESTART; V10.6o TIMELINE: the row loops) */
@@ -3015,7 +3022,7 @@ static void ui_input_frame(void)
         case B_OCTDN:
         case B_OCTUP: {
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
-            if (act_cols() || layer_set_open() || gen_on() || umw_on())   /* action pages: enter / back (below); SET
+            if (act_cols() || layer_set_open() || gen_on() || umw_on() || umk_on())   /* action pages: enter / back (below); SET
                                                          * layers: OCT-; GEN; (UMBRA OBSCURA) WELCOME: its pages */
                 break;
             if (live_page())                            /* (p2) LIVE: OCT- RETURN / held BYPASS, OCT+ COMMIT */
