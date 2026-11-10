@@ -89,7 +89,7 @@ static uint32_t oct_leds(void)
 {
     if (UMB_ON && umw_on())                             /* ((UMBRA OBSCURA) WELCOME: OCT+ the next page, breathing; on the
                                                          * last both, which take it away held together) */
-        return umw_pg == UMW_NP - 1u ? OCT_BREATH | OCT_BREATH_DN : OCT_BREATH;
+        return umw_pg == UMW_NP - 1u ? OCT_BREATH_DN : OCT_BREATH;   /* (the last page: OCT- alone, which held takes it away) */
     if (name_on() && !ui.confirm && !ui.menu)           /* NAME: OCT- cancels, OCT+ (breathing) writes */
         return 1u | OCT_BREATH;
     if (layer_set_open())                               /* a SET layer: OCT± do nothing (TONIC: no put back); */
