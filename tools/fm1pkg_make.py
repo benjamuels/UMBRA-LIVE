@@ -187,11 +187,24 @@ def bt_check(bt):
             raise SystemExit(f"bt.bin has an update-record look-alike at {BT_BASE + s - 0x100:#x}")
 
 
-def ufw(flash, ota, product, bt=None):
+# (UMBRA OBSCURA) the plate bank's first slots (tools/build.py plate_bank): whole 8 KiB slots from slot 0, each a plate
+# linked for its slot with its record. The update loader (ldr_core.c 3c) writes them at flash 0xB8000
+PL_TYPE, PL_SLOT, PL_ROOM, PL_MAGIC = 201, 0x2000, 0x20000, 0x544C5055
+
+
+def plates_check(pl):
+    if not pl or len(pl) % PL_SLOT or len(pl) > PL_ROOM or struct.unpack_from("<I", pl)[0] != PL_MAGIC:
+        raise SystemExit(f"plates.bin: {len(pl)} B: whole 8 KiB slots, at most 16, a plate first")
+
+
+def ufw(flash, ota, product, bt=None, plates=None):
     files = [(0, "flash.bin", flash), (100, "ota.bin", ota)]
     if bt:
         bt_check(bt)
         files.append((BT_TYPE, "bt.bin", bt))
+    if plates:
+        plates_check(plates)
+        files.append((PL_TYPE, "plates.bin", plates))
     off, ents, data = 0x400, [], bytearray()
     for i, (typ, name, d) in enumerate(files):
         off = (off + 0xFF) & ~0xFF
@@ -239,10 +252,12 @@ def main():
     ap.add_argument("--key", type=lambda s: int(s, 0), default=KEY)
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     ap.add_argument("--bt", type=Path, help="the Bluetooth segment (build/bt.bin), a third entry")
+    ap.add_argument("--plates", type=Path, help="(UMBRA OBSCURA) the plate bank's first slots (build/plates.bin)")
     a = ap.parse_args()
     global SDK
     SDK = a.sdk
-    pkg = ufw(flash_image(a.app.read_bytes(), a.key), a.ota.read_bytes(), a.product, a.bt.read_bytes() if a.bt else None)
+    pkg = ufw(flash_image(a.app.read_bytes(), a.key), a.ota.read_bytes(), a.product, a.bt.read_bytes() if a.bt else None,
+              a.plates.read_bytes() if a.plates else None)
     a.out.write_bytes(pkg)
     print(f"package {a.out}: {len(pkg)} B, identity {a.product}, chip key {a.key:#06x}")
 

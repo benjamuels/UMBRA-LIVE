@@ -21,6 +21,7 @@ import re
 import shutil
 import struct
 import subprocess
+import zlib
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -656,6 +657,32 @@ def plate_files():
     print(f"plates: {', '.join(made)} -> build/plates/")
 
 
+# (UMBRA OBSCURA) the plates an install brings: build/plates.bin, the bank's first slots as the FM-1 would hold them after
+# the plates page had sent each (src/umb_slot.c): slot i's plate linked for it (its listed words moved i slots on), 0xFF up
+# to the slot's last 32 bytes, there its record ("UPSL", the image's length, its CRC-32, the rest 0xFF). The update loader
+# writes them at flash 0xB8000 (ldr_core.c 3c), so a fresh install has every plate; the slots after them are left alone
+BANK_PLATES = ["cinder", "saros", "filament", "granule", "tarn"]
+
+
+def plate_slot(f, i):
+    """plate file f as slot i holds it (8 KiB)"""
+    n, magic, ln = struct.unpack_from("<III", f, len(f) - 12)
+    if magic != PLATE_RELOC or ln + 4 * n + 12 != len(f) or ln > PLATE_ROOM:
+        raise SystemExit("plate file: not one (its tail)")
+    img = bytearray(f[:ln])
+    for w in struct.unpack_from(f"<{n}I", f, ln):
+        struct.pack_into("<I", img, w, (struct.unpack_from("<I", img, w)[0] + i * 0x2000) & 0xFFFFFFFF)
+    return bytes(img) + b"\xFF" * (PLATE_ROOM - ln) + struct.pack("<III", 0x4C535055, ln, zlib.crc32(bytes(img))) + \
+        b"\xFF" * 20
+
+
+def plate_bank():
+    bank = b"".join(plate_slot((OUT / "plates" / f"{name}.plate").read_bytes(), i) for i, name in enumerate(BANK_PLATES))
+    (OUT / "plates.bin").write_bytes(bank)
+    print(f"plate bank: {', '.join(BANK_PLATES)} in slots 1..{len(BANK_PLATES)} -> build/plates.bin ({len(bank)} B)")
+    return bank
+
+
 # (V10.12) the Bluetooth segment (firmware/bt/bt_seg.c, app.ld BTSEG): what the update loader writes at 0xEA000
 BT_BASE, BT_END, BT_HEAD, BT_MAGIC, BT_WANT = 0xEA000, 0xFC000, 32, 0x3154424A, 0x544E5742
 
@@ -907,7 +934,8 @@ def main():
         print("  FAIL ", e)
     if errors:
         raise SystemExit("build: checks failed")
-    pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(img, fm1pkg_make.KEY), ota, PRODUCT, (OUT / "bt.bin").read_bytes())
+    pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(img, fm1pkg_make.KEY), ota, PRODUCT, (OUT / "bt.bin").read_bytes(),
+                          plate_bank())
     (OUT / name).write_bytes(pkg)
     print(f"app      {OUT / 'felucca.bin'}  {len(img)} B")
     print(f"loader   {LDR / 'ota.bin'}  {len(ota)} B")

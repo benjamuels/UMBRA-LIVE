@@ -6,6 +6,7 @@
  *   plate_slot_test image FILE    a valid plate file for this host (its header's layout and pointers as the bank checks
  *                                 them here), linked for slot 0, its entry points listed to move (tools/build.py's
  *                                 format), written to FILE, for the page's test (tests/plate_page_test.mjs)
+ *   plate_slot_test bank FILE N   a bank image of N slots (tools/build.py plate_bank's): each slot checked as the bank does
  *   plate_slot_test serve         SysEx frames in, one hex frame a line on stdin; the replies out, the same way
  * cc -Ifirmware/src -Ifirmware/hal -o plate_slot_test tests/plate_slot_test.c */
 #include <stdint.h>
@@ -165,6 +166,21 @@ int main(int argc, char **argv)
             return 1;
         fclose(f);
         return 0;
+    }
+    if (argc == 4 && !strcmp(argv[1], "bank")) {        /* (tools/build.py plate_bank) a bank image FILE of N slots, as an
+                                                         * install writes it at the bank's start: every slot a plate the
+                                                         * bank runs, the next one empty */
+        FILE *f = fopen(argv[2], "rb");
+        uint32_t n = (uint32_t)atoi(argv[3]), k, okn = 0;
+        memset(nor, 0xFF, sizeof nor);
+        if (!f || fread(nor + UPS_BASE, 1, n * UPS_SIZE, f) != n * UPS_SIZE)
+            return 2;
+        fclose(f);
+        boot_clean = 1;
+        for (k = 0; k < n; k++)
+            okn += ups_check(k) && ups_plate(k) == (const umb_plate_t *)FM1_XIP(UPS_OFF(k));
+        printf("plate bank image: %u of %u slots hold a plate the bank runs; the next one %s\n", okn, n, ups_check(n) ? "NOT EMPTY" : "empty");
+        return okn == n && !ups_check(n) ? 0 : 1;
     }
     if (argc == 2 && !strcmp(argv[1], "serve")) {       /* hex frames a line in, hex replies a line out */
         char ln[8192];

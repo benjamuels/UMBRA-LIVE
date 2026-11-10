@@ -83,9 +83,11 @@ static void ota_commit(const uint8_t *parm) { (void)parm; }
 #include "../firmware/src/ota.c"
 
 static int ldr_fread(uint32_t off, void *p, uint32_t n) { memcpy(p, nor + off, n); return 0; }
+static uint32_t pl_hi;                              /* (UMBRA OBSCURA) the package's plate bank ends here (0: none) */
 static int ldr_erase(uint32_t off)
 {
-    if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu) || (off >= 0x97000u && off < 0xE0000u)) bad_range++;
+    if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu) ||
+        (off >= 0x97000u && off < 0xE0000u && !(off >= 0xB8000u && off < pl_hi))) bad_range++;
     if (off < 0x4000u) { printf("ERASE IN THE HEAD %#x\n", off); exit(1); }
     erases++;
     memset(nor + off, 0xFF, 0x1000);
@@ -97,6 +99,7 @@ static int ldr_prog(uint32_t off, const void *p, uint32_t n)
     uint32_t i;
     if ((off < 0x4000u || off + n > 0x93000u) &&
         !(off >= 0xE8000u && off + n <= 0xE8F00u) &&            /* (V10.10: the stock VM sector put back but its record) */
+        !(off >= 0xB8000u && off + n <= pl_hi) &&               /* ((UMBRA OBSCURA) the plate bank's first slots) */
         !(off >= 0xEA000u && off + n <= 0xFC000u)) bad_range++;  /* (V10.12: the Bluetooth segment) */
     if (((off & 0xFFu) + n) > 256u) bad_range++;
     for (i = 0; i < n; i++) nor[off + i] &= s[i];
@@ -139,7 +142,10 @@ static uint32_t flash_off(const uint8_t *lg)        /* flash.bin offset in the l
 }
 
 /* (V10.12) the "bt.bin" entry (type 200): its offset in the logical image and its length, 0 if none */
-static uint32_t bt_entry(const uint8_t *lg, uint32_t *len)
+static uint32_t pk_entry(const uint8_t *lg, uint32_t *len, uint32_t type, const char *name);
+static uint32_t bt_entry(const uint8_t *lg, uint32_t *len) { return pk_entry(lg, len, 200, "bt.bin"); }
+/* an entry by its type and name ((UMBRA OBSCURA) "plates.bin", type 201: the plate bank's first slots) */
+static uint32_t pk_entry(const uint8_t *lg, uint32_t *len, uint32_t type, const char *name)
 {
     uint8_t h[0x400];
     uint32_t i, n;
@@ -150,7 +156,7 @@ static uint32_t bt_entry(const uint8_t *lg, uint32_t *len)
     for (i = 0; i < n; i++) {
         uint8_t *e = h + 0x40 + i * 0x50u;
         ota_jl_enc(e, 0x50);
-        if (ota_rd16(e) == 200 && !memcmp(e + 0x40, "bt.bin", 7)) { *len = ota_rd32(e + 12); return ota_rd32(e + 8); }
+        if (ota_rd16(e) == type && !memcmp(e + 0x40, name, strlen(name) + 1u)) { *len = ota_rd32(e + 12); return ota_rd32(e + 8); }
     }
     return 0;
 }
@@ -190,7 +196,7 @@ int main(int argc, char **argv)
     size_t olen;
     static uint8_t user[0x1000], store[0x100000 - 0x93000];
     uint8_t *old, head[0x4000];
-    uint32_t ofo, nfo, i, bto, btl;
+    uint32_t ofo, nfo, i, bto, btl, plo, pll;
     int bad = 0, rc;
     if (argc < 3) { printf("usage: ldr_test OLD.fwsc NEW.fwsc [APP_SLOT]\n"); return 2; }
     old = load_logical(argv[1], &olen);
@@ -198,7 +204,10 @@ int main(int argc, char **argv)
     ofo = flash_off(old);
     nfo = flash_off(logical);
     bto = bt_entry(logical, &btl);
-    printf("  new package: %s\n", bto ? "a Bluetooth segment (bt.bin)" : "no Bluetooth segment");
+    plo = pk_entry(logical, &pll, 201, "plates.bin");
+    pl_hi = plo ? 0xB8000u + pll : 0u;
+    printf("  new package: %s, %s\n", bto ? "a Bluetooth segment (bt.bin)" : "no Bluetooth segment",
+           plo ? "the plate bank's first slots (plates.bin)" : "no plates");
     /* device: OLD installed, plus a valid update record at 0xE4F00 (Felucca's step 1) and 0xE8F00 (the stock
      * firmware's, a first install from it); user sample data in Felucca's store that looks like a record */
     memset(nor, 0xFF, sizeof nor);
@@ -218,6 +227,8 @@ int main(int argc, char **argv)
         memset(store + 0xE4000 - 0x93000, 0xFF, 0x1000);   /* what the install may change: the two record sectors */
         memset(store + 0xE8F00 - 0x93000, 0xFF, 0x100);   /* (V10.10: the stock VM sector kept but its record's 256 B:
                                                          * the radio's RF trims and BT address) */
+        if (plo)                                        /* ((UMBRA OBSCURA) the plate bank's first slots) */
+            memcpy(store + 0xB8000 - 0x93000, logical + plo, pll);
         if (bto) {                                      /* (V10.12) the segment, its last sector's tail 0xFF */
             memset(store + 0xEA000 - 0x93000, 0xFF, (btl + 0xFFFu) & ~0xFFFu);
             memcpy(store + 0xEA000 - 0x93000, logical + bto, btl);
@@ -229,6 +240,14 @@ int main(int argc, char **argv)
         rc = ldr_session();
         bad += check("damaged Bluetooth segment (bt.bin CRC) refused, nothing erased", rc == -16 && erases == 0);
         logical[bto + btl / 2u] ^= 0x01;
+        requests = 0;
+    }
+    if (plo) {                                          /* damaged plates: refused before anything is erased */
+        logical[plo + pll / 2u] ^= 0x01;
+        erases = 0;
+        rc = ldr_session();
+        bad += check("damaged plates (plates.bin CRC) refused, nothing erased", rc == -19 && erases == 0);
+        logical[plo + pll / 2u] ^= 0x01;
         requests = 0;
     }
     /* a damaged package (one byte deep in the app area): refused before anything is erased */
@@ -261,6 +280,9 @@ int main(int argc, char **argv)
     if (bto)
         bad += check("Bluetooth segment at 0xEA000 == the package's bt.bin, then 0xFF to its sector's end",
                      !memcmp(nor + 0xEA000, logical + bto, btl) && nor[0xEA000 + ((btl + 0xFFFu) & ~0xFFFu) - 1u] == 0xFF);
+    if (plo)
+        bad += check("plate bank at 0xB8000 == the package's plates.bin, the slots after it as they were",
+                     !memcmp(nor + 0xB8000, logical + plo, pll) && !memcmp(nor + 0xB8000 + pll, store + 0xB8000 + pll - 0x93000, 0x20000u - pll));
     bad += app_area(argc > 3 ? (uint32_t)strtoul(argv[3], NULL, 0) : 0u);
     /* same package again: nothing to erase */
     erases = 0; requests = 0;

@@ -28,7 +28,7 @@
 static uint8_t vx_bare VX_POOL;                          /* (UMBRA OBSCURA) drawn over a plate (TOTALITY, HOME > BEING): DRUM-X's,
                                                          * PHASE's and LOFI's floors left out */
 #define VX_CODE __attribute__((noinline))                 /* (each creature its own function: its size on its own) */
-#define VX_SEG BTAPP_FN                                  /* (V10.48) LOFI's, ANIMAL's and STRING's creatures in the Bluetooth
+#define VX_SEG BTAPP_FN                                  /* (V10.48) LOFI's, ANIMAL's and STRING's figures (and more: vx_draw) in the Bluetooth
                                                          * segment (the app slot full): without it vx_draw says none (the
                                                          * being instead) */
 #define VX_NE 9                                          /* the creatures: VOICE ANIMAL DRUM-X ANALOG FM6 WHEEL NOISE PHASE LOFI
@@ -927,7 +927,7 @@ static VX_CODE void vx_fm6env(const track_t *t)
  * another, their tail as long as the bar is pulled and widening as it trails. The twist turns only while the organ
  * sounds (the figure's own time). The rotor sways the heads (its real phase), PERC flares the lane it strikes, DUST
  * motes drift */
-static VX_CODE void vx_wheel(const track_t *t, const int32_t *A, int32_t en_home)
+static VX_SEG void vx_wheel(const track_t *t, const int32_t *A, int32_t en_home)
 {
     const int16_t *p = t->p;
     const drw_trk_t *T = &drw_t[drw_part(t)];
@@ -1015,7 +1015,7 @@ static void vx_tilt(int32_t x, int32_t y, int32_t *X, int32_t *Y)   /* a place o
     *X = (x * 30777 + y * 11247) >> 15;                  /* (turned -0.35 rad) */
     *Y = (y * 30777 - x * 11247) >> 15;
 }
-static VX_CODE void vx_noise(const track_t *t, const int32_t *A, int32_t en_home)
+static VX_SEG void vx_noise(const track_t *t, const int32_t *A, int32_t en_home)
 {
     const int16_t *p = t->p;
     vxf_t f = vx_uf(A, 100, 0);
@@ -1284,7 +1284,7 @@ static void vx_cpos(uint32_t s, int32_t *x, int32_t *y)   /* where it is at s (Q
     *y = ((og_sin(vx_ang(s, 10) + 10430u) * 120) >> 15) + ((og_sin(a) * (r * 220 >> 8)) >> 15);
 }
 #define VC_N 20                                          /* the path behind it: points 0.12 s apart */
-static VX_CODE void vx_add(const track_t *t, const int32_t *A, int32_t en_home)
+static VX_SEG void vx_add(const track_t *t, const int32_t *A, int32_t en_home)
 {
     const int16_t *p = t->p;
     vxf_t f = vx_uf(A, 100, 0);
@@ -1436,8 +1436,11 @@ static int vx_draw(const track_t *t, int32_t x, int32_t y, int32_t w, int32_t h,
 {
     const engine_t *e = trk_engp(t);
     int32_t A[4] = {x, y, w, h}, cx = x * 16 + w * 8, cy = y * 16 + h * 8, s;
-    if (!bt_hw_seg() && (e == &ENG_LOFI || e == &ENG_ANIMAL || e == &ENG_STRING || e == &ENG_PHASE))
-        return 0;                                        /* (V10.48: those creatures live in the segment; V10.6g PHASE's too) */
+    if (!bt_hw_seg() && (e == &ENG_LOFI || e == &ENG_ANIMAL || e == &ENG_STRING || e == &ENG_PHASE || e == &ENG_ADD || e == &ENG_WHEEL ||
+                         e == &ENG_NOISE))
+        return 0;                                        /* (V10.48: those figures live in the segment; V10.6g PHASE's too;
+                                                         * (UMBRA OBSCURA) ADD's, WHEEL's and NOISE's: the room the smaller
+                                                         * figures left there, the app slot's kept for the pages) */
     if (e == &ENG_FORMANT) {                             /* (the tract ~80 x 62 units about (-20, 37): the crown off) */
         s = vx_fit(w, h, 124, 94);
         vx_voice(t, cx, cy, s, en_home);

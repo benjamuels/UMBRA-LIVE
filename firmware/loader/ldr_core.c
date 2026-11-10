@@ -20,6 +20,11 @@
  *      as a whole (its entry's CRC16, its header) and by sector like the app area, written the same way at
  *      [0xEA000, 0xEA000 + its length) (plain: the XIP window from 0x93000 up is unencrypted), the last sector's
  *      tail 0xFF; a package without one leaves the region as it is (the app then finds no segment of its build);
+ *   3c. (UMBRA OBSCURA) with a "plates.bin" entry (type 201): the plate bank's first slots as the build made them
+ *      (tools/build.py plate_bank: whole 8 KiB slots from slot 0, each a plate linked for its slot with its record),
+ *      checked and written as the Bluetooth segment is, at [0xB8000, 0xB8000 + its length), inside the bank
+ *      [0xB8000, 0xD8000) (src/umb_slot.c: JIANT's projects 5..8, retired for it). The slots past its length are
+ *      left as they are; a package without one leaves the bank alone;
  *   4. asks 0xF0000000 ("success"), then invalidates the update record (RAM
  *      and flash: 4K boundary - 256 between 0x93000 and 0xFC000, outside
  *      Felucca's store, where only user data lives) so the SPL boots the new
@@ -45,6 +50,11 @@
 #define LDR_BT_TYPE 200u                        /* its UFW entry, "bt.bin" */
 #define LDR_BT_MAGIC 0x3154424Au                /* "JBT1": its header's first word (firmware/bt/bt_seg.c bt_head) */
 #define LDR_BT_NSEC ((LDR_BT_HI - LDR_BT_LO) >> 12)
+#define LDR_PL_LO 0xB8000u                      /* (UMBRA OBSCURA) the plate bank (src/umb_slot.c UPS_BASE, 16 slots of 8 KiB) */
+#define LDR_PL_HI 0xD8000u
+#define LDR_PL_TYPE 201u                        /* its UFW entry, "plates.bin" */
+#define LDR_PL_MAGIC 0x544C5055u                /* "UPLT": a plate's header's first word (src/umb_plate.h) */
+#define LDR_PL_NSEC ((LDR_PL_HI - LDR_PL_LO) >> 12)
 
 static int ldr_fread(uint32_t off, void *p, uint32_t n);
 static int ldr_erase(uint32_t off);
@@ -116,15 +126,17 @@ static int ldr_check(uint32_t fl_off, uint32_t fl_size, uint32_t want, uint16_t 
 
 /* (V10.12) 2b for the Bluetooth segment: [off, off + len) of the package, its CRC16 the entry's (want), its header's
  * magic; sc gets each sector's CRC16 with the last one's tail 0xFF, as it is written */
-static int ldr_check_bt(uint32_t off, uint32_t len, uint32_t want, uint16_t *sc, uint8_t *b)
+/* ((UMBRA OBSCURA) the plate bank's slots the same way: magic its first word, err the code for a wrong one, err - 1
+ * for a wrong CRC16) */
+static int ldr_check_bt(uint32_t off, uint32_t len, uint32_t want, uint16_t *sc, uint8_t *b, uint32_t magic, int err)
 {
     uint32_t i, n, crc = 0;
     for (i = 0; i < len; i += n) {
         n = len - i > 512u ? 512u : len - i;
         if (ota_read(off + i, b, n))
             return -7;
-        if (!i && ota_rd32(b) != LDR_BT_MAGIC)
-            return -15;                                  /* not a segment */
+        if (!i && ota_rd32(b) != magic)
+            return err;                                  /* not a segment (-15), not a plate (-18) */
         crc = ota_crc16(b, n, crc);
         sc[i >> 12] = (uint16_t)ota_crc16(b, n, (i & 0xFFFu) ? sc[i >> 12] : 0u);
     }
@@ -134,7 +146,7 @@ static int ldr_check_bt(uint32_t off, uint32_t len, uint32_t want, uint16_t *sc,
         n = 512u - (i & 511u);
         sc[i >> 12] = (uint16_t)ota_crc16(b, n, sc[i >> 12]);
     }
-    return crc == want ? 0 : -16;
+    return crc == want ? 0 : err - 1;
 }
 
 /* 3. one sector: [src, src + n) of the package (n <= 4 KiB, the rest 0xFF) as checked in 2b (want), else read again;
@@ -179,9 +191,9 @@ static int ldr_sector(uint32_t dst, uint32_t src, uint32_t n, uint32_t want, uin
 static int ldr_session(void)
 {
     static uint8_t hdr[0x400], sec[0x1000], cur[0x1000];
-    static uint16_t sc[LDR_NSEC], bsc[LDR_BT_NSEC];
+    static uint16_t sc[LDR_NSEC], bsc[LDR_BT_NSEC], psc[LDR_PL_NSEC];
     uint32_t i, k, fl_off, fl_size, ota_off, ota_len, key, s, want = ~0u, done = 0;   /* (no CRC16: no flash.bin entry) */
-    uint32_t bt_off = 0, bt_len = 0, bt_want = 0;
+    uint32_t bt_off = 0, bt_len = 0, bt_want = 0, pl_off = 0, pl_len = 0, pl_want = 0;
     int rc;
     /* 1. UFW header + entry list (ota.c; it leaves the entries decoded in hdr) */
     if ((rc = ota_ufw(hdr, &fl_off, &fl_size, &ota_off, &ota_len)) != 0)
@@ -197,7 +209,14 @@ static int ldr_session(void)
             bt_len = ota_rd32(e + 12);
             bt_want = ota_rd16(e + 4u);
         }
+        if (ota_rd16(e) == LDR_PL_TYPE && ota_memeq(e + 0x40, (const uint8_t *)"plates.bin", 11)) {
+            pl_off = ota_rd32(e + 8);                    /* (UMBRA OBSCURA) the plate bank's first slots */
+            pl_len = ota_rd32(e + 12);
+            pl_want = ota_rd16(e + 4u);
+        }
     }
+    if (pl_off && (!pl_len || (pl_len & 0x1FFFu) || pl_len > LDR_PL_HI - LDR_PL_LO))
+        return -17;                                      /* (whole slots, inside the bank) */
     if (bt_off && (bt_len <= 32u || bt_len > LDR_BT_HI - LDR_BT_LO))
         return -14;
     /* 2. the package's app area must decrypt with this chip's key */
@@ -211,14 +230,16 @@ static int ldr_session(void)
     /* 2b. the whole package first: nothing is erased for a damaged one */
     if ((rc = ldr_check(fl_off, fl_size, want, sc, sec)) != 0)
         return rc;
-    if (bt_off && (rc = ldr_check_bt(bt_off, bt_len, bt_want, bsc, sec)) != 0)
+    if (bt_off && (rc = ldr_check_bt(bt_off, bt_len, bt_want, bsc, sec, LDR_BT_MAGIC, -15)) != 0)
+        return rc;
+    if (pl_off && (rc = ldr_check_bt(pl_off, pl_len, pl_want, psc, sec, LDR_PL_MAGIC, -18)) != 0)
         return rc;
     /* 3. app area, sector by sector */
     for (s = LDR_APP_LO; s < LDR_APP_HI; s += 0x1000u) {
         if ((rc = ldr_sector(s, fl_off + s, 0x1000u, sc[(s - LDR_APP_LO) >> 12], sec, cur)) != 0)
             return rc;
         done += 0x1000u;
-        ldr_progress(done, LDR_APP_HI - LDR_APP_LO + ((bt_len + 0xFFFu) & ~0xFFFu));
+        ldr_progress(done, LDR_APP_HI - LDR_APP_LO + ((bt_len + 0xFFFu) & ~0xFFFu) + pl_len);
     }
     /* 3b. (V10.12) the Bluetooth segment, after the app (a segment that does not match the app is never called) */
     for (k = 0; bt_off && k < bt_len; k += 0x1000u) {
@@ -226,7 +247,14 @@ static int ldr_session(void)
                              cur)) != 0)
             return rc;
         done += 0x1000u;
-        ldr_progress(done, LDR_APP_HI - LDR_APP_LO + ((bt_len + 0xFFFu) & ~0xFFFu));
+        ldr_progress(done, LDR_APP_HI - LDR_APP_LO + ((bt_len + 0xFFFu) & ~0xFFFu) + pl_len);
+    }
+    /* 3c. (UMBRA OBSCURA) the plate bank's first slots */
+    for (k = 0; pl_off && k < pl_len; k += 0x1000u) {
+        if ((rc = ldr_sector(LDR_PL_LO + k, pl_off + k, 0x1000u, psc[k >> 12], sec, cur)) != 0)
+            return rc;
+        done += 0x1000u;
+        ldr_progress(done, LDR_APP_HI - LDR_APP_LO + ((bt_len + 0xFFFu) & ~0xFFFu) + pl_len);
     }
     /* 4. finish: the host confirms, the record goes, the SPL boots the app */
     for (i = 0; i < 4u; i++)

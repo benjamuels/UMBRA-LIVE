@@ -385,6 +385,21 @@ static const char *umb_pname(uint32_t pl)              /* plate pl's name, as th
     const umb_plate_t *p;
     return pl < UMP_NPL ? UMV_PL[pl] : (p = umb_mod(pl)) != 0 ? p->name : "";
 }
+/* (SAVE's library, ui_lzsave.c) the bank's slot i: its plate's name ("": none); *cur: it is the plate drawn now. (The
+ * emulator and the host tests have no bank, every plate built in: shown as an install leaves it, tools/build.py
+ * BANK_PLATES) */
+static const char *umb_bank(uint32_t i, int *cur)
+{
+#if UMB_RESIDENT
+    static const uint8_t BK[5] = {0, 1, 2, 3, 5};
+    *cur = i < 5u && umb_pl() == BK[i];
+    return i < 5u ? UMV_PL[BK[i]] : "";
+#else
+    const umb_plate_t *p = ups_plate(i);
+    *cur = p && umb_mod(umb_pl()) == p;
+    return p ? p->name : "";
+#endif
+}
 static const char *umb_cname(uint32_t pl, uint32_t t)  /* .. its control t's (0..2) */
 {
     const umb_plate_t *p;
