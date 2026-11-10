@@ -309,10 +309,7 @@ static void organ(uint32_t k, int32_t cx, int32_t cy)
 static void being_fig(uint32_t c, int32_t cx, int32_t cy, int32_t k)
 {
     const genome_t *g = eco_genome(c);
-    const engine_t *e = trk_engp(&trk[c]);
     bfeat_t f;
-    if (e == &ENG_ANIMAL || e == &ENG_LOFI)             /* (UMBRA OBSCURA) the bird / insect / mammal and the caterpillar */
-        k = k * 3 / 4;                                  /* a quarter smaller, as the others */
     eco_feat(c, &f, 2);
     if (vx_draw(&trk[c], cx - 73 * k / 16, cy - 56 * k / 16, 146 * k / 16, 112 * k / 16, eco_off(c) ? 0 : eco.en[c]))
         ;                                           /* (0.9.4 / 0.9.6: the engines' own creatures, ui_engvis.c) */

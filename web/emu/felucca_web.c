@@ -553,6 +553,8 @@ EXPORT void web_gen(uint32_t genre, uint32_t seed, uint32_t energy, uint32_t for
     gen_go();
     gp.sig = gen_sig();
 }
+EXPORT void web_set_eng(uint32_t i, uint32_t e) { set_engine_of(&trk[i % NTRK], e); }   /* (UMBRA OBSCURA) a track's engine: the bodies' checks */
+EXPORT void web_sel(uint32_t i) { song.sel = (uint8_t)(i % NTRK); }   /* (UMBRA OBSCURA) the track selected: the harness's */
 EXPORT const char *web_gen_last(void) { return gp.last; }
 EXPORT uint32_t web_gen_count(void) { return NGENRE; }
 EXPORT const char *web_gen_name(uint32_t i) { return GENRE[i % NGENRE].name; }
