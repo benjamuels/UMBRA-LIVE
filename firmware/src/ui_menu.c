@@ -35,7 +35,7 @@ static void draw_about_qr(int32_t x, int32_t y)
  * text, 1 theme, 2 mid) + 3 x the gap before it / 4 px), its text, a zero; a zero ends the list. The URLs without
  * "https://" (as they were shown) */
 #define MENU_DOC_H 196                                /* the document: screen rows 24..220 */
-/* (UMBRA OBSCURA) the fork's release: its number and its name, MENU > ABOUT's first lines (the JIANT it is built on:
+/* (UMBRA LIVE) the fork's release: its number and its name, MENU > ABOUT's first lines (the JIANT it is built on:
  * FELUCCA_VERSION, beside them) */
 #ifndef UMBRA_RELEASE
 #define UMBRA_RELEASE "1.0"
@@ -43,25 +43,28 @@ static void draw_about_qr(int32_t x, int32_t y)
 #ifndef UMBRA_NAME
 #define UMBRA_NAME "FIRST CONTACT"
 #endif
-/* (UMBRA OBSCURA) what UMBRA is, beside JIANT, as ABOUT_PROJECT's lines (on V10.7.6 in the Bluetooth segment as they are:
+/* (UMBRA LIVE) what UMBRA is, beside JIANT, as ABOUT_PROJECT's lines (on V10.7.6 in the Bluetooth segment as they are:
  * the app slot is full) */
 static const char ABOUT_UMBRA[] BTAPP_RO =
     "\001A live-visuals fork of JIANT FM for AV sets: all of JIANT's instrument (its sound engines, sequencer, effects, songs) "
     "as it is, with generative visuals played by the notes in place of HOME's ecosystem.\0"
     "\005ADDED\0"
     "\001HOME > WELCOME: this guide (MENU > SYSTEM > WELCOME brings it back).\0"
-    "\001HOME > UMBRA: LIVE AUDIO CTRLS (the macros M1..M4 sent to the sound), LIVE VIZ CTRLS (ten routes from the macros, "
-    "the notes, the LFOs, the steps, the level and the beat to the picture), BEING, ROUTES.\0"
-    "\001TOTALITY: HOME tapped on HOME, the plate over the whole screen. SELECT the plates, KNOB 1..4 the macros, FX tapped: "
-    "the visual effects, SCL tapped: the track's being, SEQ tapped: the words. FX, SCL, LFO, EDIT, GLO held: their keys as "
-    "ever, the plate stays.\0"
-    "\001Plates: CORONA built in; CINDER, SAROS, FILAMENT, GRANULE, TARN and new ones in a bank of 16, loaded from the plates "
-    "page.\0"
+    "\001HOME > UMBRA: LIVE AUDIO CTRLS (the macros M1..M4 sent to the sound), LIVE VIZ CTRLS (every plate's own elements: "
+    "each one's value, the tracks whose notes drive it, and as many links as it takes from KNOB 1..4, taps, the notes, the "
+    "LFOs, the steps, the level and the beat), BEING, ROUTES.\0"
+    "\001TOTALITY: HOME tapped on HOME, the picture over the whole screen. SELECT the ground's plate, KNOB 1..4 the macros, "
+    "FX tapped: the visual effects, SCL tapped: the layers hidden or back, SEQ tapped: the words. FX, SCL, LFO, EDIT, GLO "
+    "held: their keys as ever, the picture stays.\0"
+    "\001Plates: twelve. CORONA built in; CINDER, SAROS, FILAMENT, GRANULE, TARN and six in line art (BEACON, ZODIAC, SONAR, "
+    "MOTHS, MARSH, PACHINKO) come with the install, in a bank of 16 the plates page can add to.\0"
+    "\001Layers: up to three over the ground, set on each plate's page in LIVE VIZ CTRLS (WHERE). The line-art plates, SAROS "
+    "and FILAMENT lie on one; so do BODIES (the engines' figures) and BEINGS (JIANT's beings).\0"
     "\005LEFT OUT FOR THE ROOM\0"
-    "\001HOME's ecosystem and beings, projects 5..8 (their flash is the plate bank), USB audio input, USB host, the serial "
+    "\001HOME's ecosystem and the engines' creatures, projects 5..8 (their flash is the plate bank), USB audio input, USB host, the serial "
     "console.\0"
     "\005PLATES PAGE, EMULATOR\0"
-    "\003benjamuels.github.io/UMBRA-OBSCURA\0"
+    "\003benjamuels.github.io/UMBRA-LIVE\0"
     "\001UMBRA's reports are its own: please never send them to JIANT's author.\0"
     "\005JIANT FM\0"
     "\001Everything else here is Juan Jiant's: his project, its credits and its licences follow.\0";
@@ -267,7 +270,7 @@ BTAPP_FN static int32_t about_load(int32_t y, int draw)
     }
     return y;
 }
-BTAPP_FN static int32_t umb_about(int32_t y, int draw)           /* (UMBRA OBSCURA) ABOUT_UMBRA's lines (menu_lines' kinds) */
+BTAPP_FN static int32_t umb_about(int32_t y, int draw)           /* (UMBRA LIVE) ABOUT_UMBRA's lines (menu_lines' kinds) */
 {
     const char *s;
     for (s = ABOUT_UMBRA; *s; s += str_len(s) + 1u) {
@@ -278,8 +281,8 @@ BTAPP_FN static int32_t umb_about(int32_t y, int draw)           /* (UMBRA OBSCU
 }
 static int32_t menu_document(int32_t y, int draw)
 {
-    if (draw) {                                         /* (UMBRA OBSCURA) the fork first: its release, the JIANT under it */
-        cv_text(6, y + 2, &AF_M, "UMBRA OBSCURA", T_THEME);
+    if (draw) {                                         /* (UMBRA LIVE) the fork first: its release, the JIANT under it */
+        cv_text(6, y + 2, &AF_M, "UMBRA LIVE", T_THEME);
         cv_text(6, y + 28, &AF_S, UMBRA_RELEASE " \xB7 " UMBRA_NAME, T_TEXT);
         cv_text(6, y + 46, &AF_S, "Built on JIANT FM " FELUCCA_VERSION, T_TEXT);
         cv_text(6, y + 64, &AF_S, "Built " __DATE__, T_MID);
@@ -615,7 +618,7 @@ static __attribute__((noinline)) void draw_menu(void)
         }
         cv_begin(240, 240 - (H_HEAD + MENU_DOC_H), T_BG);
         {
-            static const khint_t KH[2] = {{KC_ALGO, "SCROLL"}, {KC_OCTDN, "BACK"}};   /* ((UMBRA OBSCURA) ALGORITHM) */
+            static const khint_t KH[2] = {{KC_ALGO, "SCROLL"}, {KC_OCTDN, "BACK"}};   /* ((UMBRA LIVE) ALGORITHM) */
             cv_key_row(8, 232, 4, KH, 2, 3u, T_BG);
         }
         cv_blit(0, H_HEAD + MENU_DOC_H);
@@ -684,7 +687,7 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         enc_drop();
         return;
     }
-    if (ui.menu == 2) {                                /* ABOUT: ALGORITHM scrolls (bounded; (UMBRA OBSCURA) the lists' knob,
+    if (ui.menu == 2) {                                /* ABOUT: ALGORITHM scrolls (bounded; (UMBRA LIVE) the lists' knob,
                                                          * was SELECT), OCT- back to the tabs */
         if (dn)
             ui.menu = 1, ui.force = 1;
@@ -693,7 +696,7 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         enc_drop();
         return;
     }
-    if ((s = panel_enc(EN_SELECT)) != 0)                /* ((UMBRA OBSCURA, the user 2026-11-09) SELECT: the tabs, right and */
+    if ((s = panel_enc(EN_SELECT)) != 0)                /* ((UMBRA LIVE, the user 2026-11-09) SELECT: the tabs, right and */
         menu_tab_go(s);                                 /* left, as it walks the pages; was every row, a tab ALGORITHM's) */
     ui.mlv = 1;                                         /* (the tab's rows) */
     if ((s = panel_enc(EN_ALGO)) != 0) {                /* .. ALGORITHM: up and down the tab's rows, as it does a list */

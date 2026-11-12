@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
-/* (UMBRA OBSCURA) a plate file (tools/build.py plate_files; src/umb_plate.h): a plate built alone, linked for the plate
+ * Copyright (C) 2026 UMBRA LIVE contributors */
+/* (UMBRA LIVE) a plate file (tools/build.py plate_files; src/umb_plate.h): a plate built alone, linked for the plate
  * bank's slot 0, flash 0xB8000 (src/umb_slot.c UPS_BASE; build.py links it again for slot 15 to find the words the page
  * moves for another slot), read where it lies through the plain XIP window (hal/fm1_xip.h FM1_XIP:
  * 0x02000000 + off - 0x4000). Its header (umb_plate_t, section .umb_head) first; code and constants only: its state is

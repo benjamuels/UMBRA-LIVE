@@ -741,7 +741,7 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         vf = &AF_S;
     sig = (uint8_t)str_hash(str_hash(song.sel + TSEL->eng_req * 4u + ux.gen * 64u + lz_on() * 16u, label), unit);
     snap = ui.force || sig != ui.roll[c].sig;           /* what the value is of: label, unit, track, engine, palette */
-    keep = snap && !UI_SNAP && sig == ui.roll[c].sig;   /* (UMBRA OBSCURA: the mirror's repaint round: drawn whole, the roll
+    keep = snap && !UI_SNAP && sig == ui.roll[c].sig;   /* (UMBRA LIVE: the mirror's repaint round: drawn whole, the roll
                                                          * kept) */
     if (kind == LK_TALL)
         ui.roll[c].from[0] = 0;                         /* (a tall card: no rolling digits) */
@@ -1177,7 +1177,7 @@ static int clip_tag(char *b)
 static __attribute__((noinline)) void draw_crumbs(int32_t y, uint16_t fg, uint16_t last)
 {
     char cnt[8], ct[8];
-    int32_t cw = crumb_count(cnt), mx = cw ? 234 - cw - 6 : 234;   /* ((UMBRA OBSCURA) 6 px before the count, as before
+    int32_t cw = crumb_count(cnt), mx = cw ? 234 - cw - 6 : 234;   /* ((UMBRA LIVE) 6 px before the count, as before
                                                          * the clipboard's: "MACROS - VISUALS" whole after four banks' dots) */
     char b[48];
     uint32_t i, k = 0;
@@ -1362,11 +1362,11 @@ static void draw_columns(void)
         }
         return;
     }
-    if (umk_on()) {                                     /* (UMBRA OBSCURA) MACROS - AUDIO / VISUALS: the route's columns */
+    if (umk_on()) {                                     /* (UMBRA LIVE) MACROS - AUDIO / VISUALS: the route's columns */
         umk_cards();
         return;
     }
-    if (UMB_ON && home_bare()) {                        /* (UMBRA OBSCURA) WELCOME: no knobs, the */
+    if (UMB_ON && home_bare()) {                        /* (UMBRA LIVE) WELCOME: no knobs, the */
         if (hud_home() || ui.force || ui.col[0][0] || ui.col[1][0] || ui.col[2][0] || ui.col[3][0]) {   /* row the plate */
             for (c = 0; c < 4u; c++) {                  /* (HUD, AIR: every frame) or bare, again when a card was drawn */
                 ui.col[c][0] = 0;                       /* over it (a layer's); the cards drawn whole when they come */
@@ -1930,7 +1930,7 @@ static void draw_columns(void)
 #include "ui_signature.h"
 #define SPL_WRITE 800u                              /* ms: the signature written (was 900; 0.6.51: 600 -> 800) */
 #define SPL_HOLD 900u                               /* .. then shown whole, before the UI (was 1100; 0.6.51: 500 -> 900) */
-#define UMB_SPLASH 0                                /* (UMBRA OBSCURA) not the signature: its welcome, an eclipse
+#define UMB_SPLASH 0                                /* (UMBRA LIVE) not the signature: its welcome, an eclipse
                                                      * (ui_umbra_field.c umb_welcome; MENU > ANIM OFF: held still) */
 #define SPL_TIME (UMB_SPLASH ? SPL_WRITE + SPL_HOLD : UMW_T)   /* ms the splash is up (main.c, web/emu) */
 #define SPL_SY 40                                   /* the signature's canvas on the screen (240 x SIG_H + 12) */
@@ -1963,7 +1963,7 @@ static void draw_splash(void)
     lcd_fill(0, 0, 240, 240, T_BG);
     if (!UMB_SPLASH) {
         if (ui_prefs & PREF_ANIM_OFF)
-            umb_welcome(3000u);                     /* (UMBRA OBSCURA: still, its totality) */
+            umb_welcome(3000u);                     /* (UMBRA LIVE: still, its totality) */
         lcd_sync();
         return;
     }
@@ -1983,7 +1983,7 @@ static void splash_write(uint32_t ms)
     if (!spl_anim || (ui_prefs & PREF_ANIM_OFF))
         return;
     if (!UMB_SPLASH)
-        umb_welcome(ms);                            /* (UMBRA OBSCURA) */
+        umb_welcome(ms);                            /* (UMBRA LIVE) */
     else
         splash_sig(ms >= SPL_WRITE ? SIG_N : SIG_N * ms / SPL_WRITE);   /* (V10.6n: solid as it writes, the owner) */
     lcd_sync();
@@ -2427,7 +2427,7 @@ static void ui_draw_body(uint32_t counting)
         return;
     }
     if ((ui.layer || mac_latch) && !(UMB_ON && umt_ly())) {   /* a layer's map over the page (ui_layer.c); (JIANT 0.4) the MACRO
-                                                         * ((UMBRA OBSCURA) in TOTALITY FX, SCL, LFO, EDIT, GLO held: none,
+                                                         * ((UMBRA LIVE) in TOTALITY FX, SCL, LFO, EDIT, GLO held: none,
                                                          * the plate stays, ui_umbra_tot.c umt_ly); the MACRO
                                                          * layer latched: its cards (no layer open) */
         uint8_t hm = !ui.layer;
@@ -2470,7 +2470,7 @@ static void ui_draw_body(uint32_t counting)
         page_entered();
     }
     cursor_fix();
-    if (UMB_ON && umb_bare()) {                         /* (UMBRA OBSCURA) TOTALITY: the visual alone (ui_umbra_tot.c) */
+    if (UMB_ON && umb_bare()) {                         /* (UMBRA LIVE) TOTALITY: the visual alone (ui_umbra_tot.c) */
         umb_full();
         if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {
             str_cpy(ui.msg, ui.msg2, sizeof ui.msg);

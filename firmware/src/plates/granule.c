@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
+ * Copyright (C) 2026 UMBRA LIVE contributors */
 /* GRANULE as a plate module (umb_plate.h; moved out of ui_umbra_field.c unchanged, pixel for pixel): the sun's surface.
  * 12 x 12 granules (a granule and a profile byte each 4 x 4 px block: lanes dark, hearts bright), each glowing faintly; a
  * note lights its own (its place on the circle of fifths and its octave across, its track's band down) in its track's
- * colour; the kick a cluster, the snare three, the hats bright points in the lanes. Controls: BOIL (how often a granule
- * dies and is born nearby, its neighbourhood remapped), FADE, GLOW (the glow at rest). */
+ * colour; the kick a cluster, the snare three, the hats bright points in the lanes. Elements: BOIL (how often a granule
+ * dies and is born nearby, its neighbourhood remapped), FADE, GLOW (the glow at rest); GRAIN (the notes that are no drum),
+ * BURST (the kick's cluster, the snare's three), POINT (the rest of the kit): each as hard as its value, its tracks LIVE
+ * VIZ CTRLS' to choose. */
 #include "plate_lib.h"
 
 #define PLG_G 12u                                       /* 12 x 12 granules .. */
@@ -108,12 +110,12 @@ static void plg_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     plg_t *s = st;
     uint32_t g, c = nt->track, n = nt->note, lane = nt->lane, o = n / 12u,
              nt6 = cx->tracks < 1u ? 1u : cx->tracks > UMB_NTRK ? UMB_NTRK : cx->tracks;
-    int32_t v = nt->vel ? (int32_t)nt->vel * 2 + 1 : 0;
+    int32_t v;
     const uint8_t *col = a->colour[nt->drum ? PL_LANE_POS[lane] : (c * 3u) % 8u];
-    if (!v)
+    if (!nt->vel)
         return;
-    if (nt->drum) {
-        if (!lane) {                                    /* the kick: a cluster */
+    if ((v = pl_drive(cx, 4u, nt, nt->drum && lane < 3u)) != 0) {   /* BURST */
+        if (!lane) {                                    /* the kick (and what is no drum): a cluster */
             uint32_t row = 3u + pl_rnd(&s->rs) % 7u;
             g = plg_at(nt, row, 2u + pl_rnd(&s->rs) % 8u);
             plg_light(s, g, 102 + ((205 * v) >> 8), col);
@@ -121,19 +123,20 @@ static void plg_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             plg_light(s, g + 1u, (90 * v) >> 8, col);
             plg_light(s, g - PLG_G, (90 * v) >> 8, col);
             plg_light(s, g + PLG_G, (90 * v) >> 8, col);
-        } else if (lane < 3u)                           /* the snare, the clap: three */
+        } else                                          /* the snare, the clap: three */
             for (g = 0; g < 3u; g++)
                 plg_light(s, pl_rnd(&s->rs) % PLG_N, 128 + ((102 * v) >> 8), col);
-        else {                                          /* the rest: a bright point in a lane (between two hearts) */
-            uint32_t p = pl_rnd(&s->rs) % PLG_N, b = p % PLG_G < PLG_G - 1u ? p + 1u : p - 1u, i = s->nb++ % PLG_NB;
-            s->bx[i] = (uint8_t)((s->sx[p] + s->sx[b]) >> 1);
-            s->by[i] = (uint8_t)((s->sy[p] + s->sy[b]) >> 1);
-            s->bv[i] = (uint8_t)v;
-            s->bc[i] = (uint8_t)lane;
-            s->bt[i] = cx->now;
-        }
-        return;
     }
+    if ((v = pl_drive(cx, 5u, nt, nt->drum && lane >= 3u)) != 0) {   /* POINT: a bright point in a lane (between two hearts) */
+        uint32_t p = pl_rnd(&s->rs) % PLG_N, b = p % PLG_G < PLG_G - 1u ? p + 1u : p - 1u, i = s->nb++ % PLG_NB;
+        s->bx[i] = (uint8_t)((s->sx[p] + s->sx[b]) >> 1);
+        s->by[i] = (uint8_t)((s->sy[p] + s->sy[b]) >> 1);
+        s->bv[i] = (uint8_t)v;
+        s->bc[i] = (uint8_t)lane;
+        s->bt[i] = cx->now;
+    }
+    if (!(v = pl_drive(cx, 3u, nt, !nt->drum)))         /* GRAIN */
+        return;
     g = plg_at(nt, (c * PLG_G / nt6 + (o & 1u)) % PLG_G, (pl_fifth(cx, c, n) * 5u + o * 3u) % PLG_G);
     plg_light(s, g, 115 + ((154 * v) >> 8), col);
 }
@@ -210,6 +213,7 @@ static void plg_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
 
 UMB_PLATE_HEAD const umb_plate_t umb_plate_granule = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plg_t), "GRANULE",
-    UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 3u, {0, 0, 0},
-    {{"BOIL", 35}, {"FADE", 45}, {"GLOW", 50}},
-    plg_init, plg_note, plg_frame, plg_draw};
+    UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 6u, {0, 0, 0},
+    {{"BOIL", 35}, {"FADE", 45}, {"GLOW", 50}, {"GRAIN", 50}, {"BURST", 50}, {"POINT", 50}},
+    plg_init, plg_note, plg_frame, plg_draw,
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES}};

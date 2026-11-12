@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
+ * Copyright (C) 2026 UMBRA LIVE contributors */
 /* What the plate modules share (CINDER, GRANULE, TARN, SAROS): their copies of the firmware's plate helpers (ui_umbra.c,
  * ui_umbra_melody.c, ui_umbra_field.c), the same arithmetic step for step, so a plate moved out draws as it did. A plate
  * file is built alone (tools/build.py plate_files): everything here comes with it, nothing reaches the firmware but through
@@ -132,6 +132,14 @@ static int32_t pl_fold(int32_t o, int32_t v, int32_t span)
     v += v < 0 ? p : 0;
     return v > span ? p - v : v;
 }
+/* (API 3) how hard note n drives control j (as a velocity x 2 + 1: 0 .. 255; 0: not at all): by its tracks as LIVE VIZ
+ * CTRLS chose them (umb_lctx_t.et), else own (the plate's own choice); the control's value its strength (50: as played,
+ * 0: never, 99: twice) */
+static __attribute__((noinline)) int32_t pl_drive(const umb_lctx_t *c, uint32_t j, const umb_note_t *n, int own)
+{
+    int32_t v = (c->et[j] ? c->et[j] >> n->track & 1u : (uint32_t)own) ? ((int32_t)n->vel * 2 + 1) * c->k[j] / 50 : 0;
+    return v > 255 ? 255 : v;
+}
 /* the warm tints (CINDER): a track's own (3 yellow, 4 orange; 0: none), as a tint byte: its share (0..127), which (128) */
 static uint32_t pl_tint(uint32_t c) { return c == 2u ? 127u : c == 3u ? 255u : 0u; }
 /* a pixel of light b (0..255) under tint t: its share the tint's colour, the rest the cold palette's */
@@ -160,6 +168,59 @@ static int32_t pl_vrow(const uint8_t *f, int32_t py, int32_t *vv, int32_t m)
         any |= vv[k] = ((r0[k] & m) << 8) + ((r1[k] & m) - (r0[k] & m)) * fy;
     vv[PL_N] = vv[PL_N - 1];
     return any;
+}
+/* ---- line art (the plates light enough for a layer: BEACON, ZODIAC, SONAR, MOTHS, MARSH, PACHINKO) ---- */
+static const uint8_t PL_INK[3] = {120, 226, 214};       /* the game's ink: teal */
+static const uint8_t PL_DEEP[3] = {34, 60, 96};         /* what rests: deep blue */
+static int32_t pl_abs(int32_t v) { return v < 0 ? -v : v; }
+static void pl_clear(const umb_strip_t *s)             /* the ground: black (in ADD: what is under stays) */
+{
+    int32_t i;
+    if (s->mode == UMB_DRAW_REPLACE)
+        for (i = 0; i < s->w * s->h; i++)
+            s->px[i] = 0;
+}
+/* a line from X0, Y0 to X1, Y1 (px, Q8), a (Q8) of colour c: a point a pixel along it, the strip's rows only */
+static __attribute__((noinline)) void pl_line(const umb_strip_t *s, int32_t X0, int32_t Y0, int32_t X1, int32_t Y1, int32_t a,
+                                              const uint8_t *c)
+{
+    int32_t dx = X1 - X0, dy = Y1 - Y0, n = (pl_abs(dx) > pl_abs(dy) ? pl_abs(dx) : pl_abs(dy)) >> 8, k0 = 0, k1, k, sx, sy,
+            ylo = (s->y0 - 1) * 256, yhi = (s->y0 + s->h) * 256;
+    if (a <= 0 || (Y0 < ylo && Y1 < ylo) || (Y0 > yhi && Y1 > yhi))
+        return;
+    n = n < 1 ? 1 : n;
+    sx = dx / n;
+    sy = dy / n;
+    k1 = n;
+    if (sy) {
+        int32_t ka = (ylo - Y0) / sy, kb = (yhi - Y0) / sy;
+        k0 = pl_clamp(ka < kb ? ka : kb, 0, n);
+        k1 = pl_clamp((ka < kb ? kb : ka) + 1, 0, n);
+    }
+    for (k = k0; k <= k1; k++)
+        pl_splat(s, X0 + sx * k, Y0 + sy * k, a, c);
+}
+/* an arc of the circle round X, Y (px, Q8), radius R (px, Q8): from p0 on for span (2^32 a turn; all of it: ~0), a of
+ * colour c, a point a pixel */
+static __attribute__((noinline)) void pl_arc(const umb_strip_t *s, const umb_api_t *ap, int32_t X, int32_t Y, int32_t R, uint32_t p0,
+                                             uint32_t span, int32_t a, const uint8_t *c)
+{
+    int32_t n = (int32_t)(((span >> 20) * (uint32_t)(R >> 8) * 201u) >> 17) + 2, k;
+    uint32_t st = span / (uint32_t)n;
+    if (a <= 0 || Y + R < (s->y0 - 1) * 256 || Y - R > (s->y0 + s->h) * 256)
+        return;
+    for (k = 0; k <= n; k++) {
+        uint32_t ph = p0 + st * (uint32_t)k;
+        pl_splat(s, X + (((R >> 2) * (pl_sine(ap, ph + 0x40000000u) >> 3)) >> 10), Y + (((R >> 2) * (pl_sine(ap, ph) >> 3)) >> 10), a, c);
+    }
+}
+static int32_t pl_pol(const umb_api_t *ap, int32_t R, uint32_t ph) { return ((R >> 2) * (pl_sine(ap, ph) >> 3)) >> 10; }   /* R sin(ph) */
+/* a star: a point and four short rays, l px long (Q8) */
+static void pl_star(const umb_strip_t *s, int32_t X, int32_t Y, int32_t l, int32_t a, const uint8_t *c)
+{
+    pl_splat(s, X, Y, a, c);
+    pl_line(s, X - l, Y, X + l, Y, a >> 1, c);
+    pl_line(s, X, Y - l, X, Y + l, a >> 1, c);
 }
 #define PL_LERP(vv, xi, xf) (((vv)[xi] + ((((vv)[(xi) + 1] - (vv)[xi]) * (xf)) >> 8)) >> 8)
 #endif

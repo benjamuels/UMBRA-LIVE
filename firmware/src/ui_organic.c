@@ -54,7 +54,7 @@ static inline void og_plot(int32_t x, int32_t y, uint16_t c, int32_t a)
     b = (o & 31u) + ((((int32_t)(c & 31u) - (int32_t)(o & 31u)) * a) >> 8);
     *p = swap16((uint16_t)(r << 11 | g << 5 | b));
 }
-/* (UMBRA OBSCURA) every line and dot this much fainter, 0..256 (0: as drawn): TOTALITY's being fading in and out */
+/* (UMBRA LIVE) every line and dot this much fainter, 0..256 (0: as drawn): TOTALITY's being fading in and out */
 static uint16_t og_dim __attribute__((section(".pool")));
 /* an antialiased line between Q4 points, at strength a (0..256) */
 static void og_line_a(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c, int32_t a)

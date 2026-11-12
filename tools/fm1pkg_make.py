@@ -187,7 +187,7 @@ def bt_check(bt):
             raise SystemExit(f"bt.bin has an update-record look-alike at {BT_BASE + s - 0x100:#x}")
 
 
-# (UMBRA OBSCURA) the plate bank's first slots (tools/build.py plate_bank): whole 8 KiB slots from slot 0, each a plate
+# (UMBRA LIVE) the plate bank's first slots (tools/build.py plate_bank): whole 8 KiB slots from slot 0, each a plate
 # linked for its slot with its record. The update loader (ldr_core.c 3c) writes them at flash 0xB8000
 PL_TYPE, PL_SLOT, PL_ROOM, PL_MAGIC = 201, 0x2000, 0x20000, 0x544C5055
 
@@ -252,7 +252,7 @@ def main():
     ap.add_argument("--key", type=lambda s: int(s, 0), default=KEY)
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     ap.add_argument("--bt", type=Path, help="the Bluetooth segment (build/bt.bin), a third entry")
-    ap.add_argument("--plates", type=Path, help="(UMBRA OBSCURA) the plate bank's first slots (build/plates.bin)")
+    ap.add_argument("--plates", type=Path, help="(UMBRA LIVE) the plate bank's first slots (build/plates.bin)")
     a = ap.parse_args()
     global SDK
     SDK = a.sdk

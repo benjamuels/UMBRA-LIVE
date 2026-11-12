@@ -381,7 +381,7 @@ static int ed_flash_stop(void)
 #include "editor_backup.c"
 #include "editor_fm6.c"
 #include "editor_menu.c"
-#include "editor_plate.c"           /* (UMBRA OBSCURA) the plate slot, cmds 96..100 */
+#include "editor_plate.c"           /* (UMBRA LIVE) the plate slot, cmds 96..100 */
 
 /* MOTION's reply: the records of track k as (step, id, v14), a lock's id without its MOTION_LOCK bit (a 7-bit SysEx
  * byte); kinds (1.1: the ops 5..7): then one byte per record, in the same order, 0 automation, 1 lock. The query and

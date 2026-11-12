@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 UMBRA OBSCURA contributors
-"""(UMBRA OBSCURA) the plates an install brings (tools/build.py plate_bank, fm1pkg_make.py's "plates.bin", the update
+# Copyright (C) 2026 UMBRA LIVE contributors
+"""(UMBRA LIVE) the plates an install brings (tools/build.py plate_bank, fm1pkg_make.py's "plates.bin", the update
 loader's step 3c), on the host, with no toolchain and no SDK:
   1. a host plate file (tests/plate_slot_test image) placed in five slots as build.py places the real ones; the bank's
      own check (src/umb_slot.c, tests/plate_slot_test bank) must take every slot;

@@ -43,10 +43,10 @@
 #endif
 #ifndef FELUCCA_USB_HOST
 #define FELUCCA_USB_HOST 0       /* (V10.41) MENU > SYSTEM > USB > HOST: a USB-MIDI keyboard on the port (usb_host.c;
-                                  * UMBRA OBSCURA: off, no USB input) */
+                                  * UMBRA LIVE: off, no USB input) */
 #endif
 #ifndef FELUCCA_UAC_48K
-#define FELUCCA_UAC_48K 0        /* (usb.c) USB audio at 48 kHz too (UMBRA OBSCURA: off, 44.1 kHz only: ~5.5 KB of flash and
+#define FELUCCA_UAC_48K 0        /* (usb.c) USB audio at 48 kHz too (UMBRA LIVE: off, 44.1 kHz only: ~5.5 KB of flash and
                                   * ~16 KB of pool, where KILN's field goes) */
 #endif
 #ifndef FELUCCA_ID
@@ -88,7 +88,7 @@ static void vel_note_on(uint32_t k);     /* (V10.6z6) a key's press: its velocit
 
 /* ----------------------------------------------------- base, display --- */
 #include "libc.c"
-#define UMB_MIRROR 0             /* (UMBRA OBSCURA) the screen on a computer, over USB MIDI (umb_mirror.c). Out since 2026-11-09
+#define UMB_MIRROR 0             /* (UMBRA LIVE) the screen on a computer, over USB MIDI (umb_mirror.c). Out since 2026-11-09
                                   * (the user: too slow on the FM-1 for the plates, set aside; its ~4.3 KB of flash and ~4.7 KB
                                   * of RAM and pool to HOME > UMBRA's MACROS pages). 1 builds it again, as it was */
 #if UMB_MIRROR
@@ -139,7 +139,7 @@ static void vel_note_on(uint32_t k);     /* (V10.6z6) a key's press: its velocit
 #include "fm1_clk320.h"          /* (0.9.9-stab, as 0.9.12) MENU > SYSTEM > CPU CLOCK 320 MHZ's switch (curist's, MIT; main.c) */
 #include "storage_hw.c"
 #include "storage.c"
-#include "umb_slot.c"              /* (UMBRA OBSCURA) the plate slot: a plate file in flash (editor_plate.c) */
+#include "umb_slot.c"              /* (UMBRA LIVE) the plate slot: a plate file in flash (editor_plate.c) */
 #endif
 #include "upreset.c"             /* user presets (RAM mirror; flash with FELUCCA_FLASH) */
 #include "project.c"
@@ -156,7 +156,7 @@ static void vel_note_on(uint32_t k);     /* (V10.6z6) a key's press: its velocit
 #include "bt_hw.c"               /* (V10.12) bt.c's calls into the Bluetooth segment */
 #endif
 #if UMB_MIRROR
-#include "umb_mirror.c"         /* (UMBRA OBSCURA) the mirror's side here: the panel's rows, the queue, the name */
+#include "umb_mirror.c"         /* (UMBRA LIVE) the mirror's side here: the panel's rows, the queue, the name */
 #endif
 #include "main.c"
 

@@ -50,7 +50,7 @@ static int startup_case(int saved, int restore, int noprefs)
     ok &= !!(ui_prefs & PREF_RESTORE_ON) == restore;
     ok &= !memcmp(song_idx.scene, want.scene, sizeof want.scene);
     /* Advance beyond the splash and the arrangement's two-second automatic save. */
-    for (i = 0; i < 4500u; i++) web_render(128);      /* ((UMBRA OBSCURA) past its 6 s WELCOME, then the save) */
+    for (i = 0; i < 4500u; i++) web_render(128);      /* ((UMBRA LIVE) past its 6 s WELCOME, then the save) */
     /* (2432580, 2026-11-04, SAVE SONG AS: song_poll stamps the song's PLAY mode into its rows' rsv[2], SONG_MODE_TAG;
      * an index from before has 0 there, so it is written once, the rows, bars, END and scenes as they were. An empty
      * flash gets the default index so, tag and all) */

@@ -26,7 +26,7 @@ static chain_config_t chain_config;           /* the current song's rows */
                                               * before: 7 and 8's flash is the drum sample bank's now (storage.c FL_SAMPLES) */
 #define NSONG_IDX 8u                          /* (V10.6p) the index's room, as before: its layout (flash, backups) kept;
                                               * rows 7, 8 unused, kept valid for an older firmware's restore */
-#define NSONG_USE 4u                          /* (UMBRA OBSCURA) the projects played and kept: 1..4; 5..8's flash (V10.7.6:
+#define NSONG_USE 4u                          /* (UMBRA LIVE) the projects played and kept: 1..4; 5..8's flash (V10.7.6:
                                               * songs 5, 6 and the drum sample bank's, written by nothing yet) is the
                                               * plate bank (umb_slot.c), their index rows kept unused */
 #define SONG_MODE_TAG 0xA0u                    /* chain.rsv[2]: saved LOOP/SONG mode, old files have zero */

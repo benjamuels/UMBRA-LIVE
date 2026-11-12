@@ -586,7 +586,7 @@ def build_app():
     return bytes(img), syms, dis, rt
 
 
-# (UMBRA OBSCURA) plate files (plans/umbra-plate-bank.md; src/umb_plate.h): a plate built alone, linked for the plate
+# (UMBRA LIVE) plate files (plans/umbra-plate-bank.md; src/umb_plate.h): a plate built alone, linked for the plate
 # bank's slot 0 (firmware/plate.ld: flash 0xB8000, src/umb_slot.c), its header first: build/plates/<name>.plate, what the
 # plates page (web/plates.html) sends to the FM-1. A plate goes into any of the bank's slots: its file lists the words
 # that hold an address in it (each linked again 15 slots on: the words, at any halfword, that moved by exactly that much),
@@ -598,6 +598,9 @@ PLATE_MAGIC, PLATE_ROOM, PLATE_BASE, PLATE_RELOC = 0x544C5055, 0x2000 - 32, 0x02
 PLATE_MOVE = 15 * 0x2000                       # (the second link: slot 15's place; a slot is 8 KiB)
 PLATES = [("cinder", "cinder", []), ("saros", "saros", []), ("filament", "filament", []), ("granule", "granule", []),
           ("tarn", "tarn", []),
+          # (UMBRA LIVE) the line-art plates, from UMBRA OBSCURA the game's art: light enough to lie on a layer
+          ("beacon", "beacon", []), ("zodiac", "zodiac", []), ("sonar", "sonar", []), ("moths", "moths", []),
+          ("marsh", "marsh", []), ("pachinko", "pachinko", []),
           ("filament-ember", "filament", ["-DPLF_REST_RGB=150,70,26", '-DPLF_NAME="FIL EMBER"'])]
 
 
@@ -657,11 +660,11 @@ def plate_files():
     print(f"plates: {', '.join(made)} -> build/plates/")
 
 
-# (UMBRA OBSCURA) the plates an install brings: build/plates.bin, the bank's first slots as the FM-1 would hold them after
+# (UMBRA LIVE) the plates an install brings: build/plates.bin, the bank's first slots as the FM-1 would hold them after
 # the plates page had sent each (src/umb_slot.c): slot i's plate linked for it (its listed words moved i slots on), 0xFF up
 # to the slot's last 32 bytes, there its record ("UPSL", the image's length, its CRC-32, the rest 0xFF). The update loader
 # writes them at flash 0xB8000 (ldr_core.c 3c), so a fresh install has every plate; the slots after them are left alone
-BANK_PLATES = ["cinder", "saros", "filament", "granule", "tarn"]
+BANK_PLATES = ["cinder", "saros", "filament", "granule", "tarn", "beacon", "zodiac", "sonar", "moths", "marsh", "pachinko"]
 
 
 def plate_slot(f, i):

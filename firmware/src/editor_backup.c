@@ -69,7 +69,7 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
     }
     if (id >= ED_BK_SONG && id < ED_BK_SONG + NSONG * 4u) {   /* (JIANT) a song's section */
         uint32_t s = (id - ED_BK_SONG) / 4u, k = (id - ED_BK_SONG) % 4u;
-        if (s >= NSONG_USE)                         /* ((UMBRA OBSCURA) projects 5..8: the plate bank's flash, none) */
+        if (s >= NSONG_USE)                         /* ((UMBRA LIVE) projects 5..8: the plate bank's flash, none) */
             return ED_BK_RAW;
         if (s == song_cur) {
             if (project_used(k)) *len = sizeof proj_slot[0];
@@ -180,7 +180,7 @@ static __attribute__((noinline)) uint32_t ed_bk_commit(void)
             ed_bk_len = sizeof(project_store_t);
         }
         obj = ed_bk_song_obj(s, k);
-        if (s >= NSONG_USE)                         /* ((UMBRA OBSCURA) projects 5..8: the plate bank's flash; a backup's
+        if (s >= NSONG_USE)                         /* ((UMBRA LIVE) projects 5..8: the plate bank's flash; a backup's
                                                      * sections for them taken and left out) */
             return 0;
     } else return 1;

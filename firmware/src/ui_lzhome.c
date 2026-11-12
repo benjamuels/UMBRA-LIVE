@@ -227,7 +227,7 @@ static uint32_t routes_count(void)                      /* the MOD slots whose S
         }
     return n;
 }
-#include "ui_umbra.c"                                  /* (UMBRA OBSCURA) HOME's plates */
+#include "ui_umbra.c"                                  /* (UMBRA LIVE) HOME's plates */
 /* ECO: 0.8.4's HOME (graph_ecosys) in the lens's panel: the cytoplasm's granules drifting, the six beings swimming free
  * over the whole panel (0.9.7: variant A, eco_being), each with its number under it (the selected one larger, its number in
  * the theme's colour; a mutation landed, white). (0.8.9) Drawn into the canvas as the water's x0, y0 .. (eco_draw); SKIN HUD's HOME: the
@@ -237,7 +237,7 @@ static void eco_draw(int32_t x0, int32_t y0, int words)
 {
     uint32_t c, k, still = ANIM_OFF() != 0;
     int32_t bx[ECO_N], by[ECO_N], bot = eco_bot(), hud = hud_home();
-    if (UMB_ON) {                                       /* (UMBRA OBSCURA) the plate in place of the beings (ui_umbra.c); the */
+    if (UMB_ON) {                                       /* (UMBRA LIVE) the plate in place of the beings (ui_umbra.c); the */
         umb_backdrop(x0, y0);                           /* WELCOME's words over it */
         cv_oy = -y0;
         goto words;
@@ -268,7 +268,7 @@ static void eco_draw(int32_t x0, int32_t y0, int words)
                        hud ? T_TEXT : T_MID, T_SURF);   /* (0.9.0 HUD: TEXT, over the beings; 0.9.7: a mutation, white) */
     }
 words:
-    if (UMB_ON && words && !ui.hset[0] && !umw_hid()) {   /* (UMBRA OBSCURA) WELCOME: its page in the middle of what the
+    if (UMB_ON && words && !ui.hset[0] && !umw_hid()) {   /* (UMBRA LIVE) WELCOME: its page in the middle of what the
                                                          * header and the footer leave, every skin (COLORS: in the panel,
                                                          * under the bare row; HUD, AIR: on the screen's y), outlined over the
                                                          * plate (ui_umbra_welcome.c) */
@@ -304,14 +304,14 @@ static void organ(uint32_t k, int32_t cx, int32_t cy)
     GFX_HOOK_ALIGN(gx - 30, 0, gx + 30, 0, AL_H, "BEING organ name centred");
     cv_text_in(gx - 30, gy - 28, 60, &AF_X, d->label, hot ? T_ACCENT : T_MID, T_SURF);
 }
-/* the being: graph_being's size, its HOME knobs, the track's own level; (UMBRA OBSCURA) at (cx, cy) px, k / 16 as large
+/* the being: graph_being's size, its HOME knobs, the track's own level; (UMBRA LIVE) at (cx, cy) px, k / 16 as large
  * (TOTALITY's too: ui_umbra_tot.c) */
 static void being_fig(uint32_t c, int32_t cx, int32_t cy, int32_t k)
 {
     const genome_t *g = eco_genome(c);
     bfeat_t f;
     eco_feat(c, &f, 2);
-    if (vx_draw(&trk[c], cx - 73 * k / 16, cy - 56 * k / 16, 146 * k / 16, 112 * k / 16, eco_off(c) ? 0 : eco.en[c]))
+    if (!umx_plain && vx_draw(&trk[c], cx - 73 * k / 16, cy - 56 * k / 16, 146 * k / 16, 112 * k / 16, eco_off(c) ? 0 : eco.en[c]))
         ;                                           /* (0.9.4 / 0.9.6: the engines' own creatures, ui_engvis.c) */
     else if (eco_off(c))
         bg_outline(g, &f, cx * 16, cy * 16, 30 * k, 1, eco.tm[c], T_DIM);
@@ -326,7 +326,7 @@ static __attribute__((noinline)) void graph_home_being(void)
     (void)bg_energy();
     char b[16];
     if (home_set()) {                                   /* ROUTES: the being small, the macros and their routes ((UMBRA */
-        uint32_t m, i, j, row = 0;                      /* OBSCURA) BEING's figure, small, not HOME's being) */
+        uint32_t m, i, j, row = 0;                      /* LIVE) BEING's figure, small, not HOME's being) */   
         int32_t ry[12];
         being_fig(c, 128, 66, 10);
         for (m = 0; m < 4u; m++) {
@@ -360,7 +360,7 @@ static __attribute__((noinline)) void graph_home_being(void)
         (void)ry;
         return;
     }
-    umb_backdrop(0, (int32_t)graph_y());               /* (UMBRA OBSCURA) the plate playing behind (as on ECO) */
+    umb_backdrop(0, (int32_t)graph_y());               /* (UMBRA LIVE) the plate playing behind (as on ECO) */
     for (k = 0; k < 4u; k++)
         organ(k, cx, cy);
     vx_bare = 1;

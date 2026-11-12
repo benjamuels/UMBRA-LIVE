@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
+ * Copyright (C) 2026 UMBRA LIVE contributors */
 /* FILAMENT, the first plate built as a module (umb_plate.h): a taut string a track (4 or 6, as TRACKS). A note plucks its
  * track's string where its pitch falls (C2 at the left, C7 at the right; a drum where its lane is), its velocity the
  * height and the melody's contour the side (rising up, falling down); a higher note tightens the string so its waves run
  * faster; a held note keeps bowing it; let go, the string is damped and still within ~0.6 s. A 1D wave, 81 points a
  * string, 125 substeps a second. Its light is added to the strip (an overlay by nature): in REPLACE the strip is
  * cleared to black first (JIANT's), in ADD the strings light whatever is under them.
- * Controls: SWING (the pluck's height), RING (how long a string rings once let go), SPREAD (the strings' spacing: a
- * quarter .. twice). Moved out of ui_umbra_melody.c (umm_fil_*) unchanged, pixel for pixel. */
+ * Elements: SWING (the pluck's height), RING (how long a string rings once let go), SPREAD (the strings' spacing: a
+ * quarter .. twice); PLUCK (every note) and BOW (the notes that are no drum, held: they keep bowing the string): each
+ * as hard as its value, its tracks LIVE VIZ CTRLS' to choose; GLOW (the strings' own light). */
 #include "umb_plate.h"
 
 #define PLF_NP 81                                       /* a string's points (3 px apart) */
@@ -61,6 +62,12 @@ static int32_t plf_sine(const umb_api_t *a, uint32_t ph)   /* the sine, between 
     return p + (((q - p) * (int32_t)((ph >> 7) & 0x7FFFu)) >> 15);
 }
 
+/* how hard note n drives control j (plate_lib.h pl_drive: its tracks as chosen, else own; its value its strength) */
+static int32_t plf_drive(const umb_lctx_t *c, uint32_t j, const umb_note_t *n, int own)
+{
+    int32_t v = (c->et[j] ? c->et[j] >> n->track & 1u : (uint32_t)own) ? ((int32_t)n->vel * 2 + 1) * c->k[j] / 50 : 0;
+    return v > 255 ? 255 : v;
+}
 static void plf_init(void *st, const umb_lctx_t *c, const umb_api_t *a)
 {
     plf_t *m = st;
@@ -72,7 +79,7 @@ static void plf_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
 {
     plf_t *m = st;
     uint32_t c = nt->track, n = nt->note, i, h;
-    int32_t v = (int32_t)nt->vel * 2 + 1, k, x, w, iw, amp;
+    int32_t v, vb, k, x, w, iw, amp;
     for (h = 0; h < PLF_NH && m->hn[c][h] != n + 1u; h++)
         ;
     if (!nt->vel) {
@@ -80,6 +87,10 @@ static void plf_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             m->hn[c][h] = 0;
         return;
     }
+    v = plf_drive(cx, 3u, nt, 1);                       /* PLUCK */
+    vb = plf_drive(cx, 4u, nt, !nt->drum);              /* BOW */
+    if (!v && !vb)
+        return;
     k = nt->drum ? (int32_t)nt->lane * 36 + 2 : plf_clamp(((int32_t)n - 36) * 4369 >> 10, 0, 256);   /* (0..1, Q8) */
     x = a->move(nt, 0u, k * 80, 80 * 256);              /* (the place: points, Q8; NOTE MOVEMENT's along the string) */
     if (m->last[c] && n + 1u != m->last[c])
@@ -90,7 +101,7 @@ static void plf_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     w = 640 + (256 - k) * 7;                            /* (the pluck's half width: 2.5 .. 9.5 points, Q8) */
     iw = 65536 / w;
     amp = (1024 + v * 12) * ((int32_t)cx->k[0] + 1) / 51 * m->dir[c];   /* (4 .. 16 px, Q8, at SWING 50) */
-    for (i = 1; i < PLF_NP - 1; i++) {
+    for (i = 1; v && i < PLF_NP - 1; i++) {
         int32_t d = (int32_t)i * 256 - x;
         d = d < 0 ? -d : d;
         if (d < w)
@@ -98,7 +109,7 @@ static void plf_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     }
     m->c2[c] = (uint8_t)(26 + ((k * 205) >> 8));        /* (higher, tighter: 0.1 .. 0.9) */
     m->mv[c] = 1;
-    if (nt->drum)                                       /* (a drum is a pluck: nothing held) */
+    if (!vb)                                            /* (a drum is a pluck: nothing held) */
         return;
     if (h == PLF_NH)
         for (h = 0; h < PLF_NH - 1u && m->hn[c][h]; h++)
@@ -106,7 +117,7 @@ static void plf_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     m->hn[c][h] = (uint8_t)(n + 1u);
     m->hx[c][h] = (uint8_t)plf_clamp((x + 128) >> 8, 1, PLF_NP - 2);
     m->hf[c][h] = 3435974u + (uint32_t)k * 67109u;     /* (0.8 .. 4.8 bows a second: phase a ms) */
-    m->ha[c][h] = (int16_t)(v * m->dir[c]);
+    m->ha[c][h] = (int16_t)(vb * m->dir[c]);
     m->h0[c][h] = cx->now;
 }
 /* once a frame: RING; the substeps owed (125 a second, 8 a frame at most): the waves; a held note bows; let go, damped */
@@ -157,7 +168,7 @@ static void plf_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
 {
     const plf_t *m = st;
     int32_t c, x, nl = cx->tracks, k2 = cx->k[2], sc = k2 <= 50 ? 64 + k2 * 192 / 50 : 256 + (k2 - 50) * 256 / 49,
-            sp = (((nl > 4 ? 24 : 34) + (cx->bare ? 10 : 0)) * sc) >> 8, cy = cx->bare ? 120 : 150;
+            sp = (((nl > 4 ? 24 : 34) + (cx->bare ? 10 : 0)) * sc) >> 8, cy = cx->bare ? 120 : 150, gl = cx->k[5];   /* (GLOW: 50 as it was) */
                                                         /* (TOTALITY: the whole screen; SPREAD: a quarter .. twice) */
     if (s->mode == UMB_DRAW_REPLACE)                    /* (the ground: black, as JIANT's) */
         for (x = 0; x < s->w * s->h; x++)
@@ -188,7 +199,7 @@ static void plf_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             }
             e = (((sv < 0 ? -sv : sv) >> 3) + (held ? 90 : 0));
             e = (plf_clamp(e, 0, 256) + 8) & ~15;
-            al = 141 + ((115 * e) >> 8);
+            al = (141 + ((115 * e) >> 8)) * gl / 50;
             r = PLF_REST[0] + (((tc[0] - PLF_REST[0]) * e) >> 8);
             g = PLF_REST[1] + (((tc[1] - PLF_REST[1]) * e) >> 8);
             b = PLF_REST[2] + (((tc[2] - PLF_REST[2]) * e) >> 8);
@@ -209,6 +220,7 @@ static void plf_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
 
 UMB_PLATE_HEAD const umb_plate_t umb_plate_filament = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plf_t), PLF_NAME,
-    UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 3u, {0, 0, 0},
-    {{"SWING", 50}, {"RING", 50}, {"SPREAD", 50}},
-    plf_init, plf_note, plf_frame, plf_draw};
+    UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 6u, {0, 0, 0},
+    {{"SWING", 50}, {"RING", 50}, {"SPREAD", 50}, {"PLUCK", 50}, {"BOW", 50}, {"GLOW", 50}},
+    plf_init, plf_note, plf_frame, plf_draw,
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0}};

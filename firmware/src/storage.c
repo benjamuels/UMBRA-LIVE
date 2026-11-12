@@ -32,7 +32,8 @@
  * commit record of the same kind (type OBJ_FM6VB, not an st_load object); a new bank is first staged in the
  * autosave's older copy (fm6_vbank.c). */
 enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_UPFM6,
-       OBJ_AUTOSAVE, OBJ_SONGIDX, OBJ_SONG1, OBJ_COUNT = OBJ_SONG1 + 5 * 4 };
+       OBJ_AUTOSAVE, OBJ_SONGIDX, OBJ_SONG1, OBJ_UMBCTL = OBJ_SONG1 + 5 * 4, OBJ_COUNT };   /* ((UMBRA LIVE) OBJ_UMBCTL: LIVE VIZ
+                                                 * CTRLS' elements, ui_umbra.c umc: 0xDA000 / 0xDB000, free until then) */
 /* JIANT's songs (song_chain.c): song 1's four sections are the four project slots (OBJ_PROJECT0..3, 0x97000..), songs
  * 2..6 four objects each (OBJ_SONG1 + (song - 1) * 4 + section) at 0xA0000..0xC7FFF, the song index (the songs' rows,
  * the current song) at 0xD8000 / 0xD9000; 0xDA000..0xDBFFF free.
@@ -45,7 +46,7 @@ enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK 
                                                 * the songs: st_load never takes one, no object takes its sector.
                                                 * Felucca's 32 was a song object here) */
 _Static_assert(OBJ_FM6VB >= OBJ_COUNT, "the voice bank's record type is no object's");
-_Static_assert(0xA0000u + (OBJ_COUNT - OBJ_SONG1) * 2u * ST_SECTOR == FL_SAMPLES && FL_SAMPLES + FL_SAMPLES_SIZE == 0xD8000u,
+_Static_assert(0xA0000u + (OBJ_UMBCTL - OBJ_SONG1) * 2u * ST_SECTOR == FL_SAMPLES && FL_SAMPLES + FL_SAMPLES_SIZE == 0xD8000u,
                "the sample bank: songs 7, 8's sectors, up to the song index");
 
 typedef struct {
@@ -86,6 +87,8 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
         return 0xE5000u + copy * ST_SECTOR;
     if (obj == OBJ_SONGIDX)
         return 0xD8000u + copy * ST_SECTOR;
+    if (obj == OBJ_UMBCTL)
+        return 0xDA000u + copy * ST_SECTOR;
     if (obj >= OBJ_SONG1)
         return 0xA0000u + (obj - OBJ_SONG1) * 2u * ST_SECTOR + copy * ST_SECTOR;
     if (obj >= OBJ_UPRESET0)

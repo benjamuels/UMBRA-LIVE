@@ -338,7 +338,7 @@ static uint16_t dc_roll __attribute__((section(".pool")));   /* (the cell sent a
 static struct { int16_t x, y, w, h; uint16_t base, n; } dc_st[DC_STRIPS] __attribute__((section(".pool")));
 static uint8_t dc_n __attribute__((section(".pool")));
 static uint8_t dc_all __attribute__((section(".pool")));
-/* (UMBRA OBSCURA, ui_umbra_tot.c: DISSOLVE) the cells sent: 256 every one; under it only those whose key is under it, the
+/* (UMBRA LIVE, ui_umbra_tot.c: DISSOLVE) the cells sent: 256 every one; under it only those whose key is under it, the
  * others keep what the screen shows (and their hash: sent once reached). A cell's key: its distance from the middle, ragged
  * (0 .. 255): the new picture spreads from the middle over the old */
 static uint16_t dc_gate = 256u;

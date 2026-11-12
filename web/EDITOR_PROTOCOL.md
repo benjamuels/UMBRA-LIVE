@@ -1141,9 +1141,9 @@ into plain ones (stress is not marked in singing) and ñ into "ny" before sendin
 flash write, also while playing): the track's lyric starts over at its next note. Saved with the project (FUNC's
 `L` `Y` block per track that has one; a project without it loads with none) and in the backup's runtime object (id 0).
 
-## Plates (UMBRA OBSCURA, 96-100)
+## Plates (UMBRA LIVE, 96-100)
 
-UMBRA OBSCURA's plate bank (`firmware/src/umb_slot.c`, `editor_plate.c`; plans/umbra-plate-bank.md, phase 2): 16 slots of
+UMBRA LIVE's plate bank (`firmware/src/umb_slot.c`, `editor_plate.c`; plans/umbra-plate-bank.md, phase 2): 16 slots of
 8 KiB (two sectors) each, flash 0xB8000..0xD7FFF (JIANT's projects 5..8, retired: UMBRA keeps four projects), each holding a
 plate file run where it lies. A plate file is a plate built alone against `firmware/src/umb_plate.h` and linked for slot 0
 (`tools/build.py` plate_files, `firmware/plate.ld`): its header (`umb_plate_t`, magic "UPLT") first, at most 8160 bytes,

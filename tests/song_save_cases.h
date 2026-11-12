@@ -49,7 +49,7 @@ static int song_save_test(void)
     uint32_t before;
     song_fixture();
     ok = !song_save_as(3, "MY SONG");
-    bad += check("SAVE SONG AS copies a complete song to project 4 ((UMBRA OBSCURA) the last of 4)", ok);
+    bad += check("SAVE SONG AS copies a complete song to project 4 ((UMBRA LIVE) the last of 4)", ok);
     ok = song_cur == 0 && live.cur == 2 && trk[0].step[0].note[0] == 90 && dice_secs == 15 &&
          !memcmp(source_before, proj_slot, sizeof source_before) &&
          !memcmp(source_flash, nor + 0x97000u, sizeof source_flash);
@@ -79,7 +79,7 @@ static int song_save_test(void)
     song.playing = 1; ok = song_save_as(1, "X") != 0; song.playing = 0;
     transport_req = 1; ok &= song_save_as(1, "X") != 0; transport_req = 0;
     ok &= song_save_as(NSONG, "X") != 0 && song_save_as(7, "X") != 0;   /* (V10.6p: 7, 8 retired) */
-    ok &= song_save_as(NSONG_USE, "X") != 0;              /* ((UMBRA OBSCURA) 5: the plate bank's flash) */
+    ok &= song_save_as(NSONG_USE, "X") != 0;              /* ((UMBRA LIVE) 5: the plate bank's flash) */
     flash_ok = 0; ok &= song_save_as(1, "X") != 0; flash_ok = 1;
     ok &= erases == before;
     bad += check("playing, pending PLAY, invalid slot and no flash refuse without writing", ok);

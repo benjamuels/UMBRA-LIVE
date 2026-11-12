@@ -1,17 +1,20 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
-/* (included by ui_umbra.c, at its end) The visuals' settings saved. HOME > ECO > PLATE, NOTES and ROUTING, the pages that
- * set them, are gone (the user, 2026-11-09: HOME's UMBRA tab, MACROS - AUDIO and MACROS - VISUALS, to hold what replaces
- * them; ui_lens.c CE_HOME). What they set stays as it was set, kept with the settings, and TOTALITY reads it and turns it
- * (ui_umbra_tot.c): the plate's own three and LIGHT (ui_umbra.c umv), MOVEMENT, TRAVEL, SPEED, DISSOLVE (umt_get), each
- * plate's KNOB 1..4 in TOTALITY (umr_get: at first its three and LIGHT).
+ * Copyright (C) 2026 UMBRA LIVE contributors */
+/* (included by ui_umbra.c, at its end) The picture's settings saved: the ground's plate with JIANT's settings, LIVE VIZ
+ * CTRLS' store (ui_umbra.c umc) in its own flash object.
  * Built for size, as the main loop is (tools/size_fns.py) */
-/* every input pass: the settings saved once the knobs have rested 1.5 s (a flash erase a save: never a detent at a time;
- * project.c settings_poll waits for the transport to stop) */
+/* every input pass: saved once the knobs have rested 1.5 s (a flash erase a save: never a detent at a time; the store's
+ * only with the transport stopped, as project.c settings_poll's: an erase stops the sound for its ~40 ms) */
 static void umv_poll(void)
 {
-    if (umv_dirty && fm1_ms - umv_ms > 1500u) {
+    if (fm1_ms - umv_ms <= 1500u)
+        return;
+    if (umv_dirty) {
         umv_dirty = 0;
         settings_save();
+    }
+    if (umc_dirty) {
+        umc_dirty = (uint8_t)(umc_flash(&umc, sizeof umc, 1) != 0);       /* (the transport running, or it failed: again in 1.5 s) */
+        umv_ms = fm1_ms;
     }
 }

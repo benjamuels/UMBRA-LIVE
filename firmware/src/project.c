@@ -1931,6 +1931,23 @@ static void settings_poll(void)
 #endif
 }
 
+/* (UMBRA LIVE) LIVE VIZ CTRLS' store (ui_umbra.c umc: p, n bytes) read (save 0) or written (1: an erase, so only with the
+ * transport stopped, as the settings): 0 done */
+static int umc_flash(void *p, uint32_t n, int save)
+{
+#if FELUCCA_FLASH
+    if (!flash_ok)
+        return 1;
+    if (save)
+        return transport_busy() ? 1 : st_save(OBJ_UMBCTL, p, n);
+    return st_load(OBJ_UMBCTL, p, n) != (int)n;
+#else
+    (void)p;
+    (void)n;
+    return !save;
+#endif
+}
+
 static void settings_save(void)
 {
 #if FELUCCA_FLASH

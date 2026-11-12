@@ -16,7 +16,7 @@ static int fit_storage_test(void)
     sig = autosave_sig();
     trk[0].seq_fit = 128u | 1u;
     bad += check("FIT edit changes the autosave signature", sig != autosave_sig());
-    bad += check("SAVE SONG AS also copies fitted clocks", !song_save_as(3, "FIT COPY")   /* ((UMBRA OBSCURA) project 4, the last) */);
+    bad += check("SAVE SONG AS also copies fitted clocks", !song_save_as(3, "FIT COPY")   /* ((UMBRA LIVE) project 4, the last) */);
     bad += check("copied FIT survives decoding the destination flash", st_load(OBJ_SONG1 + 8u, &proj_wire, sizeof proj_wire) == sizeof proj_wire &&
                  proj_import(&proj_scratch, &proj_wire, sizeof proj_wire) && proj_scratch.fit[0] == 129u && proj_scratch.fit[1] == 23u);
     proj_scratch.fit[0] = 255;

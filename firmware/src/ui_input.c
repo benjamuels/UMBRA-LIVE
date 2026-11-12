@@ -87,7 +87,7 @@ static int layer_set_open(void);                       /* (ui_layer.c) */
 #define OCT_BREATH_DN 8u                                /* OCT- breathing (the menu: the previous value) */
 static uint32_t oct_leds(void)
 {
-    if (UMB_ON && umw_on())                             /* ((UMBRA OBSCURA) WELCOME: OCT+ the next page, breathing; on the
+    if (UMB_ON && umw_on())                             /* ((UMBRA LIVE) WELCOME: OCT+ the next page, breathing; on the
                                                          * last both, which take it away held together) */
         return umw_pg == UMW_NP - 1u ? OCT_BREATH_DN : OCT_BREATH;   /* (the last page: OCT- alone, which held takes it away) */
     if (UMB_ON && umk_on())                             /* (LIVE AUDIO / VIZ CTRLS: OCT+ SETUP, its next question) */
@@ -356,14 +356,14 @@ static __attribute__((noinline)) void ui_leds(void)
         led_pos_init();
         ready = 1;
     }
-    if (UMB_ON && umt_shown()) {                        /* (UMBRA OBSCURA) TOTALITY: dark, but the keys of the notes that
+    if (UMB_ON && umt_shown()) {                        /* (UMBRA LIVE) TOTALITY: dark, but the keys of the notes that
                                                          * sound, FX while its knobs are the effects, REC armed */
         c = key_leds(0);
         for (k = 0; k < 27u; k++)
             led_put(nl, 14u + k, (int)((c >> k) & 1u));
         led_put(nl, panel.btn[B_FX], umt.fx);
         led_put(nl, panel.btn[B_SEQ], umt.info);
-        led_put(nl, panel.btn[B_SCL], umt.bn);
+        led_put(nl, panel.btn[B_SCL], !umt.lh && (umc.lay[0] | umc.lay[1] | umc.lay[2]));
         led_put(nl, panel.btn[B_REC], song.rec != 0u);
         for (c = 0; c < FM1_NCOL; c++) {
             fm1_led_dim[c] = fm1_led_breath[c] = fm1_led_hi[c] = fm1_led_mid[c] = 0;
@@ -1630,7 +1630,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         song_save_loop = (uint8_t)clamp((int32_t)song_save_loop + steps, 0, 1); return;
     }
     if (pg->graph == GR_SONGSAVE && slot == 0u) {
-        song_save_target = (uint8_t)clamp((int32_t)song_save_target + steps, 0, NSONG_USE - 1);   /* ((UMBRA OBSCURA) 1..4) */
+        song_save_target = (uint8_t)clamp((int32_t)song_save_target + steps, 0, NSONG_USE - 1);   /* ((UMBRA LIVE) 1..4) */
         return;
     }
     if (pg->graph == GR_SLOTS && save_on() && save_level() == SV_PROJ) {   /* (0.8.5) SAVE > PROJECT's SECTIONS: KNOB 1
@@ -2572,7 +2572,7 @@ static void ui_input_frame(void)
     int32_t s, sel = 0, ks[4] = {0, 0, 0, 0};
     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
     if (UMB_ON)
-        umt_check();                                    /* (UMBRA OBSCURA) TOTALITY: over once a page is chosen */
+        umt_check();                                    /* (UMBRA LIVE) TOTALITY: over once a page is chosen */
     sc_beat();                                          /* (V10.6j) SCENE's DRUM: a key's beat into the kit */
     mom_poll();                                         /* (0.9.9-seq2e) MOMENTARY's glide back, its header tag */
     {   /* (JIANT 0.6.5) RESO's PITCH and FOLW live in PRE's and DAMP's slots: into RESO a ROOM's values become theirs
@@ -2658,7 +2658,7 @@ static void ui_input_frame(void)
     layer_oct_open(pressed);                            /* (OCT± with a SET layer's button down: it opens now) */
     oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || umw_on() || umk_on());
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
-    umw_input(oct);                                     /* ((UMBRA OBSCURA) WELCOME: its pages, OCT- + OCT+ held: gone) */
+    umw_input(oct);                                     /* ((UMBRA LIVE) WELCOME: its pages, OCT- + OCT+ held: gone) */
     umz_input(oct);                                     /* (.. LIVE AUDIO / VIZ CTRLS: SETUP) */
     if (!ui.home && !ui.menu && !ui.confirm && !ui.ly && cur_page()->graph == GR_TOOLS && ((pressed >> panel.btn[B_OCTUP]) & 1u))
         tools_arm();
@@ -2959,7 +2959,7 @@ static void ui_input_frame(void)
         enc_drop();
         return;
     }
-    if (lytap && UMB_ON && umt.on && lytap == LAYER_FX)   /* (UMBRA OBSCURA) TOTALITY: FX, the knobs' effects */
+    if (lytap && UMB_ON && umt.on && lytap == LAYER_FX)   /* (UMBRA LIVE) TOTALITY: FX, the knobs' effects */
         umt_fx_tap();
     else if (lytap && UMB_ON && umt.on && lytap == LAYER_SCL)   /* .. SCL, JIANT's beings over the plate */
         umt_scl_tap();
@@ -2967,19 +2967,19 @@ static void ui_input_frame(void)
         ;                                               /* .. LFO, EDIT: a route's tap (LIVE VIZ CTRLS) */
     else if (lytap)                                     /* a layer's button acts on release (held: the layer) */
         layer_tap(lytap);
-    if (UMB_ON && umt.on && seq == BT_TAP)              /* (UMBRA OBSCURA) TOTALITY: SEQ the words at the foot, no page */
+    if (UMB_ON && umt.on && seq == BT_TAP)              /* (UMBRA LIVE) TOTALITY: SEQ the words at the foot, no page */
         umt_seq_tap();
     else if (seq == BT_TAP || seq == BT_HOLD)           /* (SONG: SAVE held, G5) */
         open_family(FAM_SEQ);
     if (home == BT_TAP && !(UMB_ON && umt_home()))     /* HOME acts on release (a hold opens the menu): rule 2, HOME's */
-        nav_button(SEC_HOME);                           /* page last shown; (UMBRA OBSCURA) on HOME: TOTALITY, and
+        nav_button(SEC_HOME);                           /* page last shown; (UMBRA LIVE) on HOME: TOTALITY, and
                                                          * out of it (ui_umbra_tot.c) */
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     for (id = 0; id < 14u; id++) {
         if (!((pressed >> id) & 1u))
             continue;
         b = panel_btn_of(id);
-        if (UMB_ON && umt.on && b == B_ENV && umt_shown() && umq_tap(0))   /* (UMBRA OBSCURA) TOTALITY: ENV, a route's tap */
+        if (UMB_ON && umt.on && b == B_ENV && umt_shown() && umq_tap(0))   /* (UMBRA LIVE) TOTALITY: ENV, a route's tap */
             continue;
         switch (b) {
         case B_PLAY:
@@ -2989,10 +2989,10 @@ static void ui_input_frame(void)
                 transport_req = 2;
             else if ((!ui.home && cur_page()->graph == GR_SONG && !SONG_PARTS(cur_page()) && !SONG_CLIPS(cur_page())) ||
                      live.mode || (UMB_ON && umt.on && umt.song)) {   /* (the song layer's SONG mode; PARTS: as KNOB 4
-                                                         * says; (UMBRA OBSCURA) TOTALITY's song) */
+                                                         * says; (UMBRA LIVE) TOTALITY's song) */
                 uint32_t sp = !ui.home && cur_page()->graph == GR_SONG;
                 chain_play_ui();
-                if (UMB_ON && sp && chain_busy())       /* (UMBRA OBSCURA) TIMELINE, ARRANGE: the song in TOTALITY */
+                if (UMB_ON && sp && chain_busy())       /* (UMBRA LIVE) TIMELINE, ARRANGE: the song in TOTALITY */
                     umt_enter(1);
             } else
                 transport_req = 1;
@@ -3023,7 +3023,7 @@ static void ui_input_frame(void)
         case B_OCTUP: {
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
             if (act_cols() || layer_set_open() || gen_on() || umw_on() || umk_on())   /* action pages: enter / back (below); SET
-                                                         * layers: OCT-; GEN; (UMBRA OBSCURA) WELCOME: its pages */
+                                                         * layers: OCT-; GEN; (UMBRA LIVE) WELCOME: its pages */
                 break;
             if (live_page())                            /* (p2) LIVE: OCT- RETURN / held BYPASS, OCT+ COMMIT */
                 break;                                  /* (ui_live.c live_frame) */
@@ -3134,7 +3134,7 @@ static void ui_input_frame(void)
     }
     if (!lay && (s = panel_enc(EN_ALGO)) != 0) {   /* ALGORITHM: the selected track, on every page. (0.6.55) Only
                                                     * the tracks that play: TRACKS 4 stops at T4 (T5 / T6 asleep) */
-        if (umk_on())                               /* (UMBRA OBSCURA) MACROS - AUDIO / VISUALS: the route */
+        if (umk_on())                               /* (UMBRA LIVE) MACROS - AUDIO / VISUALS: the route */
             umk_algo(s);
         else
             track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));
@@ -3147,7 +3147,7 @@ static void ui_input_frame(void)
     } else if ((s = panel_enc(EN_SELECT)) != 0 && !lay && !ui.menu) {   /* (0.9.2, rule 1) SELECT alone: the section's
                                                         * chain, a page a detent (HOME's: WELCOME, MACROS - AUDIO, MACROS - VISUALS, BEING, ROUTES, GEN 1..3) */
         uint64_t cph = cp_held();
-        if (UMB_ON && umt.on)                           /* (UMBRA OBSCURA) TOTALITY: the plates */
+        if (UMB_ON && umt.on)                           /* (UMBRA LIVE) TOTALITY: the plates */
             umt_select(s);
         else if (cph)                                   /* (seq2h) step keys held: COPY them (the range between) */
             cp_copy(cph);
@@ -3155,7 +3155,7 @@ static void ui_input_frame(void)
             nav_select(s);
     }
     if (UMB_ON)
-        umv_poll();                                     /* (UMBRA OBSCURA) PLATE's settings saved once the knobs rest */
+        umv_poll();                                     /* (UMBRA LIVE) PLATE's settings saved once the knobs rest */
     for (k = 0; k < 4u && !kq; k++) {
         const page_t *pg = cur_page();
         int16_t *hv;
@@ -3170,7 +3170,7 @@ static void ui_input_frame(void)
             macro_v[k] = (uint8_t)clamp(macro_v[k] + accel(EN_K1 + k, s, 127), 0, 127);
             continue;
         }
-        if (UMB_ON && umt.on) {                         /* (UMBRA OBSCURA) TOTALITY: the macros M1..M4; FX: the effects */
+        if (UMB_ON && umt.on) {                         /* (UMBRA LIVE) TOTALITY: the macros M1..M4; FX: the effects */
             umt_knob(k, accel(EN_K1 + k, s, umt.fx ? (k ? 99 : 0) : 127));
             continue;
         }
@@ -3185,7 +3185,7 @@ static void ui_input_frame(void)
             ui.hot_t = 40, ui.knob_ms = fm1_ms;
             continue;
         }
-        if (UMB_ON && home_bare()) {                    /* (UMBRA OBSCURA) WELCOME: no knobs; MACROS - AUDIO / VISUALS: the */
+        if (UMB_ON && home_bare()) {                    /* (UMBRA LIVE) WELCOME: no knobs; MACROS - AUDIO / VISUALS: the */
             if (ui.hset[0]) {                           /* route's (ui_umbra_mac.c) */
                 umk_knob(k, s);
                 ui.hot_col = (uint8_t)k;

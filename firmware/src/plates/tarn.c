@@ -1,9 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
+ * Copyright (C) 2026 UMBRA LIVE contributors */
 /* TARN as a plate module (umb_plate.h; moved out of ui_umbra_field.c unchanged, pixel for pixel): the eclipse in dark
  * water. A ripple tank (48 x 48, 24 steps a second) bends the reflection (a pixel offset, no resampling) and its stars;
  * the crests catch a teal sheen; it stills exactly (a dead band). A note a drop (pitch across, track down), the kick a heavy
- * one by the moon, the snare one, the hats a star's glint. Controls: DRAG, BEND, SIZE (the reflection nearer or further). */
+ * one by the moon, the snare one, the hats a star's glint. Elements: DRAG, BEND, SIZE (the reflection nearer or further);
+ * DROP (the notes that are no drum, the snare and the clap), PLUNGE (the kick), GLINT (the rest of the kit): each as hard
+ * as its value, its tracks LIVE VIZ CTRLS' to choose. */
 #include "plate_lib.h"
 
 #define PLT_N 48                                        /* the water 48 x 48 cells of 5 x 5 px */
@@ -61,24 +63,26 @@ static void plt_at(plt_t *s, const umb_note_t *n, int32_t x, int32_t y, int32_t 
 static void plt_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_note_t *nt)
 {
     plt_t *s = st;
-    int32_t k, v = nt->vel ? (int32_t)nt->vel * 2 + 1 : 0;
+    int32_t k, v;
     (void)a;
-    if (!v)
+    if (!nt->vel)
         return;
-    if (nt->drum) {
-        if (!nt->lane) {                                /* the kick: a heavy drop by the moon */
-            int32_t X = (int32_t)(20u * 256u + pl_rnd(&s->rs) % 2048u);
-            plt_at(s, nt, X, (int32_t)(21u * 256u + pl_rnd(&s->rs) % 2048u), 666, (2600 * v) >> 8);
-        } else if (nt->lane < 3u) {                     /* the snare, the clap: one */
-            int32_t X = (int32_t)(4u * 256u + pl_rnd(&s->rs) % 10240u);
-            plt_at(s, nt, X, (int32_t)(4u * 256u + pl_rnd(&s->rs) % 10240u), 461, (1700 * v) >> 8);
-        } else {                                        /* the rest: a star's glint */
-            uint32_t i = s->nt++ % 8u;
-            s->tx[i] = (uint8_t)(pl_rnd(&s->rs) % 240u);
-            s->ty[i] = (uint8_t)(pl_rnd(&s->rs) % 240u);
-            s->tv[i] = (uint8_t)v;
-            s->tt[i] = cx->now;
-        }
+    if ((v = pl_drive(cx, 4u, nt, nt->drum && !nt->lane)) != 0) {   /* PLUNGE (the kick): a heavy drop by the moon */
+        int32_t X = (int32_t)(20u * 256u + pl_rnd(&s->rs) % 2048u);
+        plt_at(s, nt, X, (int32_t)(21u * 256u + pl_rnd(&s->rs) % 2048u), 666, (2600 * v) >> 8);
+    }
+    if ((v = pl_drive(cx, 5u, nt, nt->drum && nt->lane >= 3u)) != 0) {   /* GLINT: a star's glint */
+        uint32_t i = s->nt++ % 8u;
+        s->tx[i] = (uint8_t)(pl_rnd(&s->rs) % 240u);
+        s->ty[i] = (uint8_t)(pl_rnd(&s->rs) % 240u);
+        s->tv[i] = (uint8_t)v;
+        s->tt[i] = cx->now;
+    }
+    if (!(v = pl_drive(cx, 3u, nt, !nt->drum || nt->lane - 1u < 2u)))   /* DROP */
+        return;
+    if (nt->drum && nt->lane) {                         /* the snare, the clap: one, anywhere */
+        int32_t X = (int32_t)(4u * 256u + pl_rnd(&s->rs) % 10240u);
+        plt_at(s, nt, X, (int32_t)(4u * 256u + pl_rnd(&s->rs) % 10240u), 461, (1700 * v) >> 8);
         return;
     }
     k = pl_pk(nt->note);
@@ -206,6 +210,7 @@ static void plt_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
 
 UMB_PLATE_HEAD const umb_plate_t umb_plate_tarn = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plt_t), "TARN",
-    UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 3u, {0, 0, 0},
-    {{"DRAG", 55}, {"BEND", 50}, {"SIZE", 50}},
-    plt_init, plt_note, plt_frame, plt_draw};
+    UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 6u, {0, 0, 0},
+    {{"DRAG", 55}, {"BEND", 50}, {"SIZE", 50}, {"DROP", 50}, {"PLUNGE", 50}, {"GLINT", 50}},
+    plt_init, plt_note, plt_frame, plt_draw,
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES}};

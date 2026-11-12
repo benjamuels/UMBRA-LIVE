@@ -215,7 +215,7 @@ static __attribute__((noinline)) int16_t *mom_vp(uint32_t k, const param_desc_t 
     if (ui.menu || ui.confirm || gen_on() || mac_latch || lock_held())
         return 0;
     if (ui.home) {
-        if (home_macros() || (UMB_ON && home_bare()))   /* ((UMBRA OBSCURA) WELCOME, the MACROS pages: no knobs) */
+        if (home_macros() || (UMB_ON && home_bare()))   /* ((UMBRA LIVE) WELCOME, the MACROS pages: no knobs) */
             return 0;
         *d = home_param(k, &vp);
     } else {
@@ -338,7 +338,7 @@ static void layer_let_go(uint32_t quiet)
     if (ui.ly == LAYER_FX && !perf_latch_on)
         perf_k[0] = perf_k[1] = perf_k[2] = perf_k[3] = 0;
     if (ui.ly == LAYER_FX && (ui.ly_t0 & LY_OPEN) && !(ui.ly_t0 & (LY_DEAD | LY_COMBO)) &&
-        !lys.used && !kb_layer && layer_allowed() && !(UMB_ON && umt.on)) {   /* ((UMBRA OBSCURA) not in TOTALITY: its
+        !lys.used && !kb_layer && layer_allowed() && !(UMB_ON && umt.on)) {   /* ((UMBRA LIVE) not in TOTALITY: its
                                                          * map unseen there, a lock would stay unseen) */
         fx_lock = 1;                                    /* (0.6.44) held open, nothing used, let go: locked open;
                                                          * (0.6.64) whatever FX LATCH (the effects' own: momentary by
@@ -353,7 +353,7 @@ static void layer_let_go(uint32_t quiet)
         quiet = 0;
     }
     if (ui.ly == LAYER_MACRO && (ui.ly_t0 & LY_OPEN) && !(ui.ly_t0 & LY_DEAD) && !(UMB_ON && umt.on)) {   /* (JIANT 0.4)
-                                                         * MACRO opened, let go ((UMBRA OBSCURA) not in TOTALITY: its knobs
+                                                         * MACRO opened, let go ((UMBRA LIVE) not in TOTALITY: its knobs
                                                          * are the macros there anyway): */
         mac_latch = 1;                                  /* latched (its knobs at once: no quiet time) */
         quiet = 0;

@@ -20,7 +20,7 @@
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
 #endif
 #ifndef FELUCCA_USB_IN
-#define FELUCCA_USB_IN 0         /* (UMBRA OBSCURA) the USB audio input: MENU > SYSTEM > USB > IN+OUT and STEMS+IN, and the
+#define FELUCCA_USB_IN 0         /* (UMBRA LIVE) the USB audio input: MENU > SYSTEM > USB > IN+OUT and STEMS+IN, and the
                                   * INPUT engine (V10.54, engine 15: reserved without it, a stored INPUT track plays
                                   * ANALOG, as a retired engine's); 0: none, its flash and RAM for the plates */
 #endif

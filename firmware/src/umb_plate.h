@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
-/* UMBRA OBSCURA: the plate API, version 1 (plans/umbra-plate-bank.md, plans/umbra-plate-compositing.md).
+ * Copyright (C) 2026 UMBRA LIVE contributors */
+/* UMBRA LIVE: the plate API, version 1 (plans/umbra-plate-bank.md, plans/umbra-plate-compositing.md).
  *
  * A plate is a module: a header (umb_plate_t) and four entry points. It keeps no state of its own outside the block the
  * firmware hands it (umb_plate_t.state bytes, zeroed before init): no globals, no statics that change, nothing but its
@@ -18,11 +18,16 @@
 #define UMB_PLATE_H
 #include <stdint.h>
 
-#define UMB_API 2u                                      /* (2: the context's tracks' offsets and roots, the
-                                                         * services' tables: what the field plates read) */
+#define UMB_API 3u                                      /* (2: the context's tracks' offsets and roots, the
+                                                         * services' tables: what the field plates read; 3: the
+                                                         * controls are elements: the tracks chosen for each, the level
+                                                         * and the beat in the context, UMB_EL_* in the header) */
 #define UMB_PLATE_MAGIC 0x544C5055u                     /* "UPLT", first in a plate's header */
 #define UMB_NTRK 6u                                     /* tracks (a note's track is 0 .. UMB_NTRK - 1) */
-#define UMB_NCTL 8u                                     /* controls a plate may declare (KNOB 1.., two pages) */
+#define UMB_NCTL 8u                                     /* controls a plate may declare: its elements, as LIVE VIZ CTRLS
+                                                         * lists them (a setting, or a part of the picture the notes drive) */
+#define UMB_EL_NOTES 1u                                 /* (API 3) umb_plate_t.el: the notes drive this control (LIVE VIZ
+                                                         * CTRLS offers its tracks: umb_lctx_t.et); its value how hard */
 
 enum { UMB_KIND_FIELD = 1u, UMB_KIND_OVERLAY = 2u };    /* what it draws: every pixel (a ground), or sparse light */
 enum { UMB_DRAW_REPLACE = 0u, UMB_DRAW_ADD = 1u };      /* every pixel of the strip set / light added to what is there */
@@ -61,6 +66,12 @@ typedef struct {                                        /* a layer, worked out o
                                                          * and down (Q8 of a span; umb_note_t.mo as it is now) */
     uint8_t root[UMB_NTRK];                             /* each track's root, 0..11 (C..B) */
     uint8_t rsv2[2];
+    /* (API 3) */
+    uint8_t et[UMB_NCTL];                               /* each control's tracks as LIVE VIZ CTRLS chose them (bit t: track
+                                                         * t's notes drive it, every one of them); 0: the plate's own choice */
+    uint8_t level;                                      /* the mix's level now, 0..255 */
+    uint8_t beat;                                       /* 255 on the beat, falling to the next (stopped: 0) */
+    uint8_t rsv3[2];
 } umb_lctx_t;
 
 typedef struct {                                        /* the strip being drawn */
@@ -104,6 +115,8 @@ typedef struct umb_plate_s {                            /* (not umb_plate: ui_um
     void (*frame)(void *st, const umb_lctx_t *c, const umb_api_t *a);
     /* a strip: in REPLACE every pixel of it set; in ADD light added to what is there (only the modes it takes) */
     void (*draw)(void *st, const umb_lctx_t *c, const umb_api_t *a, const umb_strip_t *s);
+    /* (API 3: read only where api >= 3) */
+    uint8_t el[UMB_NCTL];                               /* each control: UMB_EL_* */
 } umb_plate_t;
 
 #endif

@@ -129,8 +129,9 @@ int main(void)
      * 0xA0000..0xC7FFF, the drum sample bank's reserve (FL_SAMPLES) above them up to the index at 0xD8000 / 0xD9000;
      * every object's pair apart from every other one's, all in the store below 0xE0000, none in the reserve */
     {
-        uint32_t o, c, p, q, ok = OBJ_COUNT == OBJ_SONG1 + 20 && st_sector(OBJ_SONG1, 0) == 0xA0000u &&
-                                  st_sector(OBJ_COUNT - 1, 1) + 4096u == FL_SAMPLES && FL_SAMPLES == 0xC8000u &&
+        uint32_t o, c, p, q, ok = OBJ_UMBCTL == OBJ_SONG1 + 20 && OBJ_COUNT == OBJ_UMBCTL + 1 && st_sector(OBJ_SONG1, 0) == 0xA0000u &&
+                                  st_sector(OBJ_UMBCTL, 0) == 0xDA000u && st_sector(OBJ_UMBCTL, 1) == 0xDB000u &&   /* ((UMBRA LIVE) LIVE VIZ CTRLS' store) */
+                                  st_sector(OBJ_UMBCTL - 1, 1) + 4096u == FL_SAMPLES && FL_SAMPLES == 0xC8000u &&
                                   FL_SAMPLES + FL_SAMPLES_SIZE == 0xD8000u && st_sector(OBJ_SONGIDX, 0) == 0xD8000u &&
                                   st_sector(OBJ_SONGIDX, 1) == 0xD9000u;
         for (o = 0; o < OBJ_COUNT; o++)

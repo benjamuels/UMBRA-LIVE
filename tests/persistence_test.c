@@ -769,7 +769,7 @@ int main(void)
         v8.rows[7].count = 1; v8.rows[7].row[0] = (chain_row_t){3, 9};
         ok = st_save(OBJ_SONGIDX, &v8, sizeof v8) == 0;
         song_index_load();
-        ok &= song_cur == 0u && song_idx.cur == 0u && song_idx.rows[4].count == 1u &&   /* ((UMBRA OBSCURA) past project 4:
+        ok &= song_cur == 0u && song_idx.cur == 0u && song_idx.rows[4].count == 1u &&   /* ((UMBRA LIVE) past project 4:
                                                          * the first, song_main.c) */
               song_idx.rows[4].row[0].bars == 5u && !song_idx.rsv[1];
         memset(nor + FL_SAMPLES, 0xFF, FL_SAMPLES_SIZE);

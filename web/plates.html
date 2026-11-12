@@ -1,12 +1,12 @@
 <!doctype html>
-<!-- SPDX-License-Identifier: GPL-3.0-only. UMBRA OBSCURA: the plates page (plans/umbra-plate-bank.md, phase 2). Sends
+<!-- SPDX-License-Identifier: GPL-3.0-only. UMBRA LIVE: the plates page (plans/umbra-plate-bank.md, phase 2). Sends
      plate files (build/plates/*.plate, tools/build.py plate_files) into the FM-1's plate bank over USB-MIDI SysEx:
      EDITOR_PROTOCOL.md "Plates" (cmds 96..100; firmware/src/editor_plate.c, umb_slot.c). Chrome or Edge (Web MIDI). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>UMBRA OBSCURA · plates</title>
+<title>UMBRA LIVE · plates</title>
 <style>
   :root { color-scheme: dark; --bg: #000; --ink: #d8ebe6; --dim: #7f9a96; --line: #1d2b2f; --teal: #8fd9c9; --warn: #f0a868; }
   * { box-sizing: border-box; }
@@ -35,7 +35,7 @@
 </head>
 <body>
 <main>
-  <h1>UMBRA OBSCURA</h1>
+  <h1>UMBRA LIVE</h1>
   <p>Plates: load plate files into the FM-1's plate bank. CORONA is built into the firmware; every other plate lives in
     the bank, and SELECT in TOTALITY steps through what is loaded. Loading stops playback and pauses the sound for a
     moment, so do it between sets.</p>
@@ -48,15 +48,15 @@
   <div id="bank"><p>Connect to see what it holds.</p></div>
 
   <h2>PLATE FILES</h2>
-  <div class="row"><div class="name"><b>Every plate</b><small>CINDER, SAROS, FILAMENT, GRANULE and TARN: the plates UMBRA
-    came with. A plate already in the bank is replaced where it is.</small></div>
+  <div class="row"><div class="name"><b>Every plate</b><small>CINDER, SAROS, FILAMENT, GRANULE, TARN, BEACON, ZODIAC, SONAR,
+    MOTHS, MARSH and PACHINKO: the plates UMBRA LIVE comes with (an install loads them too). A plate already in the bank is replaced where it is.</small></div>
     <button id="all" class="load" disabled>Load all</button></div>
   <div id="lib"><p>Loading the list…</p></div>
   <div class="row"><div class="name"><b>A file of your own</b><small>A .plate file built for this firmware's plate API.</small></div>
     <label class="file" id="filelbl">Choose…<input type="file" id="file" accept=".plate"></label></div>
 
   <div id="status"></div>
-  <footer>UMBRA OBSCURA is a live-visuals reskin of <a href="https://github.com/juanjiant-bit/JIANT">JIANT FM</a> by Juan Jiant,
+  <footer>UMBRA LIVE is a live-visuals reskin of <a href="https://github.com/juanjiant-bit/JIANT">JIANT FM</a> by Juan Jiant,
     itself built on Felucca. GPL-3.0. M-VAVE and FM-1 are trademarks of their respective owners.</footer>
 </main>
 <script>
@@ -69,8 +69,15 @@ const DESC = { "cinder.plate": "Cold embers: heat rising and cooling under a cru
                "filament.plate": "A taut string a track, plucked and bowed.",
                "granule.plate": "The sun's surface: a honeycomb of granules, a note lights its own.",
                "tarn.plate": "The eclipse reflected in dark water, a note a drop.",
+               "beacon.plate": "The lighthouse in line art: its lamp turns, the beam sweeps, a window a track. Lies on a layer.",
+               "zodiac.plate": "Six signs wheeling round the pole, one a track: a melody draws its sign. Lies on a layer.",
+               "sonar.plate": "Six rings and a sweeping hand: notes leave marks that light as it comes round. Lies on a layer.",
+               "moths.plate": "A lamp and its moths: a note lets one in to circle it. Lies on a layer.",
+               "marsh.plate": "Water in dashes, reeds in the wind, fireflies: a note lights the water. Lies on a layer.",
+               "pachinko.plate": "Stars fall through six rows of pegs into cups, a note a star. Lies on a layer.",
                "filament-ember.plate": "FIL EMBER, a test: FILAMENT with warm strings at rest." };
-const ALL = ["cinder.plate", "saros.plate", "filament.plate", "granule.plate", "tarn.plate"];
+const ALL = ["cinder.plate", "saros.plate", "filament.plate", "granule.plate", "tarn.plate", "beacon.plate", "zodiac.plate",
+             "sonar.plate", "moths.plate", "marsh.plate", "pachinko.plate"];
 const SLOT = 0x2000, RELOC = 0x434C5255;                /* a slot's size (umb_slot.c); a plate file's "URLC" */
 const $ = (id) => document.getElementById(id);
 let dev = null, bank = [], nslot = 0;
@@ -155,7 +162,7 @@ async function refresh() {
       }
     }
   } catch (e) {
-    $("devinfo").textContent = "It does not answer plate bank requests: install the UMBRA OBSCURA firmware with the plate bank first.";
+    $("devinfo").textContent = "It does not answer plate bank requests: install the UMBRA LIVE firmware with the plate bank first.";
     dev = null; $("connect").disabled = false; return;
   }
   $("devinfo").textContent = `Connected. Plate API ${api}, ${nslot} slots, ${bank.filter((b) => b && b.st).length} in use.`;

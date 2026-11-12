@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
-/* (UMBRA OBSCURA) The screen on a computer: Patrick F. Kellogg's screen mirror (screen_mirror/, MIT) and its viewers,
+ * Copyright (C) 2026 UMBRA LIVE contributors */
+/* (UMBRA LIVE) The screen on a computer: Patrick F. Kellogg's screen mirror (screen_mirror/, MIT) and its viewers,
  * FM-1 Mirror (Mac, Windows, Linux) and FM-1 Mirror + Spyglass (Android). The viewer says hello over USB MIDI about
  * once a second (F0 7D 'F' 'S' 00 F7: usb.c sysex_byte, sm_sysex); while it does, every rectangle that goes to the
  * panel goes to it too (lcd.c lcd_fill / lcd_blit / lcd_blit_stride: umr_fill, umr_blit), run-length coded, at most

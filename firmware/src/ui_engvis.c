@@ -6,7 +6,7 @@
  * OPERATOR / OPERATOR 2 and OP ENV. Line art only, antialiased (ui_organic.c og_line), from small tables and the
  * synthesis state the UI already reads; nothing in the audio path. Each moves only with its sound: in silence it rests
  * (its time runs with the level).
- * (UMBRA OBSCURA) JIANT's creatures (the kit of beings, the cell, the tube worms, the vocal tract, the colony, the snail,
+ * (UMBRA LIVE) JIANT's creatures (the kit of beings, the cell, the tube worms, the vocal tract, the colony, the snail,
  * the caterpillar, the swarm, the spider, the jellyfish / totem, the bird / insect / mammal) are replaced by bodies on
  * an observatory plate: a dark disc, a lit limb, thin lines; no faces. They read the same engine values the creatures
  * did. What a figure is built of is the plates' deep blue; what lights takes the accent of the track the engine is on
@@ -25,7 +25,7 @@
  * Each takes a rectangle (vx_draw: EDIT's left panel, HOME's middle, or a whole panel) and scales to it.
  * State: vxs (in the pool: no global of the RAM region moves). MENU > ANIM OFF: they rest. */
 #define VX_POOL __attribute__((section(".pool")))
-static uint8_t vx_bare VX_POOL;                          /* (UMBRA OBSCURA) drawn over a plate (TOTALITY, HOME > BEING): DRUM-X's,
+static uint8_t vx_bare VX_POOL;                          /* (UMBRA LIVE) drawn over a plate (TOTALITY, HOME > BEING): DRUM-X's,
                                                          * PHASE's and LOFI's floors left out */
 #define VX_CODE __attribute__((noinline))                 /* (each creature its own function: its size on its own) */
 #define VX_SEG BTAPP_FN                                  /* (V10.48) LOFI's, ANIMAL's and STRING's figures (and more: vx_draw) in the Bluetooth
@@ -51,11 +51,11 @@ static struct {
     uint8_t age[8], last;                                /* DRUM-X: each lane's age seen; the lane struck last */
     uint32_t hitm[8], tl[8], kms;                        /* .. its last hit (fm1_ms), its being's time; the ms drawn */
     uint8_t kc;                                          /* .. drawing it (its colours: vx_col) */
-    uint16_t rta;                                        /* (UMBRA OBSCURA) RETE: where its inner ring has swung to */
+    uint16_t rta;                                        /* (UMBRA LIVE) RETE: where its inner ring has swung to */
     uint8_t init;
 } vxs VX_POOL;
 
-/* (UMBRA OBSCURA) the bodies' colours: a heat 0..255 runs black, the plates' deep blue (what a figure is built of), the
+/* (UMBRA LIVE) the bodies' colours: a heat 0..255 runs black, the plates' deep blue (what a figure is built of), the
  * accent of the track the engine is on (what lights), its white. Six accents, one a track: CORONA teal, AZURE, SODIUM
  * yellow, EMBER orange (3 and 4 the plates' warm tints), H-ALPHA rose, VIOLET. GREY and MONO: their greys */
 static const uint8_t VK_HP[8] = {0, 26, 51, 82, 118, 154, 200, 255};
@@ -114,7 +114,7 @@ static int32_t vx_level(const track_t *t, uint32_t k, int32_t en_home)
 {
     uint32_t dt = ui.frame - vxs.fr[k], dm = fm1_ms - vxs.ms[k];
     int32_t v;
-    vx_acc = VX_ACC[(uint32_t)(t - trk) % 6u];           /* ((UMBRA OBSCURA) every figure asks its level first: its track's accent) */
+    vx_acc = VX_ACC[(uint32_t)(t - trk) % 6u];           /* ((UMBRA LIVE) every figure asks its level first: its track's accent) */
     if (!dt)
         return vxs.en[k];
     if (dt > 8u) dt = 8u;
@@ -160,9 +160,9 @@ static void vx_dot(const vxf_t *f, int32_t x, int32_t y, int32_t r, int32_t h)
     X = (X - 8) >> 4;
     Y = (Y - 8) >> 4;
     for (r = 0; r < 4; r++)
-        og_plot(X + (r & 1), Y + (r >> 1), c, 256 - og_dim);   /* (UMBRA OBSCURA: og_dim, TOTALITY's fade) */
+        og_plot(X + (r & 1), Y + (r >> 1), c, 256 - og_dim);   /* (UMBRA LIVE: og_dim, TOTALITY's fade) */
 }
-/* (UMBRA OBSCURA) an ellipse turned by rot (16-bit turns) about its centre, from a0 to a1, in n lines */
+/* (UMBRA LIVE) an ellipse turned by rot (16-bit turns) about its centre, from a0 to a1, in n lines */
 static void vx_ell(const vxf_t *f, int32_t cx, int32_t cy, int32_t rx, int32_t ry, uint32_t rot, uint32_t a0, uint32_t a1,
                    uint32_t n, int32_t h)
 {
@@ -288,7 +288,7 @@ static VX_CODE uint32_t vx_voice_target(const track_t *t, int16_t *a, int32_t *v
 }
 static uint32_t vx_age(const track_t *t, uint32_t k, int32_t *note);
 static int32_t vx_isqrt(int32_t v) { int32_t r = 0, b; for (b = 1024; b; b >>= 1) if ((r + b) * (r + b) <= v) r += b; return r; }
-/* (UMBRA OBSCURA) OCCULTATION: the moon over the sun. The jaw is how far the moon slides off (the lips closed: shut
+/* (UMBRA LIVE) OCCULTATION: the moon over the sun. The jaw is how far the moon slides off (the lips closed: shut
  * again), the tongue's place front to back which way (the vowel), so the crescent left open is the mouth: hatched from
  * the limb inward. The voicing throws the corona's rays, frication and the bursts set beads at the crescent's horns */
 static VX_CODE void vx_voice(const track_t *t, int32_t cx, int32_t cy, int32_t s, int32_t en_home)
@@ -332,7 +332,7 @@ static VX_CODE void vx_voice(const track_t *t, int32_t cx, int32_t cy, int32_t s
 }
 
 /* ------------------------------------------------------------------------------------------------ ANIMAL --- */
-/* (UMBRA OBSCURA) CORVUS, MUSCA, CANIS: the three animals as constellations of the same twelve stars (units, facing
+/* (UMBRA LIVE) CORVUS, MUSCA, CANIS: the three animals as constellations of the same twelve stars (units, facing
  * left), each with its thirteen joins (a byte a join: two stars). The stars stand where the three are mixed (the weights
  * glide, ~0.6 s, to the MODE's animal, leaned by SIZE and stirred by CHAOS, as they always did), so they travel from one
  * figure to the next; a figure's joins as strong as its weight. The star that makes the call (the beak, the wing, the
@@ -441,7 +441,7 @@ static void vx_kit(const track_t *t, int32_t cx, int32_t cy, int32_t s, int32_t 
         if (en || e[i])                                  /* (its time runs with the sound: in silence it rests) */
             vxs.tl[i] += dt * (uint32_t)(60 * 256 + e[i] * 300) * 30u / 256000u;
     }
-    {   /* (UMBRA OBSCURA) ORBEATRY: the bass the body at the centre, the drums its moons on four rings that rock slowly
+    {   /* (UMBRA LIVE) ORBEATRY: the bass the body at the centre, the drums its moons on four rings that rock slowly
          * from side to side. A bass hit sends a ripple out along the rings' plane, pushing each moon as it passes */
         static const uint16_t MA[5] = {9387, 35463, 19818, 53196, 43808};
         static const int8_t MS[5] = {17, -12, 9, 9, -6}, MO[5] = {0, 1, 2, 2, 3};
@@ -653,7 +653,7 @@ static VX_CODE void vx_an_wave(const track_t *t, int32_t en, uint32_t mt, int32_
     if (mx > 205)
         for (i = 0; i < 128u; i++) vxs.wv[i] = (int16_t)(vxs.wv[i] * 4096 / mx);
 }
-/* (UMBRA OBSCURA) DIAMOND RING: an eclipsed disc, the oscillators its two coronas (three cycles of the wave round the
+/* (UMBRA LIVE) DIAMOND RING: an eclipsed disc, the oscillators its two coronas (three cycles of the wave round the
  * limb, the second drifting against the first as DETUNE beats), the filter roughening them (the wave is the filtered
  * one) and raising the prominences (DRIVE taller), RES a dashed halo the envelope draws in, NOISE rays past the corona;
  * each note sets the diamond on the limb at its pitch */
@@ -746,7 +746,7 @@ static void vx_fm_ops(const track_t *t, vxfm_t *o)
         o->y[k] = 28 * 16 - (int32_t)(FM6_CELL[o->alg][k] >> 4) * (top >= 3u ? 324 : 352);
     }
 }
-/* (UMBRA OBSCURA) a star at (x, y): sp 1..3 its spikes (4, 6, 8: an operator's ratio), len their length (Q4 units) */
+/* (UMBRA LIVE) a star at (x, y): sp 1..3 its spikes (4, 6, 8: an operator's ratio), len their length (Q4 units) */
 static void vx_star(const vxf_t *f, int32_t x, int32_t y, int32_t sp, int32_t len, int32_t h)
 {
     uint32_t n = 2u + 2u * (uint32_t)sp, i;
@@ -761,7 +761,7 @@ static void vx_fm_num(const vxf_t *f, const vxfm_t *o, uint32_t k, int32_t x, in
     vx_text(f->cx + ((x * f->s) >> 8), f->cy + ((y * f->s) >> 8) - 64, n,
             sel ? T_THEME : o->p[(5u - k) * FP_OP + FP_OL] % 100u ? T_MID : T_DIM);
 }
-/* (UMBRA OBSCURA) ASTERISM: the six operators as stars joined as the algorithm wires them (FM6_CELL, fm6_routes), the
+/* (UMBRA LIVE) ASTERISM: the six operators as stars joined as the algorithm wires them (FM6_CELL, fm6_routes), the
  * carriers over the horizon (the output), each standing on its own line down to it, every modulator wheeling slowly
  * about its place. A star's spikes are its RATIO, their length and its heat its LEVEL times its envelope now; pulses
  * run down the joins as fast as the modulator's ratio; FB a ring round the operator that feeds itself. sel the operator
@@ -905,7 +905,7 @@ static VX_CODE void vx_fm6env(const track_t *t)
     a = o.amp[ko];
     r = 64 + (96 * e >> 8);
     (void)a; (void)age;
-    vx_star(&f, px, py - r, clamp((o.rat[ko] + 128) >> 8, 1, 3), r, -2);   /* ((UMBRA OBSCURA) the operator's star) */
+    vx_star(&f, px, py - r, clamp((o.rat[ko] + 128) >> 8, 1, 3), r, -2);   /* ((UMBRA LIVE) the operator's star) */
     k = sg < 3 ? (x[sg] + x[sg + 1]) / 2 : (x[4] + x[5]) / 2;
     k = clamp(k, -49 * 16, 49 * 16);                     /* (the stage's name under it, inside the curve's ends) */
     vx_text(f.cx + ((k * f.s) >> 8),
@@ -923,7 +923,7 @@ static VX_CODE void vx_fm6env(const track_t *t)
 }
 
 /* -------------------------------------------------------------------------------------------- WHEEL --- */
-/* (UMBRA OBSCURA) GEMINIDS: nine lanes, one a drawbar (the digits under them), each a pair of comets twisting round one
+/* (UMBRA LIVE) GEMINIDS: nine lanes, one a drawbar (the digits under them), each a pair of comets twisting round one
  * another, their tail as long as the bar is pulled and widening as it trails. The twist turns only while the organ
  * sounds (the figure's own time). The rotor sways the heads (its real phase), PERC flares the lane it strikes, DUST
  * motes drift */
@@ -1006,7 +1006,7 @@ static VX_CODE void vx_nz_step(const track_t *t, int32_t en)
     }
     vxs.rs = r;
 }
-/* (UMBRA OBSCURA) ACCRETION: the swarm as dust in a tilted ring round a dark body (the same walk: COLOR, FREQ's swirl,
+/* (UMBRA LIVE) ACCRETION: the swarm as dust in a tilted ring round a dark body (the same walk: COLOR, FREQ's swirl,
  * PEAK the ring they keep, DUST's impulses flaring them), the half behind the body dimmer; LFSR / META: the register
  * sixteen marks round the ring, a mark a bit */
 static void vx_tilt(int32_t x, int32_t y, int32_t *X, int32_t *Y)   /* a place on the ring's plane (Q4 units) as seen */
@@ -1090,7 +1090,7 @@ static int32_t vx_pdw(uint32_t w, uint32_t dcw, uint32_t ph)
           (ph < 16384u ? (int32_t)ph * 4 : ph > 49152u ? (65535 - (int32_t)ph) * 4 : 65535);
     return (c * (win > 65535 ? 65535 : win)) >> 16;
 }
-/* (UMBRA OBSCURA) WHORL: a planetary shell. A spiral of chambers (its radius 1.72 x a turn, four and a half turns), the
+/* (UMBRA LIVE) WHORL: a planetary shell. A spiral of chambers (its radius 1.72 x a turn, four and a half turns), the
  * chamber walls at the bent phase (WAVE / WAVE2 at DCW: crowding where it rushes) and bowed by DCW, the outer whorl
  * ribbed by the wave itself (FB frays it, SUB a faint whorl outside), a chamber lit by each note, small bodies winding out
  * along it, the second line (DETUNE, RING) a companion circling the mouth. It turns slowly while it sounds */
@@ -1159,7 +1159,7 @@ static VX_SEG void vx_phase(const track_t *t, const int32_t *A, int32_t en_home)
 }
 
 /* --------------------------------------------------------------------------------------------- LOFI --- */
-/* (UMBRA OBSCURA) QUANTA: a disc with a stepped limb, CRUSH the step; the last samples out cross it held a step at a
+/* (UMBRA LIVE) QUANTA: a disc with a stepped limb, CRUSH the step; the last samples out cross it held a step at a
  * time (the scope's: nothing more from the audio); inside, eight sides of an octagon the byte's bits (BYTE: lit with
  * their bit; FLOAT and the other waves: with the wave's level there) */
 static VX_SEG void vx_lofi(const track_t *t, const int32_t *A, int32_t en_home)
@@ -1217,7 +1217,7 @@ static VX_SEG void vx_lofi(const track_t *t, const int32_t *A, int32_t en_home)
 #define VX_K_STRING 7u
 #define VX_K_ADD 5u
 /* ---------------------------------------------------------------------------------------- (snd5) STRING --- */
-/* (UMBRA OBSCURA) RETE: an astrolabe's net. The rim with its degrees; a ray a voice, at its note's place round the
+/* (UMBRA LIVE) RETE: an astrolabe's net. The rim with its degrees; a ray a voice, at its note's place round the
  * octave, each ray the string itself (its delay line, one period of what the loop holds now: the real standing wave,
  * ringing down as it decays); a small body rides the newest ray at POS; the inner ring, off-centre as an ecliptic,
  * swings round to the newest note and swells with it; the hub as large as SIZE, lit by BODY; BRIGHT warms the lines */
@@ -1272,7 +1272,7 @@ static VX_SEG void vx_string(const track_t *t, const int32_t *A, int32_t en_home
     }
 }
 
-/* (UMBRA OBSCURA) COMET: it flies a loop that drifts and breathes (the figure's own time: still in silence). The nine
+/* (UMBRA LIVE) COMET: it flies a loop that drifts and breathes (the figure's own time: still in silence). The nine
  * partials are the nine streamers of its tail, laid along the path it has flown, each as long as its gain now (the
  * voices' own: the highest fall first), bold near the head, twisting on its own. Swells run down them: one sits where
  * the track's LFO is, one runs at its own pace; SHIMMER how far they swell. PARTIAL's cut ones stay faint, COMB a gap */
@@ -1439,7 +1439,7 @@ static int vx_draw(const track_t *t, int32_t x, int32_t y, int32_t w, int32_t h,
     if (!bt_hw_seg() && (e == &ENG_LOFI || e == &ENG_ANIMAL || e == &ENG_STRING || e == &ENG_PHASE || e == &ENG_ADD || e == &ENG_WHEEL ||
                          e == &ENG_NOISE))
         return 0;                                        /* (V10.48: those figures live in the segment; V10.6g PHASE's too;
-                                                         * (UMBRA OBSCURA) ADD's, WHEEL's and NOISE's: the room the smaller
+                                                         * (UMBRA LIVE) ADD's, WHEEL's and NOISE's: the room the smaller
                                                          * figures left there, the app slot's kept for the pages) */
     if (e == &ENG_FORMANT) {                             /* (the tract ~80 x 62 units about (-20, 37): the crown off) */
         s = vx_fit(w, h, 124, 94);

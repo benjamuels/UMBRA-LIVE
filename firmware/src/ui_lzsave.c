@@ -27,7 +27,7 @@ static const char *umb_bank(uint32_t i, int *cur);     /* (ui_umbra.c) the plate
 static void graph_lib(void)
 {
     uint32_t i, j;
-    {                                                   /* (UMBRA OBSCURA) under the four projects, where projects 5..8 were:
+    {                                                   /* (UMBRA LIVE) under the four projects, where projects 5..8 were:
                                                          * the plate bank that took their flash, a cell a slot (two rows of
                                                          * eight): its number, the plate there by its name's first four
                                                          * letters, the one drawn now framed; an empty slot dim */

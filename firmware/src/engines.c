@@ -17,11 +17,11 @@
 #if FELUCCA_USB_IN
 #include "eng_input.c"          /* (V10.54) INPUT: the audio input on a track (engine 15) */
 #else
-static int32_t uin_l[CTL], uin_r[CTL];                  /* (UMBRA OBSCURA: no USB input, so never one: what reads */
+static int32_t uin_l[CTL], uin_r[CTL];                  /* (UMBRA LIVE: no USB input, so never one: what reads */
 static const uint8_t uin_on = 0;                        /* these is dead code, left out by the compiler) */
 static uint8_t ain_any;
 static int16_t ain_gg[NTRK];
-/* ((UMBRA OBSCURA) V10.7.6's SWARM is a source of this engine (EXT): without it no SWARM either; what mod.c, bt.c, ui.c
+/* ((UMBRA LIVE) V10.7.6's SWARM is a source of this engine (EXT): without it no SWARM either; what mod.c, bt.c, ui.c
  * and ui_dx.c ask of it, never true) */
 enum { AIN_IN1, AIN_IN2, AIN_SUM, AIN_ST, AIN_SW, AIN_N };
 enum { SWS_N = 0 };
@@ -90,7 +90,7 @@ static const engine_t *const ENGINES[NENGINES] = {
 #if FELUCCA_USB_IN
     &ENG_INPUT,                  /* 15 (ENGI_INPUT, V10.54) */
 #else
-    &ENG_GONE,                   /* 15: reserved (INPUT, UMBRA OBSCURA: no USB input) */
+    &ENG_GONE,                   /* 15: reserved (INPUT, UMBRA LIVE: no USB input) */
 #endif
 };
 

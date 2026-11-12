@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
+ * Copyright (C) 2026 UMBRA LIVE contributors */
 /* (included by ui_umbra.c, after the plates' light) built for size, as the main loop is (tools/size_fns.py); ump_backdrop
  * stays a call. Prototyped in prototypes/umbra-kiln-alternatives.html.
  * ------------------------------------------------------------------------------------- CORONA, the resident plate ---
@@ -9,11 +9,16 @@
  * and its map); CINDER, GRANULE and TARN, the other field plates drawn here until 2026-11-09, are plate modules
  * (plates/cinder.c, granule.c, tarn.c: the same arithmetic, through umb_plate.h; the palette, the noise and the fade are
  * handed to them, umb_api).
- * CORONA: the eclipse. The moon's disc (44 px) black, the corona's 128 streamers out from it, each a falloff from the limb;
- *   a note feeds the streamer at its place on the circle of fifths (the root at the top, as SAROS), the bass broad, a high
- *   note fine; the kick the chromosphere (the limb's ring), the snare a rose prominence, the hats Baily's beads. REACH: how
- *   far a bright streamer runs. FADE. Track 3's light yellow, track 4's orange: its streamers, its kick, prominence, beads. */
-static uint8_t ump_on = 0xFFu;                          /* CORONA drawn last (0xFF: no: it starts afresh) */
+ * CORONA: the eclipse. The moon's disc (44 px) black, the corona's 128 streamers out from it, each a falloff from the limb.
+ *   Its elements (LIVE VIZ CTRLS; the tracks of the last four can be chosen, at first as said):
+ *     REACH   how far a bright streamer runs          FADE    how long the notes' light lasts
+ *     SIZE    the moon's (a quarter .. twice)         HALO    the corona at rest
+ *     STREAM  a note feeds the streamer at its place on the circle of fifths (the root at the top, as SAROS), the bass
+ *             broad, a high note fine (at first: every note that is no drum)
+ *     PULSE   the chromosphere (the limb's ring) flares (the kick)
+ *     PROM    a rose prominence (the snare, the clap)
+ *     BEADS   Baily's beads (the hats and the rest of the kit)
+ *   each of the four as hard as its value (50: as played, 0: never, 99: twice). Track 3's light yellow, track 4's orange. */
 static const int8_t UMP_D2[4] = {-8, 0, 4, -4};        /* the dither, 2 x 2 (fixed to the screen): [(y & 1) x 2 + (x & 1)] */
 static uint16_t ump_lut[4][256] __attribute__((section(".pool")));   /* the palette as the panel takes it, a dither each
                                                          * ([1]: none, the palette itself) */
@@ -98,35 +103,40 @@ static void ump_co_init(void)
                                         0, 255);
     }
 }
-static void ump_co_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32_t lane)
+/* note nt drives CORONA's element j: its tracks as chosen (LIVE VIZ CTRLS), else own; how hard (0: not at all) */
+static int32_t ump_co_on(const umb_lctx_t *cx, uint32_t j, const umb_note_t *nt, int own)
 {
-    ump_co_t *s = &umb.co;
-    int32_t a0, sg, e, d;
-    uint32_t tn = ump_tint(c);                          /* (tracks 3 and 4: warm) */
-    if (!v)
+    return (cx->et[j] ? cx->et[j] >> nt->track & 1u : (uint32_t)own) ? ((int32_t)nt->vel * 2 + 1) * cx->k[j] / 50 : 0;
+}
+static void ump_co_note(void *st, const umb_lctx_t *cx, const umb_api_t *ap, const umb_note_t *nt)
+{
+    ump_co_t *s = st;
+    uint32_t c = nt->track, n = nt->note, drum = nt->drum, lane = nt->lane, tn = ump_tint(c), i;   /* (tracks 3 and 4: warm) */
+    int32_t a0, sg, e, d, v;
+    (void)ap;
+    if (!nt->vel)
         return;
-    if (drum) {
-        if (!lane) {                                    /* the kick: the chromosphere flares */
-            if (s->P <= 128 + (v >> 1)) {
-                s->P = (uint16_t)(128 + (v >> 1));
-                s->Pt = (uint8_t)tn;
-            }
-        } else if (lane < 3u) {                         /* the snare, the clap: a prominence */
-            uint32_t i = s->np++ % 4u;
-            s->pa_[i] = (uint16_t)(umb_rnd() & 1023u);
-            s->ph[i] = (uint8_t)(6 + 7 * v / 256);
-            s->pt[i] = umb_now;
-            s->pc[i] = (uint8_t)tn;
-        } else {                                        /* the rest: a bead */
-            uint32_t i = s->nbd++ % 10u;
-            s->ba[i] = (uint16_t)(umb_rnd() & 1023u);
-            s->bv[i] = (uint8_t)v;
-            s->bt[i] = umb_now;
-            s->bc[i] = (uint8_t)tn;
-        }
-        return;
+    if ((v = ump_co_on(cx, 4u, nt, drum && !lane)) != 0 && s->P <= 128 + (v >> 1)) {   /* PULSE: the chromosphere flares */
+        s->P = (uint16_t)(128 + (v >> 1));
+        s->Pt = (uint8_t)tn;
     }
-    a0 = (int32_t)ump_fifth(c, n) * 128 / 12 + 96 + (umn.o[c][0] >> 1);   /* (the root at the top; NOTE MOVEMENT round) */
+    if ((v = ump_co_on(cx, 5u, nt, drum && lane - 1u < 2u)) != 0) {   /* PROM: a prominence */
+        i = s->np++ % 4u;
+        s->pa_[i] = (uint16_t)(umb_rnd() & 1023u);
+        s->ph[i] = (uint8_t)(6 + 7 * v / 256);
+        s->pt[i] = umb_now;
+        s->pc[i] = (uint8_t)tn;
+    }
+    if ((v = ump_co_on(cx, 6u, nt, drum && lane >= 3u)) != 0) {   /* BEADS: a bead */
+        i = s->nbd++ % 10u;
+        s->ba[i] = (uint16_t)(umb_rnd() & 1023u);
+        s->bv[i] = (uint8_t)(v > 255 ? 255 : v);
+        s->bt[i] = umb_now;
+        s->bc[i] = (uint8_t)tn;
+    }
+    if (!(v = ump_co_on(cx, 3u, nt, !drum)))            /* STREAM */
+        return;
+    a0 = (int32_t)ump_fifth(c, n) * 128 / 12 + 96 + (nt->mo[0] >> 1);   /* (the root at the top; NOTE MOVEMENT round) */
     sg = 16 + (((256 - ump_pk(n)) * 40) >> 8);          /* (its width: 1 .. 3.5 streamers, Q4) */
     e = 90 + ((141 * v) >> 8);
     for (d = -(3 * sg >> 4) - 1; d <= (3 * sg >> 4) + 1; d++) {
@@ -141,19 +151,20 @@ static void ump_co_note(uint32_t c, uint32_t n, int32_t v, uint32_t drum, uint32
         }
     }
 }
-static void ump_co_frame(uint32_t dt)
+static void ump_co_frame(void *st, const umb_lctx_t *cx, const umb_api_t *ap)
 {
-    ump_co_t *s = &umb.co;
-    int32_t k0 = (int32_t)umv(4u, 0u), k1 = (int32_t)umv(4u, 1u), life = 400 + k1 * k1 * 3 / 5, f = (int32_t)dt * 65536 / life,
-            reach = 640 * k0 / 99, a;
-    umr_rm = umb_clamp(44 * umv_sc(4u) >> 8, 16, 88);   /* (SIZE) */
+    ump_co_t *s = st;
+    int32_t k0 = cx->k[0], k1 = cx->k[1], k2 = cx->k[2], life = 400 + k1 * k1 * 3 / 5, f = (int32_t)cx->dt * 65536 / life,
+            reach = 640 * k0 / 99, hb = 154 * cx->k[7] / 50, a;   /* (HALO: 50 as it was) */
+    (void)ap;
+    umr_rm = umb_clamp(44 * (k2 <= 50 ? 64 + k2 * 192 / 50 : 256 + (k2 - 50) * 256 / 49) >> 8, 16, 88);   /* (SIZE: a quarter .. twice) */
     umr_k = 8192 / umr_rm;
-    s->P = (uint16_t)(s->P - ((s->P * (int32_t)dt * 218) >> 16));   /* (the pulse: 0.3 s) */
+    s->P = (uint16_t)(s->P - ((s->P * (int32_t)cx->dt * 218) >> 16));   /* (the pulse: 0.3 s) */
     for (a = 0; a < (int32_t)UMR_NA; a++) {
         int32_t S;
         s->E[a] = ump_dec(s->E[a], f);
         s->W[a] = ump_dec(s->W[a], f);
-        S = ((s->base[a] * 154) >> 8) + (s->E[a] & ~15);
+        S = ((s->base[a] * hb) >> 8) + (s->E[a] & ~15);
         s->S[a] = (uint16_t)S;
         s->K[a] = (int16_t)(947 - ((reach * (S > 256 ? 256 : S)) >> 8));   /* (3.7 .. 1.2: REACH, a bright one further) */
         s->T[a] = (uint8_t)((s->Wc[a] & 128u) | (umb_clamp(s->W[a] * 254 / (S + 1), 0, 127) & 0x78));   /* (the warm
@@ -251,55 +262,37 @@ static void ump_co_draw(int32_t x0, int32_t y0)
 }
 
 /* ---------------------------------------------------------------------------------------------------------- */
-/* once a frame: CORONA just chosen starts afresh; the notes since (a burst: the newest); its frame */
-static void ump_tick(uint32_t pl)
+/* CORONA as a plate (umb_plate.h), built in: its state the block's start (umb.co: the welcome borrows it) */
+static void ump_co_start(void *st, const umb_lctx_t *cx, const umb_api_t *ap)
 {
-    uint32_t dt;
-    umm_lq = umv_light(pl);                             /* (LIGHT: umm_vg) */
-    if (ump_on != pl) {
-        memset(&umb, 0, __builtin_offsetof(umb_t, f0));
-        ump_on = (uint8_t)pl;
-        umb.rs = 218u + umb_now;
-        umb.qr = umb_q.w;
-        umb.ms = umb.last = umb_now;
-        ump_co_init();
-    }
-    if (umb.f0 == ui.frame)
-        return;
-    umb.f0 = ui.frame;
-    dt = umb_now - umb.last;
-    dt = dt > 250u ? 250u : dt;
-    umb.last = umb_now;
-    if (umb_q.w - umb.qr > UMB_NQ)
-        umb.qr = umb_q.w - UMB_NQ;
-    for (; umb.qr != umb_q.w; umb.qr++) {
-        uint32_t q = umb.qr % UMB_NQ, c = umb_q.c[q], nn = umb_q.note[q], drum, lane, u = umb_vel(umb_q.vel[q]);
-        int32_t v = u ? (int32_t)u * 2 + 1 : 0;         /* (REACT: 0, a note that does not reach it) */
-        if (c >= NTRK || (umb_q.vel[q] && (!v || eco_off(c))))
-            continue;
-        drum = trk[c].engine == ENGI_DRUM;
-        lane = drum ? drum_lane(nn) % NLANE : 0u;
-        if (v)
-            umn_note(c, q);                             /* (NOTE MOVEMENT) */
-        ump_co_note(c, nn, v, drum, lane);
-    }
-    ump_co_frame(dt);
+    (void)st;
+    (void)ap;
+    umb.rs = 218u + cx->now;
+    ump_co_init();
 }
-static __attribute__((noinline)) void ump_backdrop(uint32_t pl, int32_t x0, int32_t y0)
+static void ump_co_strip(void *st, const umb_lctx_t *cx, const umb_api_t *ap, const umb_strip_t *sp)
 {
-    ump_tick(pl);
-    umm_x0 = x0;                                        /* (the glints: umm_splat) */
-    umm_y0 = y0;
-    ump_co_draw(x0, y0);
+    (void)st;
+    (void)ap;
+    umm_lq = cx->light;                                 /* (LIGHT: umm_vg) */
+    umm_x0 = sp->x0;                                    /* (the glints: umm_splat) */
+    umm_y0 = sp->y0;
+    ump_co_draw(sp->x0, sp->y0);
 }
+static const umb_plate_t umb_plate_corona = {
+    UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(ump_co_t), "CORONA",
+    UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 8u, {0, 0, 0},
+    {{"REACH", 50}, {"FADE", 45}, {"SIZE", 50}, {"STREAM", 50}, {"PULSE", 50}, {"PROM", 50}, {"BEADS", 50}, {"HALO", 50}},
+    ump_co_start, ump_co_note, ump_co_frame, ump_co_strip,
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, 0}};
 
 /* ------------------------------------------------------------------------------------------------ WELCOME --- */
-/* (UMBRA OBSCURA) the power-on screen, UMW_T ms (ui_draw.c draw_splash, splash_write: main.c boot_splash, web/emu): an
+/* (UMBRA LIVE) the power-on screen, UMW_T ms (ui_draw.c draw_splash, splash_write: main.c boot_splash, web/emu): an
  * eclipse reaching totality, on CORONA's corona. Out of the black a pale sun, the moon already on it from the lower left,
  * slowing as it covers it; its last light a bead on the upper right that flares (the diamond ring) with the chromosphere;
  * the corona unfurling round the black disc, turning slowly to a stop; the name rising out of the dark under it, then the
  * line under that; by 3.55 s all still, held so 2 s; and in the last 0.45 s all sinks to black. ms: from its start (past
- * UMW_T: nothing drawn). It borrows CORONA's state (ump_on 0xFE: the plate after it starts afresh) */
+ * UMW_T: nothing drawn). It borrows CORONA's state (the ground after it starts afresh) */
 #define UMW_T 6000u                                     /* (3.55 s of the eclipse, 2 s still, 0.45 s to black) */
 #define UMW_DY 24                                       /* (the eclipse 24 px above the screen's centre, CORONA's) */
 static __attribute__((noinline)) int32_t umw_rp(int32_t t, int32_t t0, int32_t d)   /* 0..256 from t0 over d ms */
@@ -320,12 +313,14 @@ static void umb_welcome(uint32_t ms)
 {
     ump_co_t *s = &umb.co;
     int32_t t = (int32_t)(ms < 3550u ? ms : 3550u), a, x, y, h, g, c, gl, sg, off, mx, my, r;   /* (t: still from 3.55 s) */
-    if (ump_on != 0xFEu) {                              /* (the palette, CORONA at rest: its state zeroed at boot) */
+    static uint8_t made;
+    if (!made) {                                        /* (the palette, CORONA at rest: its state zeroed at boot) */
         umb_tabs();
         ump_lut_make();
         ump_co_init();
-        ump_on = 0xFEu;
+        made = 1;
     }
+    umb_lay[0].pp = 0;                                  /* (the ground's plate after it: afresh) */
     if (ms >= UMW_T)
         return;
     g = 256 - umw_rp((int32_t)ms, (int32_t)UMW_T - 450, 450);
@@ -380,7 +375,7 @@ static void umb_welcome(uint32_t ms)
             }
         if (y) {                                        /* the name rising, pale teal; the line under it, grey */
             a = umw_in(t, 2150, 650);
-            cv_text_in(0, 60 - (a * 6 >> 8), 240, &AF_M, "U M B R A   O B S C U R A", swap16(ump_lut[1][(((a * 215) >> 8) * g) >> 8]), 0);
+            cv_text_in(0, 60 - (a * 6 >> 8), 240, &AF_M, "U M B R A   L I V E", swap16(ump_lut[1][(((a * 215) >> 8) * g) >> 8]), 0);
             a = umw_in(t, 2550, 650);
             cv_text_in(0, 100, 240, &AF_X, "live visuals system built on Jiant", ux_gray((uint32_t)((((a * 150) >> 8) * g) >> 11)), 0);
         }

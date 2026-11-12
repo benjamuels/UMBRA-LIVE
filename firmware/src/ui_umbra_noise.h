@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
+ * Copyright (C) 2026 UMBRA LIVE contributors */
 /* The plates' tables: the angle (the noise, the fades' profile, the log: ui_umbra.c umb_tabs)
  * (tools/gen_umbra_noise.py: do not edit) */
 static const uint8_t umb_at[33] = {

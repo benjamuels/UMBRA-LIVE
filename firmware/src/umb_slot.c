@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
-/* UMBRA OBSCURA: the plate bank (plans/umbra-plate-bank.md, phase 2): plate files in flash, each run where it lies.
+ * Copyright (C) 2026 UMBRA LIVE contributors */
+/* UMBRA LIVE: the plate bank (plans/umbra-plate-bank.md, phase 2): plate files in flash, each run where it lies.
  * UPS_NSLOT slots of two 4 KiB sectors each from flash 0xB8000: JIANT's projects 5..8 (songs 5..8, storage.c's map), retired
  * for it (song_chain.c NSONG_USE: four projects). From a slot's start, the plate's image as its plate file holds it (its
  * header, umb_plate_t, first), linked for that slot (tools/build.py plate_files links every plate for slot 0 and lists its

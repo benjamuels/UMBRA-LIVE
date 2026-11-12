@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
+ * Copyright (C) 2026 UMBRA LIVE contributors */
 /* CINDER as a plate module (umb_plate.h; moved out of ui_umbra_field.c unchanged, pixel for pixel): cold embers. A heat
  * field (60 x 60) rises, sways and cools (20 steps a second); seen through a crust of cracks (the noise table, ridged, two
  * scales): cooling heat lingers in the veins, hot heat glows through. A note drops a coal where its pitch falls (C2 left ..
  * C7 right), its track's band its height (low notes wider); held, it keeps feeding it. The kick a swell from below, the
  * snare and clap a scatter of sparks, the rest one spark. Track 3's heat glows yellow, track 4's orange (a tint byte a cell,
- * carried with the heat). Controls: RISE, COOL, SWAY. */
+ * carried with the heat). Elements: RISE, COOL, SWAY; COAL (the notes that are no drum), SWELL (the kick), SPARK (the
+ * rest of the kit): each as hard as its value, its tracks LIVE VIZ CTRLS' to choose. */
 #include "plate_lib.h"
 
 typedef struct {
@@ -66,25 +67,23 @@ static void plc_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
 {
     plc_t *s = st;
     uint32_t c = nt->track, n = nt->note, lane = nt->lane;
-    int32_t v = nt->vel ? (int32_t)nt->vel * 2 + 1 : 0, k, x, y, r, i;
-    (void)cx;
+    int32_t v, k, x, y, r, i;
     (void)a;
-    if (!v) {
+    if (!nt->vel) {
         if (s->hn[c] == n + 1u)
             s->hn[c] = 0;
         return;
     }
-    if (nt->drum) {
-        if (!lane)                                      /* the kick: a swell from below */
-            plc_at(s, nt, (int32_t)(14u * 256u + pl_rnd(&s->rs) % 8192u), 58 * 256, 1280 + 3 * v, (200 * v) >> 8);
-        else
-            for (i = lane < 3u ? 5 : 1; i > 0; i--) {   /* the snare, the clap: sparks; the rest: one */
-                int32_t X = (int32_t)(4u * 256u + pl_rnd(&s->rs) % 13312u);
-                plc_at(s, nt, X, (int32_t)(lane < 3u ? 26u * 256u + pl_rnd(&s->rs) % 7168u : 8u * 256u + pl_rnd(&s->rs) % 11776u),
-                       lane < 3u ? 384 : lane == 4u ? 410 : 282, lane < 3u ? (230 * v) >> 8 : 110 + ((120 * v) >> 8));
-            }
+    if ((v = pl_drive(cx, 4u, nt, nt->drum && !lane)) != 0)   /* SWELL (the kick): a swell from below */
+        plc_at(s, nt, (int32_t)(14u * 256u + pl_rnd(&s->rs) % 8192u), 58 * 256, 1280 + 3 * v, (200 * v) >> 8);
+    if ((v = pl_drive(cx, 5u, nt, nt->drum && lane)) != 0)
+        for (i = lane < 3u ? 5 : 1; i > 0; i--) {       /* SPARK: the snare, the clap (and what is no drum): sparks; the rest: one */
+            int32_t X = (int32_t)(4u * 256u + pl_rnd(&s->rs) % 13312u);
+            plc_at(s, nt, X, (int32_t)(lane < 3u ? 26u * 256u + pl_rnd(&s->rs) % 7168u : 8u * 256u + pl_rnd(&s->rs) % 11776u),
+                   lane < 3u ? 384 : lane == 4u ? 410 : 282, lane < 3u ? (230 * v) >> 8 : 110 + ((120 * v) >> 8));
+        }
+    if (!(v = pl_drive(cx, 3u, nt, !nt->drum)))         /* COAL */
         return;
-    }
     k = pl_pk(n);
     x = 768 + pl_fold(nt->mo[0], k * 54, 13824);
     y = 768 + pl_fold(nt->mo[1], (49 - 6 * (int32_t)c) * 256, 13824);
@@ -177,6 +176,7 @@ static void plc_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
 
 UMB_PLATE_HEAD const umb_plate_t umb_plate_cinder = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plc_t), "CINDER",
-    UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 3u, {0, 0, 0},
-    {{"RISE", 45}, {"COOL", 50}, {"SWAY", 50}},
-    plc_init, plc_note, plc_frame, plc_draw};
+    UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 6u, {0, 0, 0},
+    {{"RISE", 45}, {"COOL", 50}, {"SWAY", 50}, {"COAL", 50}, {"SWELL", 50}, {"SPARK", 50}},
+    plc_init, plc_note, plc_frame, plc_draw,
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES}};

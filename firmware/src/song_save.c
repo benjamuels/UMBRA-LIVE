@@ -56,7 +56,7 @@ static __attribute__((noinline)) int song_save_as(uint32_t target, const char *n
     _Static_assert(sizeof(song_index_t) <= sizeof proj_wire_u.raw, "song index fits existing staging RAM");
     if (transport_busy()) { ui_message("STOP TO SAVE"); return 1; }
     if (!bt_hw_seg()) { ui_message("UPDATE PACKAGE"); return 1; }
-    if (target >= NSONG_USE) { ui_message("CHOOSE ANOTHER PROJECT"); return 1; }   /* ((UMBRA OBSCURA) 5..8: the plate bank) */
+    if (target >= NSONG_USE) { ui_message("CHOOSE ANOTHER PROJECT"); return 1; }   /* ((UMBRA LIVE) 5..8: the plate bank) */
     if (!flash_ok) { ui_message("NO FLASH: NOT SAVED"); return 1; }
     current = live.cur >= 0 && live.cur < 4 ? (uint32_t)live.cur : proj_cur < 4u ? proj_cur : 0u;
     project_capture(&proj_scratch);
@@ -169,7 +169,7 @@ static int song_erase_parts(uint32_t target, uint32_t parts)
     uint32_t mask = parts ? parts : 15u, done = 0, k;
     int draft = parts && song_draft && target == song_cur;
     if (!bt_hw_seg()) { ui_message("UPDATE PACKAGE"); return 1; }
-    if (target >= NSONG_USE || transport_busy()) { ui_message("STOP TO ERASE"); return 1; }   /* ((UMBRA OBSCURA) 1..4) */
+    if (target >= NSONG_USE || transport_busy()) { ui_message("STOP TO ERASE"); return 1; }   /* ((UMBRA LIVE) 1..4) */
     if (draft) { memcpy(index, &song_idx, sizeof *index); index->rows[target] = chain_config; }
     else if (song_saved_index(index)) { ui_message("SAVE INDEX ERROR"); return 1; }
     song_remove_parts(index, target, mask);

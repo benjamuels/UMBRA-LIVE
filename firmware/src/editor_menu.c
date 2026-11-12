@@ -31,7 +31,7 @@ static const uint8_t ED_MENU[][2] = {
     {MI_OCTBEND, 26},                                  /* (V10.6z4) OCT BEND OFF / 1 .. 12 ST, a row of AUDIO */
     {MI_VEL, 27}, {MI_VELMIN, 28}, {MI_AT, 29}, {MI_VLEARN, 30},   /* (V10.6z6) VELOCITY, VEL MIN, AFTERTOUCH, VEL LEARN,
                                                         * rows of CONTROL (vel.c) */
-    {MI_WELCOME, 31},                                  /* (UMBRA OBSCURA) WELCOME OFF / ON, a row of SYSTEM (26 until
+    {MI_WELCOME, 31},                                  /* (UMBRA LIVE) WELCOME OFF / ON, a row of SYSTEM (26 until
                                                         * V10.7.6 took 26..30) */
 };
 #define ED_MENU_N NELEM(ED_MENU)

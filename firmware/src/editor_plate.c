@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
-/* Editor protocol: UMBRA OBSCURA's plate bank (EDITOR_PROTOCOL.md "Plates", cmds 96..100; umb_slot.c). A plate file
+ * Copyright (C) 2026 UMBRA LIVE contributors */
+/* Editor protocol: UMBRA LIVE's plate bank (EDITOR_PROTOCOL.md "Plates", cmds 96..100; umb_slot.c). A plate file
  * travels whole into a slot: BEGIN with its length (erases the slot), WRITEs of its bytes in order (7-bit packed, as the
  * backup's PUT), END with its CRC (checked as written, the header too; only then does the slot hold it). The image is
  * sent as linked for its slot (the page adds the slot's distance to the plate file's absolute words). Every write stops

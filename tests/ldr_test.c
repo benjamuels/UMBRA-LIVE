@@ -83,7 +83,7 @@ static void ota_commit(const uint8_t *parm) { (void)parm; }
 #include "../firmware/src/ota.c"
 
 static int ldr_fread(uint32_t off, void *p, uint32_t n) { memcpy(p, nor + off, n); return 0; }
-static uint32_t pl_hi;                              /* (UMBRA OBSCURA) the package's plate bank ends here (0: none) */
+static uint32_t pl_hi;                              /* (UMBRA LIVE) the package's plate bank ends here (0: none) */
 static int ldr_erase(uint32_t off)
 {
     if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu) ||
@@ -99,7 +99,7 @@ static int ldr_prog(uint32_t off, const void *p, uint32_t n)
     uint32_t i;
     if ((off < 0x4000u || off + n > 0x93000u) &&
         !(off >= 0xE8000u && off + n <= 0xE8F00u) &&            /* (V10.10: the stock VM sector put back but its record) */
-        !(off >= 0xB8000u && off + n <= pl_hi) &&               /* ((UMBRA OBSCURA) the plate bank's first slots) */
+        !(off >= 0xB8000u && off + n <= pl_hi) &&               /* ((UMBRA LIVE) the plate bank's first slots) */
         !(off >= 0xEA000u && off + n <= 0xFC000u)) bad_range++;  /* (V10.12: the Bluetooth segment) */
     if (((off & 0xFFu) + n) > 256u) bad_range++;
     for (i = 0; i < n; i++) nor[off + i] &= s[i];
@@ -144,7 +144,7 @@ static uint32_t flash_off(const uint8_t *lg)        /* flash.bin offset in the l
 /* (V10.12) the "bt.bin" entry (type 200): its offset in the logical image and its length, 0 if none */
 static uint32_t pk_entry(const uint8_t *lg, uint32_t *len, uint32_t type, const char *name);
 static uint32_t bt_entry(const uint8_t *lg, uint32_t *len) { return pk_entry(lg, len, 200, "bt.bin"); }
-/* an entry by its type and name ((UMBRA OBSCURA) "plates.bin", type 201: the plate bank's first slots) */
+/* an entry by its type and name ((UMBRA LIVE) "plates.bin", type 201: the plate bank's first slots) */
 static uint32_t pk_entry(const uint8_t *lg, uint32_t *len, uint32_t type, const char *name)
 {
     uint8_t h[0x400];
@@ -227,7 +227,7 @@ int main(int argc, char **argv)
         memset(store + 0xE4000 - 0x93000, 0xFF, 0x1000);   /* what the install may change: the two record sectors */
         memset(store + 0xE8F00 - 0x93000, 0xFF, 0x100);   /* (V10.10: the stock VM sector kept but its record's 256 B:
                                                          * the radio's RF trims and BT address) */
-        if (plo)                                        /* ((UMBRA OBSCURA) the plate bank's first slots) */
+        if (plo)                                        /* ((UMBRA LIVE) the plate bank's first slots) */
             memcpy(store + 0xB8000 - 0x93000, logical + plo, pll);
         if (bto) {                                      /* (V10.12) the segment, its last sector's tail 0xFF */
             memset(store + 0xEA000 - 0x93000, 0xFF, (btl + 0xFFFu) & ~0xFFFu);

@@ -43,13 +43,13 @@ typedef struct { const nv_t *e; const ng_t *g; uint8_t n, ng; } ch_t;
 static const nv_t CE_HOME[] = {NV(0, "WELCOME", 0, 0), NV(0, "LIVE AUDIO CTRLS", 1, 0), NV(0, "LIVE VIZ CTRLS", 1, 0),
                                NV(0, "BEING", 1, 1), NV(0, "ROUTES", 1, 1), NV(0, "GENE 1", 2, 2), NV(0, "GENE 2", 2, 2),
                                NV(0, "GENE 3", 2, 2)};
-#define HOME_E_BEING 3u                                 /* (UMBRA OBSCURA, the user 2026-11-09: WELCOME, then UMBRA's MACROS -
+#define HOME_E_BEING 3u                                 /* (UMBRA LIVE, the user 2026-11-09: WELCOME, then UMBRA's MACROS -
                                                          * AUDIO and MACROS - VISUALS (empty for now) before BEING and ROUTES;
                                                          * JIANT's ECO and MACROS, UMBRA's PLATE, NOTES and ROUTING gone (what
                                                          * those three set stays as it was set: TOTALITY reads it, ui_umbra.c).
                                                          * WELCOME and the MACROS pages: ui.hset[0] 0..2, the plate behind the
                                                          * whole screen, no knobs (home_bare)) BEING's entries, GEN's first */
-#define HOME_E_GEN 5u                                   /* ((UMBRA OBSCURA, the user 2026-11-09) MACROS - AUDIO and MACROS -
+#define HOME_E_GEN 5u                                   /* ((UMBRA LIVE, the user 2026-11-09) MACROS - AUDIO and MACROS -
                                                          * VISUALS are LIVE AUDIO CTRLS and LIVE VIZ CTRLS; WELCOME, once
                                                          * dismissed, is not among them: ui_umbra_welcome.c) */
 static int umw_gone(void), umw_hid(void);
@@ -190,10 +190,10 @@ static uint32_t nav_lv(void) { return nav_ch(nav_sec())->e[nav_cur()].lv; }   /*
 static uint32_t pd_level(void) { return nav_lv(); }
 static uint32_t save_level(void) { return nav_lv(); }
 static uint32_t home_level(void) { return gen_on() ? 2u : ui.hlv ? 1u : 0u; }
-static uint32_t home_set(void) { return home_level() == 1u && ui.hset[1] == 1u; }   /* ROUTES ((UMBRA OBSCURA) HOME's MACROS
+static uint32_t home_set(void) { return home_level() == 1u && ui.hset[1] == 1u; }   /* ROUTES ((UMBRA LIVE) HOME's MACROS
                                                          * gone) */
 static int home_macros(void) { return ui.home && !ui.menu && !gen_on() && home_set(); }   /* ROUTES: M1..M4 */
-static int home_bare(void) { return ui.home && !ui.menu && !gen_on() && !ui.hlv; }   /* (UMBRA OBSCURA) WELCOME, MACROS - AUDIO,
+static int home_bare(void) { return ui.home && !ui.menu && !gen_on() && !ui.hlv; }   /* (UMBRA LIVE) WELCOME, MACROS - AUDIO,
                                                          * MACROS - VISUALS: the plate, no knobs */
 /* the entries shown now (on this track, at this LOAD), in order: their indices in v (NAV_MAX at most: the longest chain,
  * FX's 17 since snd8's TAPE, fits: ui_test checks every chain against it; snd8b's 17th page overran a 16 and crashed

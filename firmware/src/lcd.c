@@ -8,7 +8,7 @@
  * while the last strip of a frame goes out. */
 /* pins and SPI1: hal/fm1_lcd_hw.h */
 #ifndef LCD_BAUD
-#define LCD_BAUD 1u                /* lsb/(BAUD+1): (UMBRA OBSCURA) 1 = ~26.7 MHz at the 320 MHz clock (LSB 53.3 MHz): a whole
+#define LCD_BAUD 1u                /* lsb/(BAUD+1): (UMBRA LIVE) 1 = ~26.7 MHz at the 320 MHz clock (LSB 53.3 MHz): a whole
                                     * screen in ~35 ms, for HOME's moving plates (was 4: ~10.7 MHz, ~86 ms; the ST7789
                                     * takes a write clock up to ~62.5 MHz) */
 #endif
@@ -68,7 +68,7 @@ static void lcd_window(uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1)
 
 static uint16_t lcd_fillbuf[240];
 #if UMB_MIRROR
-static void umr_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c);   /* (UMBRA OBSCURA) the screen mirror */
+static void umr_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c);   /* (UMBRA LIVE) the screen mirror */
 static void umr_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *px, uint32_t stride);   /* (umb_mirror.c) */
 #endif
 

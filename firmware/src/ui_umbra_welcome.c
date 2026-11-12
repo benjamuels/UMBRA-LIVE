@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
+ * Copyright (C) 2026 UMBRA LIVE contributors */
 /* (included by ui_umbra.c, after TOTALITY) HOME > WELCOME: UMBRA explained in six pages over the plate (the user's words,
  * 2026-11-09). The first time the FM-1 starts with UMBRA it starts here. OCT+ the next page (it breathes while there is
  * one), OCT- the one before (round: from the first, the last); OCT- held: after a second a count from 5 over the page,
@@ -57,7 +57,7 @@ static void umw_input(uint32_t oct)
 /* the pages, a line each (a '\n' ends one; an empty one a gap); "\001KEY\001" a key of the FM-1, framed as its button.
  * (2026-11-10, the user's words) a few large lines a page, every page set as the power-on title is: AF_M's capitals (it
  * has no lowercase), pale on the plate */
-/* ((UMBRA OBSCURA) on V10.7.6: in the Bluetooth segment, bt.c BTAPP_RO, as JIANT's own ABOUT texts: the app slot is
+/* ((UMBRA LIVE) on V10.7.6: in the Bluetooth segment, bt.c BTAPP_RO, as JIANT's own ABOUT texts: the app slot is
  * full; read once it is this build's, bt_hw_seg) the pages one after the other, each ended by its '\0' */
 static const char UMW_TX[] BTAPP_RO =
     "W E L C O M E"

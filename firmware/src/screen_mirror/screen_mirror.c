@@ -14,7 +14,7 @@
 #define SM_BUFFER 16384u /* queued messages, each with a length byte in front */
 #endif
 #ifndef SM_BUFFER_ATTR
-#define SM_BUFFER_ATTR   /* (UMBRA OBSCURA: where the buffer goes, e.g. __attribute__((section(".pool")))) */
+#define SM_BUFFER_ATTR   /* (UMBRA LIVE: where the buffer goes, e.g. __attribute__((section(".pool")))) */
 #endif
 #define SM_MESSAGE 70u
 #define SM_TIMEOUT 3000u

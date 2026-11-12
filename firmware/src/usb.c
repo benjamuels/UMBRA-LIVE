@@ -170,7 +170,7 @@ static struct {
     int32_t last_l, last_r;      /* the last frame read (an underrun fades from it) */
     uint32_t pkts, frames, overruns, underruns, starts, bad;   /* bad: a packet not of whole frames / too long */
 } uin;
-#define USB_DUPLEX (FELUCCA_USB_IN && usb_duplex)   /* (UMBRA OBSCURA: without the USB input, never) */
+#define USB_DUPLEX (FELUCCA_USB_IN && usb_duplex)   /* (UMBRA LIVE: without the USB input, never) */
 #if FELUCCA_UAC_48K
 #include "uac_fir.h"
 /* the resampler's input history: the last 32 frames, written twice so a window of UAC_FIR_N never wraps */
@@ -246,7 +246,7 @@ static uint32_t sx_pos;
 static volatile uint32_t sx_frame_len;
 static volatile uint8_t sx_ready, sx_collect, sx_busy;
 #if UMB_MIRROR
-#define SXQ 256u                 /* (UMBRA OBSCURA: was 64; the screen mirror's messages share it, umb_mirror.c) */
+#define SXQ 256u                 /* (UMBRA LIVE: was 64; the screen mirror's messages share it, umb_mirror.c) */
 #else
 #define SXQ 64u
 #endif
@@ -1005,7 +1005,7 @@ static void sysex_byte(uint8_t b)
     if (b == 0xF7) {
 #if UMB_MIRROR
         if (usb.sx_len == 6u)
-            (void)sm_sysex(usb.sysex, 6u);              /* (UMBRA OBSCURA) a screen mirror's hello (umb_mirror.c) */
+            (void)sm_sysex(usb.sysex, 6u);              /* (UMBRA LIVE) a screen mirror's hello (umb_mirror.c) */
 #endif
         uint32_t i, ok = usb.sx_len == 6u;
         for (i = 0; ok && i < 6u; i++)
@@ -1678,7 +1678,7 @@ static inline void uac_service(void)                   /* (inline: the guard alo
     }
 }
 
-#if FELUCCA_USB_IN                                      /* (UMBRA OBSCURA: the USB input, or none) */
+#if FELUCCA_USB_IN                                      /* (UMBRA LIVE: the USB input, or none) */
 /* (0.7.5) MENU > USB IN+OUT, TIMER5: a packet the host played to us (n bytes of L | R << 16 frames) into ui_ring;
  * a full ring drops it (the reader has stopped: it re-primes) */
 static __attribute__((noinline)) void uin_take(const uint32_t *p, uint32_t n)   /* (not in the TIMER5 body: its copy loop) */

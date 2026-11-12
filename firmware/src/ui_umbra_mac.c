@@ -1,33 +1,38 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
+ * Copyright (C) 2026 UMBRA LIVE contributors */
 /* (included by ui_umbra.c, after TOTALITY) HOME > UMBRA's LIVE AUDIO CTRLS and LIVE VIZ CTRLS (the user, 2026-11-09:
- * custom controls and effects for the sound and the picture; 2026-11-10: no long lists, ALGORITHM the track / the
- * plate, what the macros do in sight, taps that trigger, a setup wizard). TOTALITY's KNOB 1..4 are JIANT's macros
- * M1..M4 (mod.c macro_v: the project's; LFO held turns them anywhere), so one turn moves what both pages send a macro to.
+ * custom controls and effects for the sound and the picture; 2026-11-10: no long lists, what the macros do in sight, taps
+ * that trigger, a setup wizard; 2026-11-12: every plate its own elements, each with as many controls as it takes).
+ * TOTALITY's KNOB 1..4 are JIANT's macros M1..M4 (mod.c macro_v: the project's; LFO held turns them anywhere), so one
+ * turn moves what both pages send a macro to.
  *   LIVE AUDIO CTRLS  one track at a time: its four slots of JIANT's modulation matrix (LFO > MOD's), a line each, and
  *                     under them what each macro M1..M4 moves, on every track. ALGORITHM the track, KNOB 1 the SLOT,
  *                     2 SOURCE, 3 DEST, 4 AMOUNT. Nothing new in the sound: the matrix as JIANT runs it, kept with the
  *                     project.
- *   LIVE VIZ CTRLS    UMQ_NR routes into the picture, a few lines in sight under the plate's name. ALGORITHM the plate,
- *                     KNOB 1 the ROUTE, 2 SOURCE (M1..M4; a track's hits, its LFO, its step; the level; the beat; ENV
- *                     TAP, LFO TAP, EDIT TAP: in TOTALITY a tap of that button, falling off over 0.4 s, where a route
- *                     takes it: its own tap then does nothing else there), 3 TARGET (the plate's own three, LIGHT .. the
- *                     effects, the being), 4 TO: the target's value with the source at full (at 0: FROM, the target's own
- *                     setting for a route made here). Routes on one target add their moves to the first one's FROM; a
- *                     target no route reaches keeps its setting. Kept with the settings, one set for every song. At
- *                     first: M1..M3 the plate's three, M4 LIGHT (to 0: it darkens), ENV TAP INVERT, LFO TAP GLITCH, EDIT
- *                     TAP MOSAIC.
- *   OCT+ on either    SETUP: a route made a question at a time, large (which track or plate, which control, what it
- *                     moves, how far), any knob the answer, OCT+ the next, OCT- back (from the first: out).
+ *   LIVE VIZ CTRLS    a page at a time (ALGORITHM): every plate there is, then BODIES and BEINGS (the engines' figures,
+ *                     JIANT's beings), SCREEN (LIGHT SPEED REACT MOVE TRAVEL DISSLV) and EFFECTS. On the left the page's
+ *                     name and under it its elements (KNOB 1), each with a bar: its value now, moving as its controls
+ *                     move it. On the right the chosen row's controls (KNOB 2), as many as it takes:
+ *                       the name's row   WHERE the page lies: OFF, GROUND, LAYER 1..3 (KNOB 4); NO ROOM under it: a
+ *                                        layer's plate waiting, its state not fitting beside the ground's
+ *                       SET              the element's own value (KNOB 4)
+ *                       NOTES            (an element the notes drive) the tracks whose notes drive it: KNOB 3 the track,
+ *                                        KNOB 4 on or off; none on: AUTO, the plate's own choice
+ *                       a link           what else moves it: KNOB 3 its source (KNOB 1..4 = M1..M4, a track's HIT, LFO
+ *                                        or STEP, LEVEL, BEAT, ENV TAP, LFO TAP, EDIT TAP: in TOTALITY a tap of that
+ *                                        button, falling off over 0.4 s; OFF: the link gone), KNOB 4 how far (-99 .. 99
+ *                                        of the element's range with the source at full)
+ *                       + ADD            KNOB 3: a new link
+ *                     Kept in LIVE VIZ CTRLS' own store (ui_umbra.c umc), one set for every song.
+ *   OCT+ on either    SETUP: a control made a question at a time, large, any knob the answer, OCT+ the next, OCT- back
+ *                     (from the first: out).
  * Built for size, as the main loop is (tools/size_fns.py) */
-#define UMQ_SND 1                                       /* the sound's own sources (HIT LFO STEP LEVEL BEAT) */
 static void text_column(uint32_t c, const char *label, const char *value, uint16_t color);   /* (ui_draw.c) */
 
 /* ------------------------------------------------------------------------------------- MACROS - AUDIO --- */
 static const uint8_t UMA_SR[MS_N] = {MS_OFF, MS_M1, MS_M1 + 1, MS_M1 + 2, MS_M1 + 3, MS_LFO, MS_STEP, MS_ENV, MS_ENV2,
                                      MS_VEL, MS_KEY, MS_RAND, MS_NOISE, MS_MODW, MS_AT, MS_EXPR, MS_FOLLOW, MS_PROX};
 static uint8_t uma_slot;                                /* LIVE AUDIO CTRLS: the selected track's slot chosen, 0..3 */
-static uint8_t umq_sel;                                 /* LIVE VIZ CTRLS: the route chosen */
 static uint8_t umz;                                     /* SETUP: its question + 1 (0: the page) */
 static int16_t *uma_p(uint32_t s) { return &trk[s / 4u % NTRK].p[P_M1SRC + 3u * (s % 4u)]; }   /* SRC DST AMT */
 static uint32_t uma_cur(void) { return (uint32_t)song.sel % NTRK * 4u + uma_slot % 4u; }
@@ -50,109 +55,19 @@ static void uma_knob(uint32_t k, int32_t s)             /* KNOB k turned s: the 
     }
 }
 
-/* ------------------------------------------------------------------------------------ MACROS - VISUALS --- */
-/* the routes, 3 bytes each: SOURCE | TARGET's low 3 bits << 5, FROM | TARGET's 4th bit << 7, TO (FROM, TO: 0 .. 99, or
- * UMQ_SET). In retired favourites bytes nothing else uses (ui_umbra.c's map): SAMPLE's row 4 [0..5] (its stars, never
- * shown), [9..11] (the first routing's), [20..31] (the plates' routing, gone); TRIO's row 6 [0..5] (its stars), [14..16];
- * row 6 [18] says they are laid out so (else, once: the routes at first) */
-#define UMQ_NR 10u
-#define UMQ_SET 127u
-static const uint8_t UMQ_AT[UMQ_NR] = {0, 3, 20, 23, 26, 29, 9, 32, 35, 46};   /* row 4's byte; + 32: row 6's */
-#define UMQ_MK 0xA8u                                    /* (0xA7: before the taps) */
-enum { UMQ_OFF, UMQ_M1, UMQ_HIT = UMQ_M1 + 4, UMQ_LFO = UMQ_HIT + NTRK, UMQ_STEP = UMQ_LFO + NTRK, UMQ_LEVEL = UMQ_STEP + NTRK,
-       UMQ_BEAT, UMQ_TAP, UMQ_NS = UMQ_TAP + 3 };       /* (.. ENV TAP, LFO TAP, EDIT TAP) */
-_Static_assert(UMQ_NS <= 32, "a route's source: 5 bits");
-#if !UMQ_SND
-#undef UMQ_NS
-#define UMQ_NS UMQ_HIT
-#endif
+/* ------------------------------------------------------------------------------------ LIVE VIZ CTRLS --- */
 static struct {
     uint16_t hit[NTRK], tap[3];                         /* each track's hits, the three taps, falling off (Q8) */
     uint32_t qr, ms;                                    /* the notes read; the last frame's time */
 } umq __attribute__((section(".pool")));
-static uint8_t *umq_b(uint32_t r)
-{
-    uint32_t a = UMQ_AT[r % UMQ_NR], i;
-    uint8_t *q;
-    if (favorites.factory[6][18] != UMQ_MK) {          /* (once: the routes at first) */
-        for (i = 0; i < UMQ_NR; i++) {
-            q = &favorites.factory[UMQ_AT[i] & 32u ? 6 : 4][UMQ_AT[i] & 31u];
-            static const uint8_t TT[3] = {UMT_INV, UMT_GLI, UMT_MOS};   /* (the taps' targets at first) */
-            uint32_t tg = i < 4u ? i : i < 7u ? TT[i - 4u] : 0u;
-            q[0] = (uint8_t)(i < 4u ? (UMQ_M1 + i) | tg << 5 : i < 7u ? (UMQ_TAP + i - 4u) | (tg & 7u) << 5 : 0u);
-            q[1] = (uint8_t)(i < 7u ? UMQ_SET | (tg >> 3) << 7 : 0u);
-            q[2] = (uint8_t)(i == 3u ? 0u : i < 7u ? 99u : 0u);
-        }
-        favorites.factory[6][18] = UMQ_MK;
-    }
-    return &favorites.factory[a & 32u ? 6 : 4][a & 31u];
-}
-static uint32_t umq_max(uint32_t t) { return t == UMT_MOVE || t == UMT_MIR ? 3u : 99u; }
-static void umq_get(uint32_t r, uint32_t *v)            /* route r: SOURCE, TARGET, FROM, TO */
-{
-    const uint8_t *b = umq_b(r);
-    uint32_t j, m;
-    v[0] = b[0] & 31u;
-    v[1] = (uint32_t)(b[0] >> 5 | (b[1] >> 7) << 3);
-    v[0] = v[0] < UMQ_NS ? v[0] : 0u;
-    v[1] = v[1] < UMT_NT ? v[1] : 0u;
-    v[2] = b[1] & 127u;
-    v[3] = b[2] & 127u;
-    for (j = 2, m = umq_max(v[1]); j < 4u; j++)
-        if (v[j] != UMQ_SET && v[j] > m)
-            v[j] = m;
-}
-static void umq_put(uint32_t r, const uint32_t *v)
-{
-    uint8_t *b = umq_b(r);
-    b[0] = (uint8_t)(v[0] | (v[1] & 7u) << 5);
-    b[1] = (uint8_t)(v[2] | (v[1] >> 3) << 7);
-    b[2] = (uint8_t)v[3];
-    umv_dirty = 1;
-    umv_ms = fm1_ms;
-}
-static uint32_t umq_raw(uint32_t t)                     /* target t's own setting */
-{
-    uint32_t i;
-    if (t <= UMT_LIGHT)
-        return umv_raw(umb_pl(), t);
-    for (i = 0; i < UMT_NS && UMT_Q[i] != t; i++) {}
-    return i < UMT_NS ? umt_raw(i) : t == UMT_INV ? 0u : 99u;   /* (the being: whole; INVERT: none) */
-}
-/* source s now, 0 .. 256 */
-static int32_t umq_sv(uint32_t s)
-{
-    if (s < UMQ_HIT)
-        return s ? macro_v[s - UMQ_M1] * 256 / 127 : 0;
-#if UMQ_SND
-    if (s < UMQ_LEVEL) {
-        const track_t *t = &trk[(s - UMQ_HIT) % NTRK];
-        if (s < UMQ_LFO)
-            return umq.hit[s - UMQ_HIT];
-        if (s < UMQ_STEP)
-            return clamp((t->lfo_val + 32768) >> 8, 0, 256);
-        {                                               /* the step's level now (as mod.c ms_tick's, unslewed) */
-            uint32_t per = div_samples((uint32_t)t->p[P_MSDIV]), len = t->p[P_MSLEN] > 0 ? (uint32_t)t->p[P_MSLEN] : 1u;
-            return t->p[P_MS0 + (per ? ms_clock / per % len : 0u) % 16u] * 2;
-        }
-    }
-    if (s == UMQ_LEVEL)
-        return bg_energy();
-    if (s >= UMQ_TAP)
-        return umq.tap[s - UMQ_TAP];
-    {                                                   /* BEAT: full on the beat, falling to the next (stopped: 0) */
-        uint32_t q = beat_samples();
-        return song.playing && q ? 256 - (int32_t)(ms_clock % q * 256u / q) : 0;
-    }
-#endif
-}
-/* once a frame (umb_clock): every target's value where a route reaches it (umq_o: + 1) */
+static uint8_t umx_pg = 0xFFu;                          /* the page chosen (a plate's number, UMX_*; 0xFF: not yet) */
+static uint8_t umx_el;                                  /* .. its row: 0 its name (where it lies), then its elements */
+static uint8_t umx_ct;                                  /* .. the row's control: SET, NOTES, its links, + ADD */
+static uint8_t umx_tr;                                  /* .. NOTES: the track under KNOB 3 */
+/* once a frame (umb_clock): the sources now (umq_s), then SCREEN's and EFFECTS' elements as their links move them (umq_o) */
 static void umq_tick(void)
 {
-    int32_t a[UMT_NT];
-    uint32_t r, v[4];
-#if UMQ_SND
-    uint32_t dt = fm1_ms - umq.ms, c;
+    uint32_t dt = fm1_ms - umq.ms, c, pg, j;
     umq.ms = fm1_ms;
     for (c = 0; c < NTRK; c++)                          /* (a hit falls off over 0.3 s) */
         umq.hit[c] = (uint16_t)(umq.hit[c] > dt * 256u / 300u ? umq.hit[c] - dt * 256u / 300u : 0u);
@@ -165,130 +80,247 @@ static void umq_tick(void)
         if (umb_q.vel[i] && h > umq.hit[umb_q.c[i] % NTRK])
             umq.hit[umb_q.c[i] % NTRK] = (uint16_t)h;
     }
-#endif
-    memset(umq_o, 0, sizeof umq_o);
-    for (r = 0; r < UMQ_NR; r++) {
-        umq_get(r, v);
-        if (!v[0])
-            continue;
-        if (v[2] == UMQ_SET)
-            v[2] = umq_raw(v[1]);
-        if (v[3] == UMQ_SET)
-            v[3] = umq_raw(v[1]);
-        if (!umq_o[v[1]]) {
-            umq_o[v[1]] = 1;
-            a[v[1]] = (int32_t)v[2] << 8;
-        }
-        a[v[1]] += ((int32_t)v[3] - (int32_t)v[2]) * umq_sv(v[0]);
+    for (c = 0; c < 4u; c++)
+        umq_s[UMQ_M1 + c] = (int16_t)(macro_v[c] * 256 / 127);
+    for (c = 0; c < NTRK; c++) {
+        const track_t *t = &trk[c];                     /* (the step's level now, as mod.c ms_tick's, unslewed) */
+        uint32_t per = div_samples((uint32_t)t->p[P_MSDIV]), len = t->p[P_MSLEN] > 0 ? (uint32_t)t->p[P_MSLEN] : 1u;
+        umq_s[UMQ_HIT + c] = (int16_t)umq.hit[c];
+        umq_s[UMQ_LFO + c] = (int16_t)clamp((t->lfo_val + 32768) >> 8, 0, 256);
+        umq_s[UMQ_STEP + c] = (int16_t)(t->p[P_MS0 + (per ? ms_clock / per % len : 0u) % 16u] * 2);
     }
-    for (r = 0; r < UMT_NT; r++)
-        if (umq_o[r])
-            umq_o[r] = (uint8_t)(1 + umb_clamp((a[r] + 128) >> 8, 0, (int32_t)umq_max(r)));
-}
-static void umq_val(char *b, uint32_t t, uint32_t v)    /* a FROM or TO's words */
-{
-    if (v == UMQ_SET)
-        str_cpy(b, "SET", 12);
-    else if (t == UMT_MOVE || t == UMT_MIR)
-        str_cpy(b, (t == UMT_MOVE ? UMN_MV : UMT_MIRN)[v & 3u], 12);
-    else
-        fmt_int(b, (int32_t)v);
-}
-static void umq_knob(uint32_t k, int32_t s)            /* KNOB k turned s: the ROUTE, its SOURCE, TARGET, TO */
-{
-    uint32_t v[4], m;
-    int32_t r;
-    if (k == 0u) {
-        umq_sel = (uint8_t)clamp((int32_t)umq_sel + s, 0, UMQ_NR - 1);
-        return;
+    umq_s[UMQ_LEVEL] = (int16_t)bg_energy();
+    c = beat_samples();                                 /* BEAT: full on the beat, falling to the next (stopped: 0) */
+    umq_s[UMQ_BEAT] = (int16_t)(song.playing && c ? 256 - (int32_t)(ms_clock % c * 256u / c) : 0);
+    for (c = 0; c < 3u; c++)
+        umq_s[UMQ_TAP + c] = (int16_t)umq.tap[c];
+    for (pg = 0; pg < 2u; pg++) {
+        const umc_rec_t *r = umx_rec(UMX_SCREEN + pg);
+        for (j = 0; j < UMX_NC[1u + pg]; j++)
+            umq_o[pg * 8u + j] = (uint8_t)umc_ev(r, j, UMX_C[1u + pg][j].def, umx_max(UMX_SCREEN + pg, j));
     }
-    umq_get(umq_sel, v);
-    if (k < 3u) {                                       /* SOURCE, TARGET, a detent each (FROM and TO kept within its range) */
-        if (k == 1u && !v[0])
-            v[2] = UMQ_SET;                             /* (a route made here: from the target's own setting) */
-        v[k - 1u] = (uint32_t)clamp((int32_t)v[k - 1u] + s, 0, (k == 2u ? UMT_NT : UMQ_NS) - 1);
-    } else {                                            /* TO: SET, then 0 .. its most */
-        m = umq_max(v[1]);
-        r = v[3] == UMQ_SET ? 0 : (int32_t)v[3] + 1;
-        r = clamp(r + accel(EN_K1 + k, s, (int32_t)m), 0, (int32_t)m + 1);
-        v[3] = r ? (uint32_t)r - 1u : UMQ_SET;
-    }
-    umq_put(umq_sel, v);
 }
-/* TOTALITY: ENV (0), LFO (1) or EDIT (2) tapped. 1: a route takes that tap (it fires: the button's own tap is left out) */
+/* TOTALITY: ENV (0), LFO (1) or EDIT (2) tapped. 1: a link takes that tap (it fires: the button's own tap is left out) */
 static int umq_tap(uint32_t i)
 {
-    uint32_t r, v[4];
-    for (r = 0; r < UMQ_NR; r++) {
-        umq_get(r, v);
-        if (v[0] == UMQ_TAP + i) {
-            umq.tap[i] = 256;
-            return 1;
-        }
-    }
+    uint32_t r, k;
+    umc_load();
+    for (r = 0; r < UMC_NREC; r++)
+        for (k = 0; umc.rec[r].key && k < UMC_NL; k++)
+            if ((umc.rec[r].ls[k] & 31u) == UMQ_TAP + i) {
+                umq.tap[i] = 256;
+                return 1;
+            }
     return 0;
+}
+static uint32_t umx_cur(void)                           /* the page chosen (at first the ground's plate; none: SCREEN) */
+{
+    umx_desc_t d;
+    if (!umx_desc(umx_pg, &d))
+        umx_pg = (uint8_t)(umb_pl() == UMB_NONE ? UMX_SCREEN : umb_pl());
+    return umx_pg;
+}
+/* the chosen element j's control row ct: 0 SET, 1 NOTES (notes: it has one), 2 a link (*li: which), 3 + ADD (*li: a free
+ * link), 4: past its last */
+static uint32_t umx_row(const umc_rec_t *r, uint32_t j, int notes, uint32_t ct, uint32_t *li)
+{
+    uint32_t i;
+    if (!ct)
+        return 0;
+    if (notes && !--ct)
+        return 1;
+    for (i = 0; i < UMC_NL; i++)
+        if ((r->ls[i] & 31u) && (uint32_t)(r->ls[i] >> 5) == j && !--ct) {
+            *li = i;
+            return 2;
+        }
+    for (i = 0; ct == 1u && i < UMC_NL; i++)
+        if (!(r->ls[i] & 31u)) {
+            *li = i;
+            return 3;
+        }
+    return 4;
+}
+static void umx_src(char *b, uint32_t s)                /* a source's name (12 bytes) */
+{
+    static const char *const SL[5] = {"LEVEL", "BEAT", "ENV TAP", "LFO TAP", "EDIT TAP"};
+    static const char *const SN[3] = {"HIT", "LFO", "STEP"};
+    if (!s)
+        str_cpy(b, "OFF", 12);
+    else if (s < UMQ_HIT) {
+        str_cpy(b, "KNOB 1", 12);
+        b[5] = (char)('0' + s);
+    } else if (s >= UMQ_LEVEL)
+        str_cpy(b, SL[s - UMQ_LEVEL], 12);
+    else {
+        b[0] = 'T', b[1] = (char)('1' + (s - UMQ_HIT) % NTRK), b[2] = ' ';
+        str_cpy(b + 3, SN[(s - UMQ_HIT) / NTRK], 9);
+    }
+}
+static void umx_fmt(char *b, uint32_t pl, uint32_t j, uint32_t v)   /* page pl's element j's value v, as words */
+{
+    if (umx_max(pl, j) == 3u)
+        str_cpy(b, (pl == UMX_SCREEN ? UMN_MV : UMT_MIRN)[v & 3u], 12);
+    else if (umx_max(pl, j) == NTRK) {
+        str_cpy(b, "SEL", 12);
+        if (v)
+            b[0] = 'T', b[1] = (char)('0' + v), b[2] = 0;
+    } else
+        fmt_int(b, (int32_t)v);
+}
+static const char *const UMX_WH[5] = {"OFF", "GROUND", "LAYER 1", "LAYER 2", "LAYER 3"};
+/* page pl can lie at w: nowhere (SCREEN and EFFECTS never: they are every plate's); the ground, a plate that fills its
+ * strip; a layer, a figure or a plate that adds its light */
+static int umx_can(uint32_t pl, uint32_t w)
+{
+    uint32_t m = pl < UMB_NPLT ? umb_mod(pl)->modes : UMB_MODE(UMB_DRAW_ADD);
+    return pl <= UMX_BEING && (!w || (m & UMB_MODE(w == 1u ? UMB_DRAW_REPLACE : UMB_DRAW_ADD)));
+}
+static void umx_algo(int32_t s)                         /* ALGORITHM: the next page there is, round */
+{
+    umx_desc_t d;
+    uint32_t k, pl = umx_cur();
+    for (k = 0; k < UMX_N; k++)
+        if (umx_desc(pl = (pl + (s > 0 ? 1u : UMX_N - 1u)) % UMX_N, &d))
+            break;
+    umx_pg = (uint8_t)pl;
+    umx_el = umx_ct = 0;
+}
+/* KNOB k turned s: 1 the row, 2 its control, 3 the track or the source, 4 the value */
+static void umx_knob(uint32_t k, int32_t s)
+{
+    umx_desc_t d;
+    uint32_t pl = umx_cur(), j, li = 0, row, w;
+    umc_rec_t *r;
+    int notes;
+    if (!umx_desc(pl, &d))
+        return;
+    if (k == 0u) {
+        umx_el = (uint8_t)clamp((int32_t)umx_el + s, 0, (int32_t)d.nctl);
+        umx_ct = 0;
+        return;
+    }
+    if (!umx_el) {                                      /* the name's row: where the page lies */
+        for (w = umx_place(pl); k == 3u && (w += (uint32_t)(s > 0 ? 1 : -1)) < 5u;)
+            if (umx_can(pl, w)) {
+                umx_place_set(pl, w);
+                break;
+            }
+        return;
+    }
+    j = umx_el - 1u;
+    r = umx_rec(pl);
+    notes = d.el && (d.el[j] & UMB_EL_NOTES);
+    row = umx_row(r, j, notes, umx_ct, &li);
+    if (k == 1u) {
+        if (s < 0 ? umx_ct : umx_row(r, j, notes, umx_ct + 1u, &li) < 4u)
+            umx_ct = (uint8_t)(umx_ct + (s < 0 ? -1 : 1));
+        return;
+    }
+    if (row == 0u) {
+        if (k == 3u)
+            umx_put(pl, j, (int32_t)umx_raw(pl, j) + accel(EN_K1 + k, s, (int32_t)umx_max(pl, j) == 99 ? 99 : 0));
+        return;
+    }
+    if (row == 1u) {
+        if (k == 2u)
+            umx_tr = (uint8_t)clamp((int32_t)umx_tr + s, 0, NTRK - 1);
+        else
+            r->t[j] = (uint8_t)(s > 0 ? r->t[j] | 1u << umx_tr : r->t[j] & ~(1u << umx_tr));
+    } else if (k == 2u) {                               /* a link's source (+ ADD: a new one, half way at first) */
+        w = (uint32_t)clamp((int32_t)(r->ls[li] & 31u) + s, 0, UMQ_NS - 1);
+        if (row == 3u)
+            r->ld[li] = 50;
+        r->ls[li] = (uint8_t)(w ? w | j << 5 : 0u);
+        for (umx_ct = (uint8_t)(1u + (uint32_t)notes), row = 0; w && umx_ct < 2u + UMC_NL; umx_ct++)   /* (its row now; gone: */
+            if (umx_row(r, j, notes, umx_ct, &row) == 2u && row == li)                          /* the row after SET, NOTES) */
+                break;
+    } else if (row == 2u)
+        r->ld[li] = (int8_t)clamp(r->ld[li] + accel(EN_K1 + k, s, 198), -99, 99);
+    umc_touch();
 }
 
 /* ------------------------------------------------------------------------------------------- the pages --- */
-static int umk_on(void) { return UMB_ON && !umt.on && home_bare() && ui.hset[0]; }   /* a MACROS page shown */
-/* row i's words, a column each (LIVE AUDIO CTRLS: slot i of the selected track; LIVE VIZ CTRLS: route i): its number, the
- * SOURCE, the DEST / TARGET, the AMOUNT / TO; 1: it acts (else drawn dim) */
+static int umk_on(void) { return UMB_ON && !umt.on && home_bare() && ui.hset[0]; }   /* a LIVE CTRLS page shown */
+/* LIVE AUDIO CTRLS' row i's words, a column each (slot i of the selected track): its number, the SOURCE, the DEST, the
+ * AMOUNT; 1: it acts (else drawn dim) */
 static int umk_names(uint32_t i, char (*b)[12])
 {
-    uint32_t v[4];
+    const int16_t *p = uma_p((uint32_t)song.sel % NTRK * 4u + i);
     const char *u;
     fmt_int(b[0], (int32_t)i + 1);
-    if (ui.hset[0] == 1u) {
-        const int16_t *p = uma_p((uint32_t)song.sel % NTRK * 4u + i);
-        str_cpy(b[1], N_MSRC[clamp(p[0], 0, MS_N - 1)], 12);
-        str_cpy(b[2], mod_dst_name(&trk[song.sel % NTRK], p[1]), 12);
-        param_format(&TP[P_M1AMT], p[2], b[3], &u);    /* (+50: LFO > MOD's) */
-        return p[0] && p[1] && p[2];
-    }
-    umq_get(i, v);
-    if (v[0] < UMQ_HIT)                                 /* (OFF, M1 .. M4: the matrix's names) */
-        str_cpy(b[1], N_MSRC[v[0] ? MS_M1 + v[0] - UMQ_M1 : MS_OFF], 12);
-#if UMQ_SND
-    else if (v[0] >= UMQ_LEVEL) {
-        static const char *const SL[5] = {"LEVEL", "BEAT", "ENV TAP", "LFO TAP", "EDIT TAP"};
-        str_cpy(b[1], SL[v[0] - UMQ_LEVEL], 12);
-    } else {
-        static const char *const SN[3] = {"HIT", "LFO", "STEP"};
-        b[1][0] = 'T', b[1][1] = (char)('1' + (v[0] - UMQ_HIT) % NTRK), b[1][2] = ' ';
-        str_cpy(b[1] + 3, SN[(v[0] - UMQ_HIT) / NTRK], 9);
-    }
-#endif
-    str_cpy(b[2], umt_tname(umb_pl(), v[1]), 12);
-    umq_val(b[3], v[1], v[3]);
-    return v[0] != 0u;
+    str_cpy(b[1], N_MSRC[clamp(p[0], 0, MS_N - 1)], 12);
+    str_cpy(b[2], mod_dst_name(&trk[song.sel % NTRK], p[1]), 12);
+    param_format(&TP[P_M1AMT], p[2], b[3], &u);        /* (+50: LFO > MOD's) */
+    return p[0] && p[1] && p[2];
 }
-static void umk_algo(int32_t s)                         /* ALGORITHM: the track (LIVE AUDIO CTRLS), the plate (LIVE VIZ CTRLS) */
+/* LIVE VIZ CTRLS' chosen row and control as words: the row (the page's name, an element), the control, the track or the
+ * source, the value. 1: KNOB 3 has something to turn there */
+static int umx_names(char (*b)[12])
 {
-    if (ui.hset[0] == 1u)
-        track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));
-    else
-        umt_select(s);
-    if (umz == 1u && ui.hset[0] == 1u)                  /* (SETUP's first question: the track's first free slot) */
+    umx_desc_t d;
+    uint32_t pl = umx_cur(), j = umx_el - 1u, li = 0, row;
+    const umc_rec_t *r;
+    b[1][0] = b[2][0] = b[3][0] = 0;
+    if (!umx_desc(pl, &d)) {
+        b[0][0] = 0;
+        return 0;
+    }
+    str_cpy(b[0], umx_el ? d.ctl[j].name : d.name, 12);
+    if (!umx_el) {
+        str_cpy(b[1], "WHERE", 12);
+        str_cpy(b[3], pl > UMX_BEING ? "ALWAYS" : UMX_WH[umx_place(pl)], 12);
+        return 0;
+    }
+    r = umx_rec(pl);
+    row = umx_row(r, j, d.el && (d.el[j] & UMB_EL_NOTES), umx_ct, &li);
+    if (row == 0u) {
+        str_cpy(b[1], "SET", 12);
+        umx_fmt(b[3], pl, j, umx_raw(pl, j));
+    } else if (row == 1u) {
+        str_cpy(b[1], "NOTES", 12);
+        b[2][0] = 'T', b[2][1] = (char)('1' + umx_tr), b[2][2] = 0;
+        str_cpy(b[3], !r->t[j] ? "AUTO" : r->t[j] >> umx_tr & 1u ? "ON" : "OFF", 12);
+    } else if (row == 2u) {
+        str_cpy(b[1], "LINK", 12);
+        umx_src(b[2], r->ls[li] & 31u);
+        b[3][0] = r->ld[li] > 0 ? '+' : 0;
+        fmt_int(b[3] + (r->ld[li] > 0), r->ld[li]);
+    } else {
+        str_cpy(b[1], "+ ADD", 12);
+        str_cpy(b[2], "TURN", 12);
+    }
+    return row != 0u;
+}
+static void umk_algo(int32_t s)                         /* ALGORITHM: the track (LIVE AUDIO CTRLS), the page (LIVE VIZ CTRLS) */
+{
+    if (ui.hset[0] != 1u) {
+        umx_algo(s);
+        return;
+    }
+    track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));
+    if (umz == 1u)                                      /* (SETUP's first question: the track's first free slot) */
         for (uma_slot = 0; uma_slot < 3u && uma_p(uma_cur())[0]; uma_slot++) {}
 }
 static void umk_knob(uint32_t k, int32_t s)
 {
+    uint32_t au = ui.hset[0] == 1u;
     if (umz == 1u) {                                    /* (SETUP: any knob the answer; the first, ALGORITHM's) */
         umk_algo(s);
         return;
     }
-    if (umz)
-        k = umz - 1u;
-    if (ui.hset[0] == 1u)
+    if (umz)                                            /* (.. LIVE VIZ CTRLS' second: the element, KNOB 1's) */
+        k = au || umz > 2u ? umz - 1u : 0u;
+    if (au)
         uma_knob(k, s);
     else
-        umq_knob(k, s);
+        umx_knob(k, s);
 }
-/* each input pass, after the octave keys' taps: OCT+ starts SETUP (a row with no source yet: the track's first free
- * slot, the first route that is OFF) or goes to its next question (after the last: done); OCT- back, or out */
+/* each input pass, after the octave keys' taps: OCT+ starts SETUP (LIVE AUDIO CTRLS: the track's first free slot) or goes
+ * to its next question (after the last: done); OCT- back, or out. LIVE VIZ CTRLS' questions: the page, its element, what
+ * moves it (a new link: its + ADD row), how far */
 static void umz_input(uint32_t oct)
 {
-    uint32_t v[4];
     if (!umk_on()) {
         umz = 0;
         return;
@@ -296,13 +328,17 @@ static void umz_input(uint32_t oct)
     if (!oct)
         return;
     if (oct & 2u) {
-        if (!umz) {
-            if (ui.hset[0] == 1u)
-                for (uma_slot = 0; uma_slot < 3u && uma_p(uma_cur())[0]; uma_slot++) {}
-            else
-                for (umq_sel = 0; umq_sel < UMQ_NR - 1u && (umq_get(umq_sel, v), v[0]); umq_sel++) {}
-        }
+        if (!umz && ui.hset[0] == 1u)
+            for (uma_slot = 0; uma_slot < 3u && uma_p(uma_cur())[0]; uma_slot++) {}
         umz = (uint8_t)(umz < 4u ? umz + 1u : 0u);
+        if (ui.hset[0] != 1u && umz == 2u && !umx_el)
+            umx_el = 1;                                 /* (an element, not the name's row) */
+        if (ui.hset[0] != 1u && umz == 3u) {            /* (its last row: + ADD, or its last link when all are taken) */
+            umx_desc_t d;
+            uint32_t li;
+            (void)umx_desc(umx_cur(), &d);
+            for (umx_ct = 0; umx_row(umx_rec(umx_pg), umx_el - 1u, d.el && (d.el[umx_el - 1u] & UMB_EL_NOTES), umx_ct + 1u, &li) < 4u; umx_ct++) {}
+        }
         if (!umz)
             ui_message("CONTROL SET");
     } else if (umz)
@@ -311,37 +347,118 @@ static void umz_input(uint32_t oct)
 }
 static void umk_cards(void)                             /* KNOB 1..4: the chosen row's columns */
 {
-    static const char *const LB[2][4] = {{"SLOT", "SOURCE", "DEST", "AMOUNT"}, {"ROUTE", "SOURCE", "TARGET", "TO"}};
+    static const char *const LB[2][4] = {{"SLOT", "SOURCE", "DEST", "AMOUNT"}, {"ELEMENT", "CONTROL", "SOURCE", "VALUE"}};
     char b[4][12];
     uint32_t k, au = ui.hset[0] == 1u;
-    int on = umk_names(au ? uma_slot : umq_sel, b);
+    int on = au ? umk_names(uma_slot, b) : umx_names(b);
     for (k = 0; k < 4u; k++)
-        text_column(k, LB[!au][k], b[k], on || k < 2u ? VAL(k) : T_DIM);
+        text_column(k, !au && k == 2u && b[1][0] == 'N' ? "TRACK" : LB[!au][k], b[k][0] ? b[k] : "-",
+                    (au ? on || k < 2u : k != 2u || on) && b[k][0] ? VAL(k) : T_DIM);
+}
+#define UMK_RH 17                                       /* a row's height (AF_S) */
+static void umk_text(int32_t x, int32_t y, const char *s, uint16_t c) { cv_text(x, y, &AF_S, s, c); }
+/* LIVE VIZ CTRLS over the plate from canvas row y to bot. On the left the page's name and its elements (the chosen row in
+ * the theme's colour), a bar beside each: its value now of its range, a tick where it is set. On the right the chosen
+ * row's controls: where the page lies, or the element's SET, NOTES (the tracks on: their numbers), links and + ADD */
+static void umx_draw(int32_t x0, int32_t y, int32_t bot)
+{
+    umx_desc_t d;
+    char b[12], t[8];
+    uint32_t pl = umx_cur(), rows = (uint32_t)clamp((bot - y - 12) / UMK_RH, 1, 9), i, k, li, row;
+    const umc_rec_t *r;
+    int32_t yy;
+    if (!umx_desc(pl, &d))
+        return;
+    r = umx_rec(pl);
+    for (i = umx_el >= rows ? umx_el - rows + 1u : 0u, k = i + rows, yy = y; i <= d.nctl && i < k; i++, yy += UMK_RH) {
+        uint16_t col = i == umx_el ? T_THEME : T_TEXT;
+        if (!i) {                                       /* (its name, ruled off from its elements) */
+            umk_text(6 - x0, yy, d.name, col);
+            cv_rect(6 - x0, yy + 14, 102, 1, T_LINE);
+            continue;
+        }
+        umk_text(6 - x0, yy, d.ctl[i - 1u].name, col);
+        {                                               /* its bar: 40 px its range */
+            uint32_t m = umx_max(pl, i - 1u), v = umc_ev(r, i - 1u, d.ctl[i - 1u].def, m) * 40u / m,
+                     sv = umc_raw(r, i - 1u, d.ctl[i - 1u].def, m) * 39u / m;
+            cv_rect(68 - x0, yy + 7, 40, 1, T_LINE);
+            cv_rect(68 - x0, yy + 6, (int32_t)v, 3, col);
+            cv_rect(68 + (int32_t)sv - x0, yy + 4, 1, 7, T_TEXT);
+            for (m = 0, v = 0; m < UMC_NL && v < 3u; m++)   /* a dot a link (three at most), a longer one its tracks chosen */
+                if ((r->ls[m] & 31u) && (uint32_t)(r->ls[m] >> 5) == i - 1u)
+                    cv_rect(111 + (int32_t)v++ * 3 - x0, yy + 6, 2, 2, T_MID);
+            if (r->t[i - 1u])
+                cv_rect(111 - x0, yy + 10, 8, 1, T_MID);
+        }
+    }
+    if (!umx_el) {                                      /* where it lies */
+        umk_text(124 - x0, y, "WHERE", T_MID);
+        str_cpy(b, pl > UMX_BEING ? "ALWAYS" : UMX_WH[umx_place(pl)], sizeof b);
+        umk_text(234 - text_w(&AF_S, b) - x0, y, b, pl > UMX_BEING ? T_MID : T_THEME);
+        i = umx_place(pl);                              /* (a plate on a layer with no room beside the ground's: it waits) */
+        if (pl <= UMX_BEING)
+            umk_text(124 - x0, y + UMK_RH, i >= 2u && pl < UMB_NPLT && !umb_lay[i - 1u].pp ? "NO ROOM" : "KNOB 4", T_DIM);
+    } else
+        for (i = umx_ct >= rows ? umx_ct - rows + 1u : 0u, k = i + rows, yy = y; i < k; i++, yy += UMK_RH) {
+            uint16_t col = i == umx_ct ? T_THEME : T_TEXT;
+            uint32_t j = umx_el - 1u;
+            row = umx_row(r, j, d.el && (d.el[j] & UMB_EL_NOTES), i, &li);
+            if (row == 4u)
+                break;
+            b[0] = 0;
+            if (row == 0u) {
+                str_cpy(t, "SET", sizeof t);
+                umx_fmt(b, pl, j, umx_raw(pl, j));
+            } else if (row == 1u) {
+                str_cpy(t, "NOTES", sizeof t);
+                for (li = 0; li < NTRK; li++)
+                    b[li] = (char)(r->t[j] >> li & 1u ? '1' + li : '.');
+                b[NTRK] = 0;
+                if (!r->t[j])
+                    str_cpy(b, "AUTO", sizeof b);
+            } else if (row == 2u) {
+                umx_src(b, r->ls[li] & 31u);
+                umk_text(124 - x0, yy, b, col);
+                b[0] = r->ld[li] > 0 ? '+' : 0;
+                fmt_int(b + (r->ld[li] > 0), r->ld[li]);
+                t[0] = 0;
+            } else {
+                str_cpy(t, "+ ADD", sizeof t);
+                col = i == umx_ct ? T_THEME : T_MID;
+            }
+            umk_text(124 - x0, yy, t, col);
+            umk_text(234 - text_w(&AF_S, b) - x0, yy, b, col);
+        }
 }
 /* the page over the plate from canvas row y (h rows). LIVE AUDIO CTRLS: the selected track's four slots, then what each
- * macro moves (its routes on every track: "T2 CUT", as many as fit); LIVE VIZ CTRLS: the plate's name, then the routes
- * about the chosen one. The chosen row in the theme's colour. SETUP: its question, large, and the answer */
-#define UMK_RH 17                                       /* a row's height (AF_S) */
+ * macro moves (its routes on every track: "T2 CUT", as many as fit); LIVE VIZ CTRLS: umx_draw. SETUP: its question, large,
+ * and the answer */
 static void umk_draw(int32_t x0, int32_t y, int32_t h)
 {
     static const uint8_t CX[4] = {6, 26, 104, 186};
     static const char *const QN[2][4] = {{"WHICH TRACK?", "WHICH CONTROL?", "IT MOVES WHAT?", "HOW MUCH?"},
-                                         {"WHICH PLATE?", "WHICH CONTROL?", "IT CHANGES WHAT?", "HOW FAR?"}};
+                                         {"WHICH PLATE?", "WHICH PART?", "MOVED BY WHAT?", "HOW FAR?"}};
     uint8_t ha = cv_halo;
     char b[4][12], ln[44];
-    uint32_t i, k, c, au = ui.hset[0] == 1u, n = au ? 4u : UMQ_NR, sel = au ? uma_slot : umq_sel, rows;
+    uint32_t i, k, c, au = ui.hset[0] == 1u;
     int32_t bot = y + h;
     cv_halo = 1;
     if (umz) {                                          /* SETUP */
         const char *a = b[umz - 1u];
-        umk_names(sel, b);
-        if (umz == 1u) {
-            if (au) {
+        if (au) {
+            umk_names(uma_slot, b);
+            if (umz == 1u) {
                 ln[0] = 'T', ln[1] = (char)('1' + song.sel % NTRK), ln[2] = ' ';
                 str_cpy(ln + 3, trk_engp(&trk[song.sel % NTRK])->name, sizeof ln - 3u);
                 a = ln;
-            } else
-                a = umb_pname(umb_pl());
+            }
+        } else {
+            umx_desc_t d;
+            umx_names(b);
+            if (umz == 1u && umx_desc(umx_cur(), &d))
+                a = d.name;
+            if (umz == 2u)
+                a = b[0];
         }
         cv_text(120 - text_w(&AF_M, QN[!au][umz - 1u]) / 2 - x0, y + h / 2 - 34, &AF_M, QN[!au][umz - 1u], 0xBF7Du);
         cv_text(120 - text_w(&AF_M, a) / 2 - x0, y + h / 2 - 6, &AF_M, a, T_THEME);
@@ -351,18 +468,15 @@ static void umk_draw(int32_t x0, int32_t y, int32_t h)
         cv_halo = ha;
         return;
     }
-    if (!au) {
-        cv_text(CX[0] - x0, y, &AF_S, umb_pname(umb_pl()), T_THEME);
-        y += UMK_RH + 3;
-    }
-    rows = au ? 4u : (uint32_t)clamp((bot - y - 12) / UMK_RH, 1, UMQ_NR);
-    for (i = sel >= rows ? sel - rows + 1u : 0u, k = i + rows; i < n && i < k; i++, y += UMK_RH) {
+    if (!au)
+        umx_draw(x0, y, bot);
+    for (i = 0; au && i < 4u; i++, y += UMK_RH) {
         uint16_t col = umk_names(i, b) ? T_TEXT : T_DIM;
-        if (i == sel)
+        if (i == uma_slot)
             col = T_THEME;
         for (c = 0; c < 4u; c++)
             if (c < 2u || b[1][0] != 'O' || b[1][1] != 'F')   /* (OFF: its number and its source alone) */
-                cv_text(CX[c] - x0, y, &AF_S, b[c], col);
+                umk_text(CX[c] - x0, y, b[c], col);
     }
     for (k = 0, y += 4; au && k < 4u && y + 20 <= bot; k++, y += 11) {   /* what each macro moves */
         uint32_t w = 0, more = 0;

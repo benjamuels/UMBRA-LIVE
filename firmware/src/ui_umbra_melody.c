@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
+ * Copyright (C) 2026 UMBRA LIVE contributors */
 /* (included by ui_umbra.c, before the field plates) built for size, as the main loop is (tools/size_fns.py).
  * ---------------------------------------------------------------------------------- the plates' light, added ---
  * What CORONA (resident: the welcome uses it) adds to its strip, a pixel or a point at a time; the strip being drawn, the

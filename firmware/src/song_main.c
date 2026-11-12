@@ -34,7 +34,7 @@ static void song_index_load(void)
         song_idx.version = SONG_IDX_V;
         for (k = 0; k < NSONG_IDX; k++)
             song_rows_fix(&song_idx.rows[k]);
-        if (song_idx.cur >= NSONG_USE)              /* ((UMBRA OBSCURA) projects 5..8 retired: the first instead) */
+        if (song_idx.cur >= NSONG_USE)              /* ((UMBRA LIVE) projects 5..8 retired: the first instead) */
             song_idx.cur = 0;
         song_cur = song_idx.cur;
         return;
@@ -59,7 +59,7 @@ static __attribute__((noinline)) void song_retired(void)   /* (out of line: fm1_
         return;
     song_idx.rsv[1] = 1;
     for (i = 0; i < FL_SAMPLES_SIZE / ST_SECTOR; i++)
-        if (!st_read(FL_SAMPLES + i * ST_SECTOR, h, sizeof h) && h[0] == ST_MAGIC && (uint16_t)(h[1] - OBJ_COUNT) < 8u) {
+        if (!st_read(FL_SAMPLES + i * ST_SECTOR, h, sizeof h) && h[0] == ST_MAGIC && (uint16_t)(h[1] - OBJ_UMBCTL) < 8u) {
             ui_message("SONGS 7-8 RETIRED");
             str_cpy(ui.msg2, "6 SONGS NOW: SEE MANUAL", sizeof ui.msg2);
             song_idx_touch();

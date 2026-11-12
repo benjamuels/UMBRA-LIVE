@@ -21,7 +21,7 @@
 #include <stdint.h>
 
 #define FELUCCA_WEB 1
-#define UMB_LAYERS 2                     /* (UMBRA OBSCURA) a second plate layer, for web_umb(97, ..) */
+#define UMB_LAYERS 2                     /* (UMBRA LIVE) a second plate layer, for web_umb(97, ..) */
 #ifndef FELUCCA_CDC
 #define FELUCCA_CDC 1                    /* as src/felucca.c: MENU > USB SERIAL is there (nothing behind it) */
 #endif
@@ -32,7 +32,7 @@
 #ifndef FELUCCA_VERSION
 #define FELUCCA_VERSION "WEB"
 #endif
-#define UMB_MIRROR 0                     /* (UMBRA OBSCURA) the screen mirror, as src/felucca.c (its stream: web_mirror_*): out */
+#define UMB_MIRROR 0                     /* (UMBRA LIVE) the screen mirror, as src/felucca.c (its stream: web_mirror_*): out */
 #if UMB_MIRROR
 #define SM_BUFFER 3072u
 #include "../../firmware/src/screen_mirror/screen_mirror.c"
@@ -126,7 +126,7 @@ static void fm1_irq_on(void) {}
 static uint16_t web_fb[240 * 240];       /* RGB565 as the panel gets it (high byte first) */
 static uint32_t web_draws;
 #if UMB_MIRROR
-static void umr_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c);   /* (UMBRA OBSCURA: umb_mirror.c) */
+static void umr_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c);   /* (UMBRA LIVE: umb_mirror.c) */
 static void umr_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *px, uint32_t stride);
 #else
 #define umr_fill(x, y, w, h, c) ((void)0)
@@ -256,7 +256,7 @@ static void cdc_task(void) {}
 #define usb_detach() ((void)0)
 #include "../../firmware/src/master.c"
 #if UMB_MIRROR
-/* (UMBRA OBSCURA) the screen mirror's messages, as the FM-1 would send them over USB MIDI: the page reads and empties
+/* (UMBRA LIVE) the screen mirror's messages, as the FM-1 would send them over USB MIDI: the page reads and empties
  * them (web_mirror_buf / len / clear); full, the mirror waits as it would for USB */
 #define WEB_MQ 65536u
 static uint8_t web_mq[WEB_MQ];
@@ -336,8 +336,8 @@ static void web_frame(void)
     autosave_poll();
     song_poll();
     ui_leds();
-    umr_draw();                                         /* (UMBRA OBSCURA) ui_draw, and the mirror's repaint round */
-    umr_poll();                                         /* (UMBRA OBSCURA) the screen mirror */
+    umr_draw();                                         /* (UMBRA LIVE) ui_draw, and the mirror's repaint round */
+    umr_poll();                                         /* (UMBRA LIVE) the screen mirror */
 }
 
 /* output ring, stereo float, filled by web_ms, drained by web_render */
@@ -378,7 +378,7 @@ static void web_ms(void)
         web_frame();
     } else {
         ui_input();                                       /* main.c's wait loop */
-        umr_tick();                                       /* (UMBRA OBSCURA) and the mirror's queue topped up */
+        umr_tick();                                       /* (UMBRA LIVE) and the mirror's queue topped up */
     }
 }
 
@@ -444,7 +444,7 @@ EXPORT void web_enc(uint32_t role, int32_t n)
 }
 EXPORT void web_master(uint32_t v) { web_master_adc = v > 1023u ? 1023u : v; }
 #if UMB_MIRROR
-/* (UMBRA OBSCURA) the screen mirror: a viewer's hello (k: 0 keep sending, 1 and the whole screen, 2 the name only),
+/* (UMBRA LIVE) the screen mirror: a viewer's hello (k: 0 keep sending, 1 and the whole screen, 2 the name only),
  * and the SysEx it got back since the last clear */
 EXPORT void web_mirror_hello(uint32_t k)
 {
@@ -463,9 +463,14 @@ EXPORT void web_mirror_take(uint32_t n)                 /* the first n bytes rea
     web_mq_n -= n;
 }
 #endif
-EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) 99: the PLATE (0..5; in TOTALITY it dissolves in);
-                                                         * 0, 1: its first two settings, 2 LIGHT, 3 its third (SIZE ..);
-                                                         * 98: TOTALITY, no word at its foot (the projector, emu/?projector) */
+EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA LIVE) 99: the ground's PLATE (in TOTALITY it dissolves in);
+                                                         * 0, 1, 3: its first, second and third element, 2 LIGHT; 10 + j: its
+                                                         * element j; 20 + g: SCREEN's and EFFECTS' (ui_umbra.c G_*);
+                                                         * 98: TOTALITY, no word at its foot (the projector, emu/?projector);
+                                                         * 97: page (v & 255) laid at v >> 8 (0 off, 1 the ground, 2 .. 4 LAYER
+                                                         * 1..3); 96: page v >> 16's element (v >> 8 & 255)'s tracks v & 255;
+                                                         * 95: a link on page v >> 24's element (v >> 16 & 255): source
+                                                         * v >> 8 & 255, depth (v & 255) - 128 */
 {
     uint32_t pl = umb_pl();
     if (i == 99u) {
@@ -476,14 +481,44 @@ EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA OBSCURA) 99: th
         nav_go(SEC_HOME, 0, 0);                         /* (ui_umbra_tot.c) */
         umt_enter(0);
         umt.say_ms = 0;
-    } else if (i == 97u)                                /* (the plate API's test) FILAMENT over the plate in TOTALITY: 1 on */
-        umb_ovl = (uint8_t)(v != 0u);
-    else if (i < 4u)
-        umv_put(pl, i == 2u ? 3u : i == 3u ? 2u : i, v);   /* (the plate's setting 3 LIGHT, 2 its third) */
+    } else if (i == 97u)
+        umx_place_set(v & 255u, v >> 8);
+    else if (i == 96u || i == 95u) {
+        umx_desc_t d;
+        uint32_t pg = v >> (i == 96u ? 16 : 24), j = v >> (i == 96u ? 8 : 16) & 255u, k;
+        umc_rec_t *r;
+        if (!umx_desc(pg, &d) || j >= d.nctl)
+            return;
+        r = umx_rec(pg);
+        if (i == 96u)
+            r->t[j] = (uint8_t)(v & 63u);
+        else
+            for (k = 0; k < UMC_NL; k++)
+                if (!(r->ls[k] & 31u)) {
+                    r->ls[k] = (uint8_t)((v >> 8 & 31u) | j << 5);
+                    r->ld[k] = (int8_t)((int32_t)(v & 255u) - 128);
+                    break;
+                }
+    } else if (i >= 20u && i < 20u + G_N)
+        umg_put(i - 20u, (int32_t)v);
+    else if (i == 2u)
+        umg_put(G_LIGHT, (int32_t)v);
+    else if (i < 18u && pl != UMB_NONE)
+        umx_put(pl, i >= 10u ? i - 10u : i == 3u ? 2u : i, (int32_t)v);
 }
-EXPORT uint32_t web_umb_get(uint32_t i)                /* (UMBRA OBSCURA) 99: the PLATE; 0, 1: its settings, 2 LIGHT, 3 its third */
+EXPORT uint32_t web_umb_get(uint32_t i)                /* (UMBRA LIVE) 99: the ground's PLATE; 0, 1, 3: its elements, 2 LIGHT;
+                                                         * 10 + j: its element j; 90: the pages' numbers' end; 100 + pl: page
+                                                         * pl there (1) */
 {
-    return i == 99u ? umb_pl() : i < 4u ? umv(umb_pl(), i == 2u ? 3u : i == 3u ? 2u : i) : 0u;
+    umx_desc_t d;
+    uint32_t pl = umb_pl();
+    return i == 99u ? pl : i == 90u ? UMX_N : i >= 100u ? (uint32_t)umx_desc(i - 100u, &d) : i == 2u ? umg_raw(G_LIGHT)
+           : i < 18u && pl != UMB_NONE ? umx_raw(pl, i >= 10u ? i - 10u : i == 3u ? 2u : i) : 0u;
+}
+EXPORT const char *web_umb_name(uint32_t pl)           /* .. page pl's name ("": not there) */
+{
+    umx_desc_t d;
+    return umx_desc(pl, &d) ? d.name : "";
 }
 /* a channel message from Web MIDI, as a USB-MIDI packet arrives (usb.c midi_enqueue): 0 = the ring was full */
 EXPORT uint32_t web_midi(uint32_t status, uint32_t d1, uint32_t d2)
@@ -553,8 +588,8 @@ EXPORT void web_gen(uint32_t genre, uint32_t seed, uint32_t energy, uint32_t for
     gen_go();
     gp.sig = gen_sig();
 }
-EXPORT void web_set_eng(uint32_t i, uint32_t e) { set_engine_of(&trk[i % NTRK], e); }   /* (UMBRA OBSCURA) a track's engine: the bodies' checks */
-EXPORT void web_sel(uint32_t i) { song.sel = (uint8_t)(i % NTRK); }   /* (UMBRA OBSCURA) the track selected: the harness's */
+EXPORT void web_set_eng(uint32_t i, uint32_t e) { set_engine_of(&trk[i % NTRK], e); }   /* (UMBRA LIVE) a track's engine: the bodies' checks */
+EXPORT void web_sel(uint32_t i) { song.sel = (uint8_t)(i % NTRK); }   /* (UMBRA LIVE) the track selected: the harness's */
 EXPORT const char *web_gen_last(void) { return gp.last; }
 EXPORT uint32_t web_gen_count(void) { return NGENRE; }
 EXPORT const char *web_gen_name(uint32_t i) { return GENRE[i % NGENRE].name; }

@@ -1341,7 +1341,7 @@ static void graph_drift(void)
 {
     uint32_t k, gh = graph_h(), fr = ui.frame;
 #if UMB_MIRROR
-    static uint32_t drawn;                           /* (UMBRA OBSCURA) the screen mirror's repaint round: where they are */
+    static uint32_t drawn;                           /* (UMBRA LIVE) the screen mirror's repaint round: where they are */
     if (umr_round())
         fr = drawn;
     drawn = fr;

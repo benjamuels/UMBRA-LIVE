@@ -1,12 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
+ * Copyright (C) 2026 UMBRA LIVE contributors */
 /* SAROS as a plate module (umb_plate.h; moved out of ui_umbra_melody.c unchanged, pixel for pixel): the melody as string
  * art on the circle of fifths, the whole plate turning once in 100 s round a dark umbra. A note lands on its pitch class
  * (its track's root at the marked tick), its octave the ring; each melodic track's notes are joined in turn by a thread in
  * its colour. Fifths and fourths stay near the rim, thirds cut across, tritones pass through the umbra and vanish; a phrase
  * played again retraces its threads and burns them brighter (a thread fades in ~6 s). Its light is added to the strip: in
  * REPLACE the strip is cleared to black first (JIANT's), in ADD the threads light whatever is under them.
- * Controls: SPIN, FADE, SIZE (the umbra's). */
+ * Elements: SPIN, FADE, SIZE (the umbra's); THREAD and POINT (the notes that are no drum: the threads they join, the
+ * points they light; each as hard as its value, its tracks LIVE VIZ CTRLS' to choose), DIAL (the dial's ticks and the
+ * umbra's rim). */
 #include "plate_lib.h"
 
 #define PLS_CX 120                                      /* the centre (px) */
@@ -60,16 +62,22 @@ static void pls_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
 {
     pls_t *m = st;
     uint32_t c = nt->track, n = nt->note, p = m->last[c], i, k, b0, b1;
-    int32_t v = (int32_t)nt->vel * 2 + 1, lo = 1 << 30;
-    if (!nt->vel || nt->drum)
+    int32_t v, vp, lo = 1 << 30;
+    if (!nt->vel)
         return;
-    m->nn[m->nnd] = (uint8_t)n;
-    m->nc[m->nnd] = (uint8_t)c;
-    m->nv[m->nnd] = (uint8_t)v;
-    m->nt[m->nnd] = cx->now;
-    m->nnd = (uint8_t)((m->nnd + 1u) % PLS_ND);
+    v = pl_drive(cx, 3u, nt, !nt->drum);                /* THREAD */
+    vp = pl_drive(cx, 4u, nt, !nt->drum);               /* POINT */
+    if (!v && !vp)
+        return;
+    if (vp) {
+        m->nn[m->nnd] = (uint8_t)n;
+        m->nc[m->nnd] = (uint8_t)c;
+        m->nv[m->nnd] = (uint8_t)vp;
+        m->nt[m->nnd] = cx->now;
+        m->nnd = (uint8_t)((m->nnd + 1u) % PLS_ND);
+    }
     m->last[c] = (uint8_t)(n + 1u);
-    if (!p-- || p == n)
+    if (!v || !p-- || p == n)
         return;
     b0 = p < n ? p : n;
     b1 = p < n ? n : p;
@@ -139,19 +147,19 @@ static int pls_umbra(int32_t ru, int32_t X, int32_t Y)  /* behind the umbra */
 static void pls_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
 {
     const pls_t *m = st;
-    int32_t i, k, ru = pls_ru(cx), y0 = S->y0, ylo = (y0 - 2) * 256, yhi = (y0 + S->h + 1) * 256;
+    int32_t i, k, ru = pls_ru(cx), y0 = S->y0, ylo = (y0 - 2) * 256, yhi = (y0 + S->h + 1) * 256, dl = cx->k[5];   /* (DIAL: 50 as it was) */
     if (S->mode == UMB_DRAW_REPLACE)                    /* (the ground: black, as JIANT's) */
         for (i = 0; i < S->w * S->h; i++)
             S->px[i] = 0;
     if (y0 < PLS_CY + (ru >> 8) + 6 && y0 + S->h > PLS_CY - (ru >> 8) - 6)
         for (i = 0; i < 180; i++) {                     /* the umbra's corona */
             int32_t s = pl_sine(a, (uint32_t)i * 23860929u), c = pl_sine(a, (uint32_t)i * 23860929u + 0x40000000u), r = ru * 55 / 52;
-            pl_splat(S, PLS_CX * 256 + ((c * r) >> 15), PLS_CY * 256 + ((s * r) >> 15), 51, PLS_TEAL);
+            pl_splat(S, PLS_CX * 256 + ((c * r) >> 15), PLS_CY * 256 + ((s * r) >> 15), 51 * dl / 50, PLS_TEAL);
             r = ru * 60 / 52;
-            pl_splat(S, PLS_CX * 256 + ((c * r) >> 15), PLS_CY * 256 + ((s * r) >> 15), 13, PLS_TEAL);
+            pl_splat(S, PLS_CX * 256 + ((c * r) >> 15), PLS_CY * 256 + ((s * r) >> 15), 13 * dl / 50, PLS_TEAL);
         }
     for (i = 0; i < 12; i++)                            /* the dial: the root's tick teal */
-        pl_splat(S, PLS_CX * 256 + ((29696 * m->ux[i]) >> 15), PLS_CY * 256 + ((29696 * m->uy[i]) >> 15), i ? 179 : 128,
+        pl_splat(S, PLS_CX * 256 + ((29696 * m->ux[i]) >> 15), PLS_CY * 256 + ((29696 * m->uy[i]) >> 15), (i ? 179 : 128) * dl / 50,
                  i ? PLS_REST : PLS_TEAL);
     for (i = 0; i < m->nth; i++) {                      /* the threads, a sample a pixel (only the strip's) */
         int32_t X = m->lx[i], Y = m->ly[i], sx = m->lsx[i], sy = m->lsy[i], n = m->ln[i], k0 = 0, k1 = n;
@@ -205,6 +213,7 @@ static void pls_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
 
 UMB_PLATE_HEAD const umb_plate_t umb_plate_saros = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(pls_t), "SAROS",
-    UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 3u, {0, 0, 0},
-    {{"SPIN", 30}, {"FADE", 45}, {"SIZE", 50}},
-    pls_init, pls_note, pls_frame, pls_draw};
+    UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 6u, {0, 0, 0},
+    {{"SPIN", 30}, {"FADE", 45}, {"SIZE", 50}, {"THREAD", 50}, {"POINT", 50}, {"DIAL", 50}},
+    pls_init, pls_note, pls_frame, pls_draw,
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0}};

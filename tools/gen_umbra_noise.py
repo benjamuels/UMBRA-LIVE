@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-# Copyright (C) 2026 UMBRA OBSCURA contributors
+# Copyright (C) 2026 UMBRA LIVE contributors
 """The plates' tables (firmware/src/ui_umbra.c, ui_umbra_field.c), made here once so they live in flash (const), not in RAM
 or the pool: the angle (umb_at: atan(i / 32), 128 an eighth of a turn) that CORONA's map uses. (KILN's light, lava and
 dither tables went with it; the cold palette, umb_pal, is worked out from its stops once, ui_umbra_field.c ump_lut_make,
@@ -11,7 +11,7 @@ welcome wanted 1.6 KB of the slot.)
 import math
 
 print("/* SPDX-License-Identifier: GPL-3.0-only")
-print(" * Copyright (C) 2026 UMBRA OBSCURA contributors */")
+print(" * Copyright (C) 2026 UMBRA LIVE contributors */")
 print("/* The plates' tables: the angle (the noise, the fades' profile, the log: ui_umbra.c umb_tabs)")
 print(" * (tools/gen_umbra_noise.py: do not edit) */")
 AT = [round(128 * math.atan(i / 32) / (math.pi / 4)) for i in range(33)]

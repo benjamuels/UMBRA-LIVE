@@ -309,7 +309,7 @@ static __attribute__((noinline)) void boot_splash(void)
 {
     uint32_t t0 = fm1_ms, n, ms;
     for (n = 0; n < 600u && (ms = fm1_ms - t0) < SPL_TIME; n++) {   /* (600: a stalled clock still ends it, in ~2.4 s;
-                                                                     * UMBRA OBSCURA: its welcome, 6 s, a frame tens of
+                                                                     * UMBRA LIVE: its welcome, 6 s, a frame tens of
                                                                      * ms: then in tens of seconds) */
         splash_write(ms);
         fm1_delay_ms(4);
@@ -392,7 +392,7 @@ static void fm1_main(void)
         fm1_wdt_feed();
         usb_retry(fm1_ms);
 #if UMB_MIRROR
-        umr_poll();                                     /* (UMBRA OBSCURA) the screen mirror's queue, repaint, name */
+        umr_poll();                                     /* (UMBRA LIVE) the screen mirror's queue, repaint, name */
 #endif
 #if FELUCCA_USB_HOST
         if (uh.want && !bt_hw_seg()) {                  /* (V10.41) the host's code is in the Bluetooth segment */
@@ -495,7 +495,7 @@ static void fm1_main(void)
         ui_leds();
         ui_hold_poll();                               /* (0.9.9-beta4) playing past 60 % of the render: the UI held (ui.c) */
 #if UMB_MIRROR
-        umr_draw();                                     /* (UMBRA OBSCURA) ui_draw, and the screen mirror's repaint round */
+        umr_draw();                                     /* (UMBRA LIVE) ui_draw, and the screen mirror's repaint round */
 #else
         ui_draw();
 #endif
@@ -506,7 +506,7 @@ static void fm1_main(void)
             ed_service();                       /* editor replies without waiting for the next frame */
 #endif
 #if UMB_MIRROR
-            umr_tick();                         /* (UMBRA OBSCURA) the screen mirror's queue, as USB empties it */
+            umr_tick();                         /* (UMBRA LIVE) the screen mirror's queue, as USB empties it */
 #endif
         }
     }

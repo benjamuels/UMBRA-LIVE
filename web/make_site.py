@@ -115,7 +115,7 @@ def main(pkg, version, out, prev=None):
     for doc in ("LICENSE", "LICENSING.md"):
         shutil.copy(HERE.parent / doc, fw / doc)
     shutil.copy(HERE / "editor.html", ed / "index.html")
-    pl = out / "webapp" / "plates"                  # (UMBRA OBSCURA) the plates page and the plate files CI built
+    pl = out / "webapp" / "plates"                  # (UMBRA LIVE) the plates page and the plate files CI built
     pl.mkdir(parents=True, exist_ok=True)
     shutil.copy(HERE / "plates.html", pl / "index.html")
     plates = sorted((HERE.parent / "build" / "plates").glob("*.plate"))

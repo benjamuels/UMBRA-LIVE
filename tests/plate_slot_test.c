@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UMBRA OBSCURA contributors */
-/* (UMBRA OBSCURA) the plate bank (firmware/src/umb_slot.c) and its editor commands (editor_plate.c, cmds 96..100) on a
+ * Copyright (C) 2026 UMBRA LIVE contributors */
+/* (UMBRA LIVE) the plate bank (firmware/src/umb_slot.c) and its editor commands (editor_plate.c, cmds 96..100) on a
  * simulated NOR flash (erase sets 0xFF, a write only clears bits).
  *   plate_slot_test               the checks (exit 0: all passed)
  *   plate_slot_test image FILE    a valid plate file for this host (its header's layout and pointers as the bank checks
