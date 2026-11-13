@@ -113,7 +113,7 @@ PL_SMALL static void oko_frame(void *st, const umb_lctx_t *cx, const umb_api_t *
     }
     s->fr = pl_dec(s->fr, dt * 262);                    /* (0.25 s) */
 }
-PL_SMALL static void oko_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
+static void oko_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
 {
     const oko_t *s = st;
     int32_t L = 640 + cx->k[2] * 18, n = 1 + cx->k[6] * 6 / 99, gl = 30 + cx->k[7] * 2, i, k;   /* (SIZE 50: a fish 30 px) */

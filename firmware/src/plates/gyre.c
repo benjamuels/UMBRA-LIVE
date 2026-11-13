@@ -81,7 +81,7 @@ PL_SMALL static void fgy_note(void *st, const umb_lctx_t *cx, const umb_api_t *a
  * foam from where they bring it (less than a cell away: the rows as they were), thinned (FADE: 1 .. 12 s); the eye
  * drains; the streaks ride on; REST lets spray fall at the rim */
 /* (the step's bookkeeping, built small: the speeds by the distance before the cells move, the streaks and the arms after) */
-PL_SMALL static void fgy_aux(fgy_t *s, const umb_lctx_t *cx, const umb_api_t *a, int32_t rc, int after)
+static void fgy_aux(fgy_t *s, const umb_lctx_t *cx, const umb_api_t *a, int32_t rc, int after)
 {
     int32_t vm = pl_clamp(((int32_t)cx->k[0] * 230 / 99) * (256 + s->surge) >> 8, 0, 235), vr = 8 + (int32_t)cx->k[1] * 75 / 99, x, q;
     if (!after) {
@@ -155,7 +155,7 @@ PL_SMALL static void fgy_frame(void *st, const umb_lctx_t *cx, const umb_api_t *
     while (n--)
         fgy_step(s, cx, a);
 }
-PL_SMALL static void fgy_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
+static void fgy_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
 {
     const fgy_t *s = st;
     int32_t C = PL_C2P(FGY_C), re = (2 + (int32_t)cx->k[2] * 8 / 99) * 4 * 256, i, k, rg = pl_clamp(70 + cx->level / 2 + s->surge, 0, 255);

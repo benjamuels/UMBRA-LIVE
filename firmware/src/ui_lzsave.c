@@ -28,24 +28,23 @@ static void graph_lib(void)
 {
     uint32_t i, j;
     {                                                   /* (UMBRA LIVE) under the four projects, where projects 5..8 were:
-                                                         * the plate bank that took their flash, a cell a slot (four rows of
-                                                         * eight): the plate there by its name's first four letters, the one
-                                                         * drawn now framed; an empty slot its number, dim */
+                                                         * the plate bank that took their flash, a cell a slot (two rows of
+                                                         * eight): its number, the plate there by its name's first four
+                                                         * letters, the one drawn now framed; an empty slot dim */
         cv_text(4, 72, &AF_X, "PLATE BANK", T_THEME);
         cv_text(232 - text_w(&AF_X, "WAS PROJECTS 5-8"), 72, &AF_X, "WAS PROJECTS 5-8", T_DIM);
-        for (i = 0; i < 32u; i++) {
-            int32_t x = 4 + (int32_t)(i % 8u) * 29, y = 83 + (int32_t)(i / 8u) * 16;
+        for (i = 0; i < 16u; i++) {
+            int32_t x = 4 + (int32_t)(i % 8u) * 29, y = 84 + (int32_t)(i / 8u) * 26;
             int cur;
             const char *nm = umb_bank(i, &cur);
             uint16_t bg = nm[0] ? (cur ? T_TINT : T_RAISE) : T_BG;
             char b[4];
-            cv_rect(x, y, 27, 14, bg);
-            cv_frame(x, y, 27, 14, cur ? T_THEME : nm[0] ? T_RAISE : ux_mix(T_BG, T_RAISE, 50));
+            cv_rect(x, y, 27, 24, bg);
+            cv_frame(x, y, 27, 24, cur ? T_THEME : nm[0] ? T_RAISE : ux_mix(T_BG, T_RAISE, 50));
             fmt_int(b, (int32_t)i + 1);
+            cv_text_on(x + 2, y + 2, &AF_X, b, nm[0] ? T_MID : T_DIM, bg);
             if (nm[0])
-                cv_clip_text(x + 2, y + 4, &AF_X, nm, T_TEXT, bg, 24);
-            else
-                cv_text_on(x + 2, y + 4, &AF_X, b, T_DIM, bg);
+                cv_clip_text(x + 2, y + 13, &AF_X, nm, T_TEXT, bg, 24);
         }
     }
     for (i = 0; i < NSONG_USE; i++) {

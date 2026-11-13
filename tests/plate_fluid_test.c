@@ -64,6 +64,6 @@ int main(void) {
         }
         printf("%-7s state %5u B  ok\n", p->name, p->state);
     }
-    printf("largest state %d B; all sixteen %d B\n", big, tot);
+    printf("largest state %d B; all of them %d B\n", big, tot);
     return 0;
 }

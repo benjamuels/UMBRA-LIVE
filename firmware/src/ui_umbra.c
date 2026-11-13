@@ -3,23 +3,20 @@
 /* UMBRA LIVE: HOME's plates in place of the ecosystem. Included by ui_lzhome.c before eco_draw.
  *
  * A plate is a picture played by the notes (voice.c trk_note_on's umb_q: keys, sequencer, arp, MIDI; a note let go:
- * velocity 0). One is the ground; up to three more lie over it as layers, their light added (umb_scene). Twenty-eight:
- * CORONA built in, the rest with an install:
+ * velocity 0). One is the ground; up to three more lie over it as layers, their light added (umb_scene): the VEILS,
+ * plates light enough to lie over another (umb_plate_t.kind UMB_KIND_OVERLAY), and BODIES, UMBRA's figures. A ground lies
+ * only on MAIN, a veil only on a layer (the user, 2026-11-13). Seventeen: CORONA built in, sixteen with an install
+ * (tools/build.py BANK_PLATES), eight grounds and eight veils:
  *   CINDER   cold embers: a heat field that rises and cools under a crust of cracks        (plates/cinder.c)
- *   SAROS    the melody as string art on the circle of fifths                              (plates/saros.c)
- *   FILAMENT a taut string a track, plucked and bowed                                      (plates/filament.c)
  *   GRANULE  the sun's surface: a honeycomb of granules, a note lights its own             (plates/granule.c)
  *   CORONA   the eclipse: the moon's disc, the corona's streamers fed by the notes         (ui_umbra_field.c: built in)
  *   TARN     the eclipse reflected in dark water, a note a drop                            (plates/tarn.c)
- *   BEACON ZODIAC SONAR MOTHS MARSH PACHINKO   line art from UMBRA OBSCURA, the game: light enough to lie on a layer
- *                                                                                          (plates/ *.c)
- *   SEPIA GYRE WAX RIVULET FATHOM AURORA BLOT RAPIDS   the fluid plates: ink in water, a whirlpool, a lamp of wax, rain
- *            on glass, the sea from the side, the northern lights, ink in wet paper, a stream; grounds, stepped 12 .. 25
- *            times a second and still between steps                                        (plates/fluid.inc)
- *   KOI BOATS FIZZ BOKEH MEDUSA RIDGE QUILL MURMUR     the layer made to lie over each of those, in that order: fish,
- *            paper boats, bubbles, a city's lights out of focus, jellyfish, hills under falling stars, a pen writing,
- *            a flock of birds                                                              (plates/fluid.inc)
- * SAROS and FILAMENT lie on a layer too. Built to the FM-1's limits: a byte field or none, a table read and a palette
+ *   SEPIA GYRE AURORA FATHOM RAPIDS   fluid plates: ink in water, a whirlpool, the northern lights, the sea from the
+ *            side, a stream; stepped 12 .. 25 times a second and still between steps        (plates/fluid.inc)
+ *   veils: BEACON ZODIAC SONAR MOTHS MARSH PACHINKO   line art from UMBRA OBSCURA, the game          (plates/ *.c)
+ *          KOI MEDUSA   fish seen from above, jellyfish: made for SEPIA and FATHOM          (plates/fluid.inc)
+ * (SAROS, FILAMENT, WAX, RIVULET, BLOT, BOATS, FIZZ, BOKEH, RIDGE, QUILL and MURMUR are plate files no install brings
+ * since then: the plates page can still send one.) Built to the FM-1's limits: a byte field or none, a table read and a palette
  * read a pixel, no lighting pass, fades in steps, still between notes, so the blit (gfx.c cv_blit_cells) sends little.
  * Every plate declares its elements (umb_plate.h): LIVE VIZ CTRLS (ui_umbra_mac.c) sets each one, chooses the tracks
  * whose notes drive it and links knobs, taps and the sound's own movement to it. TOTALITY (ui_umbra_tot.c), a HOME tap
@@ -284,13 +281,11 @@ static const uint8_t UMB_LANE_POS[NLANE] = {3, 5, 6, 2, 1, 4, 7, 0};   /* KICK i
 #define UMB_RESIDENT (FELUCCA_WEB || !FELUCCA_FLASH)
 #endif
 #ifndef UMB_NSLOT
-#define UMB_NSLOT 32u                                   /* the bank's slots (umb_slot.c) */
+#define UMB_NSLOT 16u                                   /* the bank's slots (umb_slot.c) */
 #endif
 static uint8_t ups_gen;                                 /* the bank changed (umb_slot.c: a slot written or erased) */
 #if UMB_RESIDENT
 #include "plates/cinder.c"
-#include "plates/saros.c"
-#include "plates/filament.c"
 #include "plates/granule.c"
 #include "plates/tarn.c"
 #include "plates/beacon.c"
@@ -299,10 +294,11 @@ static uint8_t ups_gen;                                 /* the bank changed (umb
 #include "plates/moths.c"
 #include "plates/marsh.c"
 #include "plates/pachinko.c"
-#include "plates/fluid.inc"                           /* the fluid plates and what lies over them (UMB_RES_FLUID) */
-static const umb_plate_t *const UMB_RES[] = {&umb_plate_cinder, &umb_plate_saros, &umb_plate_filament, &umb_plate_granule,
-                                             &umb_plate_tarn, &umb_plate_beacon, &umb_plate_zodiac, &umb_plate_sonar,
-                                             &umb_plate_moths, &umb_plate_marsh, &umb_plate_pachinko, UMB_RES_FLUID};
+#include "plates/fluid.inc"                           /* the fluid grounds and the two veils made for them */
+static const umb_plate_t *const UMB_RES[] = {&umb_plate_cinder, &umb_plate_granule, &umb_plate_tarn, &umb_plate_sepia,
+                                             &umb_plate_gyre, &umb_plate_aurora, &umb_plate_fathom, &umb_plate_rapids,
+                                             &umb_plate_beacon, &umb_plate_zodiac, &umb_plate_sonar, &umb_plate_moths,
+                                             &umb_plate_marsh, &umb_plate_pachinko, &umb_plate_koi, &umb_plate_medusa};
 static const umb_plate_t *ups_plate(uint32_t i) { return i < sizeof UMB_RES / sizeof UMB_RES[0] ? UMB_RES[i] : 0; }
 #else
 static const umb_plate_t *ups_plate(uint32_t i);       /* umb_slot.c: slot i's plate file, if one is to run */
@@ -360,8 +356,8 @@ static const char *umb_bank(uint32_t i, int *cur)
 /* ---------------------------------------------------------------------------- LIVE VIZ CTRLS' store (umc) --- */
 /* What LIVE VIZ CTRLS sets (ui_umbra_mac.c), kept in flash on its own (storage.c OBJ_UMBCTL, 0xDA000 / 0xDB000; saved once
  * the knobs rest, umv_poll): a record a page, found by its name's key, so a plate keeps its own wherever it lies in the
- * bank. A page is a plate, or one of four that are not: BODIES and BEINGS (the engines' figures and JIANT's beings, on
- * a layer), SCREEN (LIGHT SPEED REACT MOVE TRAVEL DISSLV: every plate's) and EFFECTS (MIRROR MOSAIC GLITCH SOLAR
+ * bank. A page is a plate, or one of four that are not: BODIES (UMBRA's figures, a veil: on a layer; JIANT's beings
+ * are no page since 2026-11-13), SCREEN (LIGHT SPEED REACT MOVE TRAVEL DISSLV: every plate's) and EFFECTS (MIRROR MOSAIC GLITCH SOLAR
  * INVERT). A record holds each of the page's elements (a plate's controls, umb_plate_t.ctl): its value, the tracks
  * whose notes drive it (0: the plate's own choice), and UMC_NL links, each a source, the element it moves and how far
  * (-99 .. 99 of the element's range with the source at full). An element's value now is its own and its links' moves
@@ -400,10 +396,10 @@ static int umc_flash(void *p, uint32_t n, int save);    /* (project.c, after sto
 static uint8_t umc_gen;                                 /* the layers changed */
 /* the pages that are no plate: their numbers past the plates', their names, their elements */
 /* BUTTONS (the user, 2026-11-13): what SEL, ENV, ARP, LFO and EDIT do in TOTALITY, each one of UMX_BF: a tap shows or
- * hides that layer (MAIN the ground, OVER LAYER 1, LAYER 3 the figures' and BEINGS'), held the next plate there; TAP: a tap
+ * hides that layer (MAIN the ground, OVER LAYER 1, LAYER 3), held with ALGORITHM turned the next plate there; TAP: a tap
  * fires its source for the links (SEL TAP .. EDIT TAP), held its layer as ever (ui_umbra_tot.c umt_btns) */
-enum { UMX_BODY = UMB_NPLT, UMX_BEING, UMX_SCREEN, UMX_FX, UMX_BTN, UMX_N };
-static const char *const UMX_PN[5] = {"BODIES", "BEINGS", "SCREEN", "EFFECTS", "BUTTONS"};
+enum { UMX_BODY = UMB_NPLT, UMX_SCREEN, UMX_FX, UMX_BTN, UMX_N };
+static const char *const UMX_PN[4] = {"BODIES", "SCREEN", "EFFECTS", "BUTTONS"};
 static const umb_ctl_t UMX_C[4][6] = {{{"LIGHT", 99}, {"SIZE", 50}, {"TRACK", 0}},
                                       {{"LIGHT", 99}, {"SPEED", 50}, {"REACT", 50}, {"MOVE", 1}, {"TRAVEL", 50}, {"DISSLV", 50}},
                                       {{"MIRROR", 0}, {"MOSAIC", 0}, {"GLITCH", 0}, {"SOLAR", 0}, {"INVERT", 0}},
@@ -426,7 +422,7 @@ static int umx_desc(uint32_t pl, umx_desc_t *d)
     if (pl >= UMX_N)
         return 0;
     if (pl >= UMX_BODY) {
-        k = pl <= UMX_BEING ? 0u : pl - UMX_BEING;
+        k = pl - UMX_BODY;
         d->name = UMX_PN[pl - UMX_BODY];
         d->ctl = UMX_C[k];
         d->nctl = UMX_NC[k];
@@ -446,7 +442,7 @@ static int umx_desc(uint32_t pl, umx_desc_t *d)
 }
 static uint32_t umx_max(uint32_t pl, uint32_t j)       /* page pl's element j's most (MOVE's and MIRROR's four, a track) */
 {
-    return (pl == UMX_SCREEN && j == G_MOVE) || (pl == UMX_FX && !j) || pl == UMX_BTN ? 3u : pl >= UMX_BODY && pl <= UMX_BEING && j == 2u ? NTRK : 99u;
+    return (pl == UMX_SCREEN && j == G_MOVE) || (pl == UMX_FX && !j) || pl == UMX_BTN ? 3u : pl == UMX_BODY && j == 2u ? NTRK : 99u;
 }
 static uint32_t umx_key(const char *n)                 /* a name's key (never 0) */
 {
@@ -478,7 +474,7 @@ static void umc_load(void)                             /* the store read, once (
     }
     umc_gen++;
 }
-/* the record of the page called name (kind: 0 a plate, its first nctl elements KNOB 1..3's; 1 BODIES / BEINGS; 2 SCREEN;
+/* the record of the page called name (kind: 0 a plate, its first nctl elements KNOB 1..3's; 1 BODIES; 2 SCREEN;
  * 3 EFFECTS), made the first time it is asked for: its links at first (KNOB 1..3 a plate's first three elements, KNOB 4
  * LIGHT down to dark; LFO TAP INVERT, the strobe, ENV TAP GLITCH, EDIT TAP MOSAIC: the user, 2026-11-13) */
 static umc_rec_t *umc_rec(const char *name, uint32_t kind, uint32_t nctl)
@@ -545,7 +541,7 @@ static umc_rec_t *umx_recf(uint32_t pl, int w)         /* page pl's record now, 
 {
     umx_desc_t d;
     (void)umx_desc(pl, &d);
-    return umc_pre(umc_rec(d.name, pl < UMX_BODY ? 0u : pl <= UMX_BEING ? 1u : pl - UMX_BEING + 1u, d.nctl),
+    return umc_pre(umc_rec(d.name, pl < UMX_BODY ? 0u : pl - UMX_BODY + 1u, d.nctl),
                    pl < UMB_NPLT ? umb_mod(pl) : 0, w);
 }
 #define umx_rec(pl) umx_recf(pl, 0)
@@ -623,7 +619,7 @@ static void umx_place_set(uint32_t pl, uint32_t w)
 static uint32_t umx_pre(uint32_t pl)
 {
     umx_desc_t d;
-    return umx_desc(pl, &d) ? umc_rec(d.name, pl < UMX_BODY ? 0u : pl <= UMX_BEING ? 1u : pl - UMX_BEING + 1u, d.nctl)->cur : 0u;
+    return umx_desc(pl, &d) ? umc_rec(d.name, pl < UMX_BODY ? 0u : pl - UMX_BODY + 1u, d.nctl)->cur : 0u;
 }
 static void umx_pre_set(uint32_t pl, uint32_t v)
 {
@@ -631,7 +627,7 @@ static void umx_pre_set(uint32_t pl, uint32_t v)
     umc_rec_t *b;
     if (!umx_desc(pl, &d))
         return;
-    b = umc_rec(d.name, pl < UMX_BODY ? 0u : pl <= UMX_BEING ? 1u : pl - UMX_BEING + 1u, d.nctl);
+    b = umc_rec(d.name, pl < UMX_BODY ? 0u : pl - UMX_BODY + 1u, d.nctl);
     if (b->cur != v % UMC_NPRE) {
         b->cur = (uint8_t)(v % UMC_NPRE);
         umc_touch();
@@ -685,17 +681,17 @@ static void umv_apply(uint32_t r)
     }
 }
 /* a cell turned s: as before it (--), OFF, then every page that can lie there (the ground: a plate that fills the screen;
- * the layer: a plate that adds its light, BODIES, BEINGS) */
+ * the layer: a veil) */
 static void umv_turn(umc_cell_t *c, uint32_t tk, int32_t s)
 {
     umx_desc_t d;
     int32_t pl = !c->key ? -2 : c->key == UMC_OFF ? -1 : (int32_t)umx_find(c->key);
-    if (pl > (int32_t)UMX_BEING)
+    if (pl > (int32_t)UMX_BODY)
         pl = -2;
     do
         pl += s > 0 ? 1 : -1;
-    while (pl >= 0 && pl <= (int32_t)UMX_BEING && !(umx_desc((uint32_t)pl, &d) && umx_can((uint32_t)pl, 1u + tk)));
-    if (pl < -2 || pl > (int32_t)UMX_BEING)
+    while (pl >= 0 && pl <= (int32_t)UMX_BODY && !(umx_desc((uint32_t)pl, &d) && umx_can((uint32_t)pl, 1u + tk)));
+    if (pl < -2 || pl > (int32_t)UMX_BODY)
         return;
     c->key = (uint16_t)(pl == -2 ? 0u : pl == -1 ? UMC_OFF : umx_key(d.name));
     c->pre = 0;
@@ -726,7 +722,7 @@ static uint32_t umx_find(uint32_t key)                 /* the page whose name's 
 {
     umx_desc_t d;
     uint32_t pl;
-    for (pl = 0; key && pl <= UMX_BEING; pl++)
+    for (pl = 0; key && pl <= UMX_BODY; pl++)
         if (umx_desc(pl, &d) && umx_key(d.name) == key)
             return pl;
     return UMB_NONE;
@@ -739,10 +735,12 @@ static void umx_layers(void)
     if (gen == (uint8_t)(ups_gen * 16u + umc_gen))
         return;
     gen = (uint8_t)(ups_gen * 16u + umc_gen);
-    for (i = 0; i < 3u; i++)
-        umx_lp[i] = (uint8_t)umx_find(umc.lay[i]);
+    for (i = 0; i < 3u; i++) {                          /* (a page that may not lie there, from an older store: none) */
+        uint32_t pl = umx_find(umc.lay[i]);
+        umx_lp[i] = (uint8_t)(umx_can(pl, 2u + i) ? pl : UMB_NONE);
+    }
 }
-_Static_assert(UMX_BEING < UMB_NONE, "a layer's page: a byte, UMB_NONE none");
+_Static_assert(UMX_BODY < UMB_NONE, "a layer's page: a byte, UMB_NONE none");
 
 /* ------------------------------------------------------------------------------------------- the layers --- */
 #define UMB_VGN 150u                                    /* a strip's rows at most (gfx.c CV_MAX / 240) */
@@ -837,8 +835,8 @@ static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0
 }
 /* the canvas as the screen's x0, y0 .. : the ground's plate (none: black), then LAYER 1..3's plates' light added over it,
  * as much as la says (TOTALITY's SEL ENV ARP: hidden, they keep their state). A layer's state lies under the one before it from the
- * block's end; one that does not fit beside the ground's waits, and starts afresh when it does. (BODIES and BEINGS on a
- * layer are figures, not plates: TOTALITY draws them, ui_umbra_tot.c) */
+ * block's end; one that does not fit beside the ground's waits, and starts afresh when it does. (BODIES on a
+ * layer is figures, not a plate: TOTALITY draws them, ui_umbra_tot.c) */
 static int32_t umb_prep(void)                          /* before a frame's plates: the tables, the clock, the layers; LIGHT (Q8) */
 {
     umb_tabs();                                         /* (the noise, once) */

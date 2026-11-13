@@ -103,7 +103,7 @@ PL_SMALL static void plb_frame(void *st, const umb_lctx_t *cx, const umb_api_t *
     m->flare = pl_dec(m->flare, (int32_t)cx->dt * 164);   /* (0.4 s) */
     m->lamp = pl_dec(m->lamp, (int32_t)cx->dt * 262);     /* (0.25 s) */
 }
-PL_SMALL static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
+static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
 {
     const plb_t *m = st;
     int32_t tw = 96 * cx->k[6] / 50, sea = cx->k[7], c = pl_sine(a, m->ang + 0x40000000u), ac = pl_abs(c), dir = c < 0 ? -1 : 1,

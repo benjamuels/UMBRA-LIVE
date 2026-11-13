@@ -11406,9 +11406,9 @@ static int test_skin(void)
         ok &= umt.on && umb_bare() && !led_of(fm1_led, panel.btn[B_HOME]) && !led_of(fm1_led, panel.btn[B_FX]) && !dim;
         pl = umb_pl();
         turn(EN_PRESET, 1);                                        /* (2026-11-13: PRESETS the MAIN plate, SELECT OVER's) */
-        ok &= umb_pl() == (pl + 1u) % UMP_NPL && umt.on;
+        ok &= umb_pl() == 3u && umt.on;                           /* (the next ground, GRANULE: SAROS, FILAMENT not there) */
         turn(EN_PRESET, -1); turn(EN_PRESET, -1);
-        ok &= umb_pl() == UMP_NPL + 26u;                           /* (round: the bank's last, MURMUR) */
+        ok &= umb_pl() == UMP_NPL + 7u;                            /* (round: the bank's last ground, RAPIDS; no veil) */
         turn(EN_PRESET, 1);
         turn(EN_SELECT, 1);                                        /* (OVER: a plate on LAYER 1, MAIN as it was; back: OFF) */
         ok &= umb_pl() == pl && umc.lay[0] && umt.on;
@@ -11446,7 +11446,8 @@ static int test_skin(void)
     }
     {   /* (UMBRA LIVE, the user 2026-11-13) TOTALITY's SEL ENV ARP (LIVE VIZ CTRLS' BUTTONS, at first LAYER 3, OVER, MAIN):
          * tapped, the layer hidden or back over half a second, lit while it shows something (LAYER 3 empty: BODIES laid on
-         * it); held, the next plate there; LFO's tap its link, INVERT (the strobe); kept on leaving */
+         * it); held with ALGORITHM turned, the next plate there (a veil), no tap; LFO's tap its link, INVERT (the strobe);
+         * kept on leaving */
         uint32_t a;
         ui_power_on(); frame();
         memset(&umc, 0, sizeof umc);
@@ -11474,10 +11475,14 @@ static int test_skin(void)
         frames(400);
         ok &= !umt.ba[2] && umt.ba[0] == 256u;
         press(B_SCL); frames(600);
-        hold(B_SCL); frames(32);                                   /* (held: the next on LAYER 3, a plate; shown) */
-        ok &= umt.on && !umt.lh && umx_place(UMX_BODY) != 4u && umc.lay[2];
-        hold(B_ENV); frames(32); ui_leds();                        /* (ENV held: a plate on OVER, ENV lit; no page) */
-        ok &= umt.on && ui.home && umc.lay[0] && led_of(fm1_led, panel.btn[B_ENV]);
+        btn_down(B_SCL); frames(48); turn(EN_ALGO, 1); frames(48); btn_up(B_SCL); frames(32);   /* (held, ALGORITHM: the next
+                                                                    * on LAYER 3, a veil; shown; let go: no tap) */
+        ok &= umt.on && !umt.lh && umx_place(UMX_BODY) != 4u && umc.lay[2] && umx_veil(umx_find(umc.lay[2]));
+        btn_down(B_ENV); frames(48); turn(EN_ALGO, 1); frames(48); btn_up(B_ENV); frames(32); ui_leds();   /* (ENV: a veil on
+                                                                    * OVER, ENV lit; no page) */
+        ok &= umt.on && ui.home && umc.lay[0] && umx_veil(umx_find(umc.lay[0])) && !umt.lh && led_of(fm1_led, panel.btn[B_ENV]);
+        hold(B_ENV); frames(32);                                   /* (held long, nothing turned: no tap either) */
+        ok &= umt.on && !umt.lh;
         press(B_ENV); frames(32); ui_leds();
         ok &= umt.on && umt.lh == 2u && !led_of(fm1_led, panel.btn[B_ENV]);
         press(B_ENV); press(B_ARP); frames(32); ui_leds();         /* (ARP: the ground hidden, ARP dark; no page) */
@@ -11585,28 +11590,28 @@ static int test_skin(void)
             turn(EN_ALGO, -1);
         }
         ok &= song.sel == s0;
-        press(B_OCTUP); frame();                                   /* SETUP: the track's first free slot, a question at a time */
-        ok &= umz == 1u && uma_slot == 1u;
-        press(B_OCTUP); frame(); turn(EN_K4, 2);                   /* (any knob the answer: the SOURCE, M2) */
-        ok &= umz == 2u && trk[s0].p[P_M1SRC + 3] == MS_M1 + 1;
-        press(B_OCTDN); frame();
-        ok &= umz == 1u;
-        press(B_OCTDN); frame();
-        ok &= !umz;
+        press(B_OCTUP); frame();                                   /* (OCT+: the track's first free slot, from KNOB 1, chosen) */
+        ok &= uma_slot == 1u && trk[s0].p[P_M1SRC + 3] == MS_M1 && msg_is("SLOT ADDED");
+        press(B_OCTDN); frame();                                   /* (OCT-: the chosen slot emptied, the first kept) */
+        ok &= uma_slot == 1u && !trk[s0].p[P_M1SRC + 3] && trk[s0].p[P_M1SRC] == MS_M1 && msg_is("SLOT REMOVED");
         nav_go(SEC_HOME, 2, 0); frame();                           /* LIVE VIZ CTRLS */
         umx_pg = 0xFFu; umx_el = umx_ct = 0;
         ok &= umx_cur() == 0u;                                     /* (the ground's plate, CINDER: its name's row) */
-        turn(EN_ALGO, 1);                                          /* (ALGORITHM: the next page, SAROS; lying nowhere, it is the
-                                                                    * ground now (2026-11-13); the track kept) */
-        ok &= umx_pg == 1u && umb_pl() == 1u && !umx_place(0u) && song.sel == s0;
-        turn(EN_K4, 1);                                            /* (SAROS, from the ground: LAYER 1) */
-        ok &= umx_place(1u) == 2u && umb_pl() == UMB_NONE;
-        turn(EN_K4, -1);                                           /* (.. the ground again) */
-        ok &= umx_place(1u) == 1u && umb_pl() == 1u && !umx_place(0u);
-        turn(EN_K4, 1);
-        turn(EN_ALGO, -1); turn(EN_K4, 1);                         /* (CINDER the ground; it fills its strip: never a layer) */
-        ok &= umb_pl() == 0u && umx_place(1u) == 2u;
-        turn(EN_K4, 1); turn(EN_K4, 1);
+        turn(EN_ALGO, 1);                                          /* (ALGORITHM: the next page, GRANULE; a ground lying nowhere,
+                                                                    * it is the ground now (2026-11-13); the track kept) */
+        ok &= umx_pg == 3u && umb_pl() == 3u && !umx_place(0u) && song.sel == s0;
+        umx_pg = (uint8_t)(UMP_NPL + 7u);                          /* (RAPIDS, the last ground; then BEACON, a veil: on OVER) */
+        turn(EN_ALGO, 1);
+        ok &= umx_pg == UMP_NPL + 8u && umx_place(UMP_NPL + 8u) == 2u && umb_pl() == 3u;
+        {
+            char b[4][12];
+            turn(EN_K4, 1);                                        /* (no WHERE: KNOB 4 there moves nothing; its KIND shown) */
+            umx_names(b);
+            ok &= umx_place(UMP_NPL + 8u) == 2u && str_eq(b[3], "VEIL") && !umx_can(UMP_NPL + 8u, 1u) && !umx_can(0u, 2u);
+        }
+        umx_place_set(UMP_NPL + 8u, 0u);
+        umx_pg = 0u; umx_el = umx_ct = 0;
+        umx_place_set(0u, 1u);
         ok &= umx_place(0u) == 1u;
         turn(EN_K1, 4);                                            /* (its fourth element, COAL: the notes drive it) */
         ok &= umx_el == 4u && !umx_ct;
@@ -11618,7 +11623,10 @@ static int test_skin(void)
         ok &= umx_rec(0u)->ls[3] == (UMQ_HIT | 3u << 5) && umx_rec(0u)->ld[3] == 50 && umx_ct == 2u;
         turn(EN_K3, -(int32_t)UMQ_HIT);                            /* (its source OFF: the link gone) */
         ok &= !umx_rec(0u)->ls[3] && umx_ct == 2u;
-        umx_place_set(1u, 0u);
+        press(B_OCTUP); frame();                                   /* (OCT+: a new link on COAL, from KNOB 1 at half, chosen) */
+        ok &= umx_rec(0u)->ls[3] == (UMQ_M1 | 3u << 5) && umx_rec(0u)->ld[3] == 50 && umx_ct == 2u && msg_is("LINK ADDED");
+        press(B_OCTDN); frame();                                   /* (OCT-: the chosen link gone) */
+        ok &= !umx_rec(0u)->ls[3] && msg_is("LINK REMOVED");
         {                                                          /* (T1's hits to SPEED, 0 .. 99) */
             umc_rec_t *sc = umx_rec(UMX_SCREEN);
             umg_put(G_SPEED, 0);
@@ -11644,12 +11652,12 @@ static int test_skin(void)
         ok &= umq_o[G_TRAVEL] == 99u;                              /* (0 + 98 + 50, at most 99) */
         trk[0].p[P_MS0] = 0; frame(); frame();
         ok &= umq_o[G_TRAVEL] == 0u;
-        if (!ok) printf("  ctrls: slot %u page %u row %u ctl %u setup %u speed %u travel %u\n", uma_slot, umx_pg, umx_el, umx_ct, umz, umq_o[G_SPEED], umq_o[G_TRAVEL]);
+        if (!ok) printf("  ctrls: slot %u page %u row %u ctl %u speed %u travel %u\n", uma_slot, umx_pg, umx_el, umx_ct, umq_o[G_SPEED], umq_o[G_TRAVEL]);
         memset(&umc, 0, sizeof umc);
         memset(&umc, 0, sizeof umc);
         for (k = 0; k < NTRK; k++) memset(&trk[k].p[P_M1SRC], 0, 12u * sizeof trk[k].p[0]);
         trk[0].p[P_MSLEN] = 16;
-        bad += check("(UMBRA LIVE) LIVE CTRLS: TOTALITY's knobs M1..M4, LFO TAP; VIZ at first the plate as set; AUDIO SLOT, SOURCE, DEST, AMOUNT, ALGORITHM the track, SETUP by OCT+; VIZ ROUTE, ALGORITHM the plate, hits and steps, routes adding", ok);
+        bad += check("(UMBRA LIVE) LIVE CTRLS: TOTALITY's knobs M1..M4, LFO TAP; VIZ at first the plate as set; AUDIO SLOT, SOURCE, DEST, AMOUNT, ALGORITHM the track, OCT+ / OCT- a slot; VIZ ROUTE, ALGORITHM the plate (a ground MAIN, a veil OVER), OCT+ / OCT- a link, hits and steps, routes adding", ok);
     }
     {   /* (UMBRA LIVE) NOTE MOVEMENT (its page, HOME > ECO > NOTES, gone: set here as it set it): STATIC MOVE DRIFT RANDOM (MOVE at first);
          * STATIC: no offset, a plate's places as ever; MOVE: a note a step along the track's own path (each track its own);
@@ -11736,9 +11744,9 @@ static int test_skin(void)
         ok = dc_key(120u, 120u) < 64u && dc_key(2u, 2u) >= 188u && dc_gate == 256u;
         nav_go(SEC_HOME, 2, 0); frame(); press(B_HOME); frames(4);   /* (TOTALITY: TARN, from MACROS - VISUALS) */
         for (y = 0; y < 16u; y++) for (x = 0; x < 16u; x++) corner[y * 16u + x] = host_screen[y * 240u + x];
-        turn(EN_PRESET, 1);                                        /* (BEACON, the bank's next, dissolving in: a second at 50;
-                                                                    * 2026-11-13: PRESETS, the MAIN plate's) */
-        ok &= umt.on && umb_pl() == UMP_NPL + 5u && umt.fms;
+        turn(EN_PRESET, 1);                                        /* (SEPIA, the bank's next ground, dissolving in: a second at
+                                                                    * 50; 2026-11-13: PRESETS, the MAIN plate's) */
+        ok &= umt.on && umb_pl() == UMP_NPL + 3u && umt.fms;
         fm1_ms += 150; frame();
         for (y = 0; y < 16u; y++) for (x = 0; x < 16u; x++) same &= corner[y * 16u + x] == host_screen[y * 240u + x];
         ok &= same && umt.fms && dc_gate == 256u;
@@ -11746,7 +11754,7 @@ static int test_skin(void)
         ok &= !umt.fms;
         sel0 = song.sel;                                           /* (2026-11-13: entered from LIVE VIZ CTRLS, ALGORITHM */
         turn(EN_ALGO, trk_live > 1u && sel0 + 1u < trk_live ? 1 : -1);   /* still the track, its number shown again) */
-        ok &= umt.on && umb_pl() == UMP_NPL + 5u && (trk_live < 2u || song.sel != sel0) && umt.tms == fm1_ms;
+        ok &= umt.on && umb_pl() == UMP_NPL + 3u && (trk_live < 2u || song.sel != sel0) && umt.tms == fm1_ms;
         track_select(sel0);
         press(B_HOME); frame();
         memset(&umc, 0, sizeof umc);
@@ -11792,9 +11800,9 @@ static int test_skin(void)
         nav_go(SEC_HOME, 0, 0); frame();
         ok &= ui.hset[0] == 1u;                                    /* (WELCOME asked for: not there, the next) */
         press(B_OCTUP); frame();
-        ok &= song.octave == 0 && umz == 1u;                       /* (LIVE AUDIO CTRLS: OCT+ its SETUP, OCT- out) */
+        ok &= song.octave == 0 && msg_is("SLOT ADDED");            /* (LIVE AUDIO CTRLS: OCT+ a slot, OCT- it gone) */
         press(B_OCTDN); frame();
-        ok &= !umz;
+        ok &= song.octave == 0 && msg_is("SLOT REMOVED");
         nav_go(SEC_HOME, HOME_E_BEING, 0); frame(); press(B_OCTUP); frame();
         ok &= song.octave == 1;                                    /* (BEING: OCT the octave again) */
         press(B_OCTDN); frame();
@@ -11844,15 +11852,16 @@ static int test_skin(void)
     {   /* (UMBRA LIVE) the plates as modules (umb_plate.h, plates/*.c, all built in here): the six by name and number;
          * a known plate's settings kept as before; another number than the six (the bank's, none here): CORONA drawn */
         ui_power_on(); frame();
-        ok = umb_has(0u) && umb_has(1u) && umb_has(2u) && umb_has(3u) && umb_has(4u) && umb_has(5u) && !umb_has(UMP_NPL) &&
+        ok = umb_has(0u) && !umb_has(1u) && !umb_has(2u) && umb_has(3u) && umb_has(4u) && umb_has(5u) && !umb_has(UMP_NPL) &&
              umb_mod(4u) == &umb_plate_corona && umb_mod(0u) == &umb_plate_cinder && umb_mod(5u) == &umb_plate_tarn &&
-             str_eq(umb_pname(3u), "GRANULE") && str_eq(umb_mod(1u)->ctl[0].name, "SPIN") && umb_plate_cinder.api == UMB_API &&
-             umb_has(UMP_NPL + 5u) && str_eq(umb_pname(UMP_NPL + 5u), "BEACON") && umb_has(UMP_NPL + 10u) &&   /* (the six line-art ones) */
-             str_eq(umb_pname(UMP_NPL + 10u), "PACHINKO") &&
-             umb_has(UMP_NPL + 11u) && str_eq(umb_pname(UMP_NPL + 11u), "SEPIA") && umb_mod(UMP_NPL + 18u)->kind == UMB_KIND_FIELD &&   /* (the
-                                                                     * eight fluid grounds, the layer made for each) */
-             umb_mod(UMP_NPL + 19u)->kind == UMB_KIND_OVERLAY && str_eq(umb_pname(UMP_NPL + 19u), "KOI") && umb_has(UMP_NPL + 26u) &&
-             str_eq(umb_pname(UMP_NPL + 26u), "MURMUR") && !umb_has(UMP_NPL + 27u);
+             str_eq(umb_pname(3u), "GRANULE") && str_eq(umb_mod(3u)->ctl[0].name, "BOIL") && umb_plate_cinder.api == UMB_API &&
+             umb_has(UMP_NPL + 3u) && str_eq(umb_pname(UMP_NPL + 3u), "SEPIA") && umb_mod(UMP_NPL + 7u)->kind == UMB_KIND_FIELD &&
+             str_eq(umb_pname(UMP_NPL + 7u), "RAPIDS") && umb_mod(UMP_NPL + 8u)->kind == UMB_KIND_OVERLAY &&   /* (2026-11-13:
+                                                                     * sixteen, eight grounds then eight veils; SAROS and
+                                                                     * FILAMENT no install's) */
+             str_eq(umb_pname(UMP_NPL + 8u), "BEACON") && str_eq(umb_pname(UMP_NPL + 13u), "PACHINKO") &&
+             str_eq(umb_pname(UMP_NPL + 14u), "KOI") && str_eq(umb_pname(UMP_NPL + 15u), "MEDUSA") && !umb_has(UMP_NPL + 16u) &&
+             umx_veil(UMP_NPL + 15u) && umx_veil(UMX_BODY) && !umx_veil(4u) && !umx_veil(UMP_NPL + 3u);
         umb_plate = (uint8_t)(0x80u | UMP_NPL);                    /* (a slot's plate, none here) */
         ok &= umb_pl() == 4u;
         umb_plate = 0x80u;
@@ -11860,32 +11869,31 @@ static int test_skin(void)
         bad += check("(UMBRA LIVE) plate modules: the six by name and number, built in; a plate not there: CORONA", ok);
     }
     {   /* (UMBRA LIVE, the user 2026-11-12) the layers: up to three plates over the ground, each in its own part of the
-         * block from its end down, none inside the ground's; one that does not fit beside a large ground waits; BEINGS on a
-         * layer is a figure. An element's tracks: CORONA's PULSE given track 2, a note of track 2's flares the chromosphere */
+         * block from its end down, none inside the ground's; one that does not fit beside a large ground waits; LAYER 2
+         * (an older store's) and a ground on a layer are let be. An element's tracks: CORONA's PULSE given track 2, a note of track 2's flares the chromosphere */
         ui_power_on(); frame();
         memset(&umc, 0, sizeof umc);
         memset(macro_v, 0, sizeof macro_v);
         umt.lh = 0;
         umb_plate = 0x84u;                                         /* (CORONA) */
-        umx_place_set(1u, 2u);                                     /* (SAROS on LAYER 1, ZODIAC on 2, BEINGS on 3) */
-        umx_place_set(UMP_NPL + 6u, 3u);
-        umx_place_set(UMX_BEING, 4u);
+        umx_place_set(UMP_NPL + 10u, 2u);                          /* (SONAR on LAYER 1, ZODIAC on 3; GRANULE on 2: not there) */
+        umx_place_set(UMP_NPL + 9u, 4u);
+        umc.lay[1] = (uint16_t)umx_key("GRANULE");
         nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(700);
-        ok = umt.on && umb_lay[0].pp == &umb_plate_corona && umb_lay[1].pp == &umb_plate_saros && umb_lay[2].pp == &umb_plate_zodiac &&
-             umx_lp[2] == UMX_BEING && umx_place(1u) == 2u && umx_place(UMX_BEING) == 4u;
-        ok &= (uint8_t *)umb_lay[1].st + sizeof(pls_t) <= (uint8_t *)&umb + UMB_BLK &&
-              (uint8_t *)umb_lay[2].st + sizeof(plz_t) <= (uint8_t *)umb_lay[1].st &&
-              (uint8_t *)umb_lay[2].st >= (uint8_t *)&umb + sizeof(ump_co_t);
+        ok = umt.on && umb_lay[0].pp == &umb_plate_corona && umb_lay[1].pp == &umb_plate_sonar && !umb_lay[2].pp &&
+             umb_lay[3].pp == &umb_plate_zodiac && umx_lp[1] == UMB_NONE && umx_place(UMP_NPL + 10u) == 2u;
+        ok &= (uint8_t *)umb_lay[1].st + umb_plate_sonar.state <= (uint8_t *)&umb + UMB_BLK &&
+              (uint8_t *)umb_lay[3].st + umb_plate_zodiac.state <= (uint8_t *)umb_lay[1].st &&
+              (uint8_t *)umb_lay[3].st >= (uint8_t *)&umb + sizeof(ump_co_t);
         umx_rec(4u)->t[4] = 2u;                                    /* (PULSE: track 2's) */
         umb_q.c[umb_q.w % UMB_NQ] = 1; umb_q.note[umb_q.w % UMB_NQ] = 60; umb_q.vel[umb_q.w % UMB_NQ] = 127; umb_q.w++;
         frame();
         ok &= umb.co.P > 128u;
         umx_rec(4u)->t[4] = 0;
         umb_plate = 0x85u; frames(100);                            /* (TARN, the largest ground: what still fits lies on) */
-        ok &= umb_lay[0].pp == &umb_plate_tarn && (umb_lay[1].pp != 0) == (sizeof(plt_t) + sizeof(pls_t) <= UMB_BLK) &&
-              umb_lay[2].pp == &umb_plate_zodiac;
+        ok &= umb_lay[0].pp == &umb_plate_tarn && (umb_lay[1].pp != 0) == (umb_plate_tarn.state + umb_plate_sonar.state <= UMB_BLK);
         umb_plate = (uint8_t)(0x80u | UMB_NONE); frames(100);      /* (no ground: black, the layers alone) */
-        ok &= umt.on && !umb_lay[0].pp && umb_lay[1].pp == &umb_plate_saros;
+        ok &= umt.on && !umb_lay[0].pp && umb_lay[1].pp == &umb_plate_sonar && umb_lay[3].pp == &umb_plate_zodiac;
         press(B_HOME); frame();
         if (!ok) printf("  layers: %p %p %p, lp %u %u %u\n", (void *)umb_lay[0].pp, (void *)umb_lay[1].pp, (void *)umb_lay[2].pp, umx_lp[0], umx_lp[1], umx_lp[2]);
         memset(&umc, 0, sizeof umc);
@@ -11898,7 +11906,7 @@ static int test_skin(void)
          * reaches them, KNOB 4 the cell's plate, OCT+ the cell open (LIVE VIZ CTRLS for it), PRESETS its preset, OCT+
          * again its transition, a third keeps it; OCT- a step back, nothing kept; a row copied takes its cells. The
          * previews draw inside their squares. PLATES: ALGORITHM the plate, the ground; KNOB 1..4 the macros */
-        uint32_t i, n, x, y, in = 0, out = 0, sx = umx_key("SAROS"), bk = umx_key("BEACON");
+        uint32_t i, n, x, y, in = 0, out = 0, sx = umx_key("GRANULE"), bk = umx_key("BEACON");
         ui_power_on(); frame();
         memset(&umc, 0, sizeof umc);
         umb_plate = 0x80u;                                         /* (CINDER) */
@@ -11923,15 +11931,15 @@ static int test_skin(void)
         umv_cell(1, 1)->key = (uint16_t)bk;
         umv_cell(2, 0)->key = UMC_OFF;
         umv_apply(0);
-        ok &= umb_pl() == 1u && umx_pre(1u) == 1u && !umc.lay[0];
+        ok &= umb_pl() == 3u && umx_pre(3u) == 1u && !umc.lay[0];
         umv_apply(1);                                              /* (MAIN none: as row 1's; OVER BEACON) */
-        ok &= umb_pl() == 1u && umc.lay[0] == bk;
+        ok &= umb_pl() == 3u && umc.lay[0] == bk;
         umv_apply(2);                                              /* (MAIN off: no ground; OVER as row 2's) */
         ok &= umb_pl() == UMB_NONE && umc.lay[0] == bk;
         umv_rows(2, 0);                                            /* (row 3 becomes row 1) */
         ok &= umv_cell(2, 0)->key == sx && umv_cell(2, 0)->pre == 1u && !umv_cell(2, 1)->key;
         umv_req = 2; umv_poll();                                   /* (the song: row 2 gone in) */
-        ok &= !umv_req && umb_pl() == 1u && umc.lay[0] == bk;
+        ok &= !umv_req && umb_pl() == 3u && umc.lay[0] == bk;
         if (!ok) printf("  cells: ground %u, layer %u\n", umb_pl(), umc.lay[0]);
         umb_plate = 0x84u;                                         /* (CORONA and BEACON: the previews) */
         frame();
@@ -11952,14 +11960,15 @@ static int test_skin(void)
         turn(EN_ALGO, 1); turn(EN_K4, 1);                          /* (OVER; row 1's had none: OFF) */
         ok &= umv_tk == 2u && umv_cell(0, 1)->key == UMC_OFF && !umc.lay[0];
         turn(EN_ALGO, -1);
-        press(B_OCTUP); frame();                                   /* (MAIN's cell open: SAROS' page, its preset the cell's) */
-        ok &= umv_on() && umx_pg == 1u && chain_config.count == 3u && umb_pl() == 1u && umx_pre(1u) == 1u;
+        press(B_OCTUP); frame();                                   /* (MAIN's cell open: GRANULE's page, its preset the cell's) */
+        ok &= umv_on() && umx_pg == 3u && chain_config.count == 3u && umb_pl() == 3u && umx_pre(3u) == 1u;
         turn(EN_PRESET, 1); frame();
-        ok &= umv_cell(0, 0)->pre == 2u && umx_pre(1u) == 2u;
+        ok &= umv_cell(0, 0)->pre == 2u && umx_pre(3u) == 2u;
+        x = umx_raw(3u, 0u);
         turn(EN_K1, 1); turn(EN_K4, -5);                           /* (its first element set, in that preset) */
-        ok &= umx_el == 1u && umx_raw(1u, 0u) != 30u && ui.song_row == 0u;
-        turn(EN_ALGO, 1); frame();                                 /* (ALGORITHM: the cell's plate, the next) */
-        ok &= umv_cell(0, 0)->key != sx && umb_pl() == umx_pg && umx_pg != 1u;
+        ok &= umx_el == 1u && umx_raw(3u, 0u) != x && ui.song_row == 0u;
+        turn(EN_ALGO, 1); frame();                                 /* (ALGORITHM: the cell's plate, the next ground) */
+        ok &= umv_cell(0, 0)->key != sx && umb_pl() == umx_pg && umx_pg != 3u && !umx_veil(umx_pg);
         press(B_OCTUP); frame();                                   /* (2026-11-13: OCT+ again, its transition; KNOB 1 how it
                                                                     * comes in, nothing in the cell yet; ALGORITHM nothing) */
         n = umv_cell(0, 0)->key;
@@ -11983,7 +11992,7 @@ static int test_skin(void)
         umx_pg = 0;
         macro_v[0] = 0;
         turn(EN_ALGO, 1); turn(EN_K1, 4); frame();                 /* (2026-11-13: ALGORITHM the plate, KNOB 1..4 the macros) */
-        ok &= umx_pg == 1u && umb_pl() == 1u && home_bare() && macro_v[0] == 4u;
+        ok &= umx_pg == 3u && umb_pl() == 3u && home_bare() && macro_v[0] == 4u;
         macro_v[0] = 0;
         press(B_HOME); frame(); press(B_HOME); frame();
         memset(&umc, 0, sizeof umc);

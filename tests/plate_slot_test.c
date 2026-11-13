@@ -230,7 +230,7 @@ int main(int argc, char **argv)
     crc = image_at(b, len, UMB_PLATE_MAGIC, UMB_API, 200, UPS_NSLOT - 1u, "CINDER");
     check(load_at(UPS_NSLOT - 1u, b, len, crc, 256) == 0 && ups_st[UPS_NSLOT - 1u] == 1 &&
           UPS_OFF(UPS_NSLOT - 1u) + UPS_SIZE <= 0xD8000u && nor[0xD8000u] == 0xFF,
-          "the last slot (31): there, under the song index (0xD8000 untouched)");
+          "the last slot (15): there, under the song index (0xD8000 untouched)");
     check(ups_st[3] == 1 && !ups_check(5), "the others kept; slot 5 empty");
     crc = image(b, len, UMB_PLATE_MAGIC, UMB_API, 200);
     check(ups_begin(0, UPS_REC + 1u) == 1 && ups_begin(0, 8) == 1 && ups_begin(UPS_NSLOT, len) == 1,
@@ -245,36 +245,24 @@ int main(int argc, char **argv)
     g = ups_gen;
     check(ups_erase(0) == 0 && !ups_check(0) && ups_gen != g && ups_st[3] == 1, "ERASE slot 0: empty, the bank changed, slot 3 kept");
     check(ups_erase(UPS_NSLOT) == 1, "ERASE past the last slot: refused (1)");
-    crc = image_at(b, 4064, UMB_PLATE_MAGIC, UMB_API, 4000, 4, "BELT");
-    check(load_at(4, b, 4064, crc, 256) == 0 && ups_check(4) == 4064u && nor[UPS_OFF(4) + 4063] == b[4063] && ups_st[5] != 1,
-          "a plate of 4064 B (all of its slot's room, an entry point near its end): there, slot 5 untouched");
-    check(ups_erase(4) == 0 && !ups_check(4) && nor[UPS_OFF(4)] == 0xFF && nor[UPS_OFF(4) + 0xFFF] == 0xFF && ups_st[3] == 1,
-          "ERASE it: its sector erased, slot 3 kept");
-    {                                                   /* a plate left by the older bank (16 slots of two sectors: its
-                                                         * record at the end of the second): no slot of this one takes it */
-        ups_rec_t r = {UPS_MAGIC, len, 0, {0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu}};
-        (void)image_at(b, len, UMB_PLATE_MAGIC, UMB_API, 200, 12, "TARN");
-        memcpy(nor + UPS_OFF(12), b, len);
-        r.crc = ~st_crc32_add(0xFFFFFFFFu, b, len);
-        memcpy(nor + UPS_OFF(12) + 0x2000u - 32u, &r, sizeof r);
-        ups_st[12] = ups_st[13] = 0;
-        check(!ups_check(12) && !ups_check(13), "a plate of the older bank (its record a sector on): both slots read empty");
-        (void)ups_erase(12);
-        (void)ups_erase(13);
-    }
+    crc = image_at(b, 6000, UMB_PLATE_MAGIC, UMB_API, 5000, 4, "BELT");
+    check(load_at(4, b, 6000, crc, 256) == 0 && ups_check(4) == 6000u && nor[UPS_OFF(4) + 5999] == b[5999],
+          "a plate of 6000 B (both sectors of its slot, an entry point in the second): there");
+    check(ups_erase(4) == 0 && !ups_check(4) && nor[UPS_OFF(4)] == 0xFF && nor[UPS_OFF(4) + 0x1000] == 0xFF && ups_st[3] == 1,
+          "ERASE it: both sectors erased, slot 3 kept");
 
     {                                                   /* the editor's commands, frames as the page sends them */
         static const uint8_t list[] = {0xF0, 0x7D, 0x46, 0x4C, 96, 0xF7};
-        static const uint8_t list8[] = {0xF0, 0x7D, 0x46, 0x4C, 96, 24, 0xF7};
+        static const uint8_t list8[] = {0xF0, 0x7D, 0x46, 0x4C, 96, 8, 0xF7};
         uint8_t f[600];
         uint32_t n, o, k, j, r, sl = 2;
         r = frame(list, sizeof list);
         check(r == 5u + 3u + 7u * 7u + 11u + 1u && ed_out[5] == UMB_API && ed_out[6] == UPS_NSLOT && ed_out[7] == 0u && ed_out[8] == 0u &&
               ed_out[8 + 3 * 7] == 1u && !memcmp(ed_out + 8 + 3 * 7 + 1, "TARN", 5),
-              "LIST: API, 32 slots, from 0: slot 0 empty, slot 3 TARN");
+              "LIST: API, 16 slots, from 0: slot 0 empty, slot 3 TARN");
         r = frame(list8, sizeof list8);
-        check(ed_out[7] == 24u && ed_out[8 + 7 * 7] == 1u && !memcmp(ed_out + 8 + 7 * 7 + 1, "CINDER", 7),
-              "LIST from 24: slot 31 CINDER");
+        check(ed_out[7] == 8u && ed_out[8 + 7 * 7] == 1u && !memcmp(ed_out + 8 + 7 * 7 + 1, "CINDER", 7),
+              "LIST from 8: slot 15 CINDER");
         crc = image_at(b, len, UMB_PLATE_MAGIC, UMB_API, 200, sl, "GRANULE");
         n = 0;                                          /* BEGIN slot 2, the length */
         f[n++] = 0xF0; f[n++] = 0x7D; f[n++] = 0x46; f[n++] = 0x4C; f[n++] = 97; f[n++] = (uint8_t)sl;
@@ -328,7 +316,7 @@ int main(int argc, char **argv)
         check(ed_out[6] == 0 && ups_st[sl] == 2, "ERASE: rc 0, empty");
         f[5] = UPS_NSLOT;
         r = frame(f, 7);
-        check(ed_out[6] == 1u, "slot 32 (there are 32): rc 1");
+        check(ed_out[6] == 1u, "slot 16 (there are 16): rc 1");
     }
     printf("plate slot: %s (%d failed)\n", fails ? "FAILED" : "all passed", fails);
     return fails != 0;

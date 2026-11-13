@@ -589,24 +589,20 @@ def build_app():
 # (UMBRA LIVE) plate files (plans/umbra-plate-bank.md; src/umb_plate.h): a plate built alone, linked for the plate
 # bank's slot 0 (firmware/plate.ld: flash 0xB8000, src/umb_slot.c), its header first: build/plates/<name>.plate, what the
 # plates page (web/plates.html) sends to the FM-1. A plate goes into any of the bank's slots: its file lists the words
-# that hold an address in it (each linked again 31 slots on: the words, at any halfword, that moved by exactly that much),
+# that hold an address in it (each linked again 15 slots on: the words, at any halfword, that moved by exactly that much),
 # and the page adds the slot's distance to them before sending. Anything else that moved (an address split across
 # instructions) fails the build: such a plate could only run in slot 0. The file: the image, then the words' offsets (u32 each), their count, the
 # magic "URLC" and the image's length (u32 each, little-endian). FIL EMBER is FILAMENT with warm strings at rest: on the
 # FM-1 it shows that the bank's plate is the one running
-PLATE_SLOT = 0x1000                            # a slot of the bank: one 4 KiB sector (src/umb_slot.c UPS_SIZE)
+PLATE_SLOT = 0x2000                            # a slot of the bank: two 4 KiB sectors (src/umb_slot.c UPS_SIZE)
 PLATE_MAGIC, PLATE_ROOM, PLATE_BASE, PLATE_RELOC = 0x544C5055, PLATE_SLOT - 32, 0x020B4000, 0x434C5255
-PLATE_MOVE = 31 * PLATE_SLOT                   # (the second link: slot 31's place)
-PLATES = [("cinder", "cinder", []), ("saros", "saros", []), ("filament", "filament", []), ("granule", "granule", []),
-          ("tarn", "tarn", []),
-          # (UMBRA LIVE) the line-art plates, from UMBRA OBSCURA the game's art: light enough to lie on a layer
+PLATE_MOVE = 15 * PLATE_SLOT                   # (the second link: slot 15's place)
+# (the user, 2026-11-13: sixteen plates, not 27) eight grounds, then eight VEILS: the light plates that lie on a layer
+PLATES = [("cinder", "cinder", []), ("granule", "granule", []), ("tarn", "tarn", []),
+          ("sepia", "sepia", []), ("gyre", "gyre", []), ("aurora", "aurora", []), ("fathom", "fathom", []),
+          ("rapids", "rapids", []),
           ("beacon", "beacon", []), ("zodiac", "zodiac", []), ("sonar", "sonar", []), ("moths", "moths", []),
-          ("marsh", "marsh", []), ("pachinko", "pachinko", []),
-          # the fluid plates (grounds), then the layer made to lie over each
-          ("sepia", "sepia", []), ("gyre", "gyre", []), ("wax", "wax", []), ("rivulet", "rivulet", []),
-          ("fathom", "fathom", []), ("aurora", "aurora", []), ("blot", "blot", []), ("rapids", "rapids", []),
-          ("koi", "koi", []), ("boats", "boats", []), ("fizz", "fizz", []), ("bokeh", "bokeh", []),
-          ("medusa", "medusa", []), ("ridge", "ridge", []), ("quill", "quill", []), ("murmur", "murmur", []),
+          ("marsh", "marsh", []), ("pachinko", "pachinko", []), ("koi", "koi", []), ("medusa", "medusa", []),
           ("filament-ember", "filament", ["-DPLF_REST_RGB=150,70,26", '-DPLF_NAME="FIL EMBER"'])]
 
 
@@ -669,15 +665,13 @@ def plate_files():
 # (UMBRA LIVE) the plates an install brings: build/plates.bin, the bank's first slots as the FM-1 would hold them after
 # the plates page had sent each (src/umb_slot.c): slot i's plate linked for it (its listed words moved i slots on), 0xFF up
 # to the slot's last 32 bytes, there its record ("UPSL", the image's length, its CRC-32, the rest 0xFF). The update loader
-# writes them at flash 0xB8000 (ldr_core.c 3c: in pairs of sectors, so an odd count is followed by an empty slot), so a
-# fresh install has every plate; the slots after them are left alone
-BANK_PLATES = ["cinder", "saros", "filament", "granule", "tarn", "beacon", "zodiac", "sonar", "moths", "marsh", "pachinko",
-               "sepia", "gyre", "wax", "rivulet", "fathom", "aurora", "blot", "rapids",
-               "koi", "boats", "fizz", "bokeh", "medusa", "ridge", "quill", "murmur"]
+# writes them at flash 0xB8000 (ldr_core.c 3c), so a fresh install has every plate; the slots after them are left alone
+BANK_PLATES = ["cinder", "granule", "tarn", "sepia", "gyre", "aurora", "fathom", "rapids",
+               "beacon", "zodiac", "sonar", "moths", "marsh", "pachinko", "koi", "medusa"]
 
 
 def plate_slot(f, i):
-    """plate file f as slot i holds it (4 KiB)"""
+    """plate file f as slot i holds it (8 KiB)"""
     n, magic, ln = struct.unpack_from("<III", f, len(f) - 12)
     if magic != PLATE_RELOC or ln + 4 * n + 12 != len(f) or ln > PLATE_ROOM:
         raise SystemExit("plate file: not one (its tail)")
@@ -690,9 +684,8 @@ def plate_slot(f, i):
 
 def plate_bank():
     bank = b"".join(plate_slot((OUT / "plates" / f"{name}.plate").read_bytes(), i) for i, name in enumerate(BANK_PLATES))
-    bank += b"\xFF" * (-len(bank) % (2 * PLATE_SLOT))
-    if len(bank) > 32 * PLATE_SLOT:
-        raise SystemExit(f"plate bank: {len(BANK_PLATES)} plates, the bank has 32 slots")
+    if len(bank) > 16 * PLATE_SLOT:
+        raise SystemExit(f"plate bank: {len(BANK_PLATES)} plates, the bank has 16 slots")
     (OUT / "plates.bin").write_bytes(bank)
     print(f"plate bank: {', '.join(BANK_PLATES)} in slots 1..{len(BANK_PLATES)} -> build/plates.bin ({len(bank)} B)")
     return bank

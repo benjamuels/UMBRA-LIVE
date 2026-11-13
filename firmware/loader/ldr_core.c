@@ -21,8 +21,7 @@
  *      [0xEA000, 0xEA000 + its length) (plain: the XIP window from 0x93000 up is unencrypted), the last sector's
  *      tail 0xFF; a package without one leaves the region as it is (the app then finds no segment of its build);
  *   3c. (UMBRA LIVE) with a "plates.bin" entry (type 201): the plate bank's first slots as the build made them
- *      (tools/build.py plate_bank: whole 4 KiB slots from slot 0, an even number of them, each a plate linked for its
- *      slot with its record),
+ *      (tools/build.py plate_bank: whole 8 KiB slots from slot 0, each a plate linked for its slot with its record),
  *      checked and written as the Bluetooth segment is, at [0xB8000, 0xB8000 + its length), inside the bank
  *      [0xB8000, 0xD8000) (src/umb_slot.c: JIANT's projects 5..8, retired for it). The slots past its length are
  *      left as they are; a package without one leaves the bank alone;
@@ -51,7 +50,7 @@
 #define LDR_BT_TYPE 200u                        /* its UFW entry, "bt.bin" */
 #define LDR_BT_MAGIC 0x3154424Au                /* "JBT1": its header's first word (firmware/bt/bt_seg.c bt_head) */
 #define LDR_BT_NSEC ((LDR_BT_HI - LDR_BT_LO) >> 12)
-#define LDR_PL_LO 0xB8000u                      /* (UMBRA LIVE) the plate bank (src/umb_slot.c UPS_BASE, 32 slots of 4 KiB) */
+#define LDR_PL_LO 0xB8000u                      /* (UMBRA LIVE) the plate bank (src/umb_slot.c UPS_BASE, 16 slots of 8 KiB) */
 #define LDR_PL_HI 0xD8000u
 #define LDR_PL_TYPE 201u                        /* its UFW entry, "plates.bin" */
 #define LDR_PL_MAGIC 0x544C5055u                /* "UPLT": a plate's header's first word (src/umb_plate.h) */

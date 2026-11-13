@@ -48,9 +48,9 @@
   <div id="bank"><p>Connect to see what it holds.</p></div>
 
   <h2>PLATE FILES</h2>
-  <div class="row"><div class="name"><b>Every plate</b><small>CINDER, SAROS, FILAMENT, GRANULE, TARN; BEACON, ZODIAC, SONAR,
-    MOTHS, MARSH, PACHINKO; the eight fluid plates SEPIA, GYRE, WAX, RIVULET, FATHOM, AURORA, BLOT, RAPIDS and the layer made for each,
-    KOI, BOATS, FIZZ, BOKEH, MEDUSA, RIDGE, QUILL, MURMUR: the 27 plates UMBRA LIVE comes with (an install loads them too). A plate already in the bank is replaced where it is.</small></div>
+  <div class="row"><div class="name"><b>Every plate</b><small>The grounds CINDER, GRANULE, TARN, SEPIA, GYRE, AURORA,
+    FATHOM, RAPIDS and the veils BEACON, ZODIAC, SONAR, MOTHS, MARSH, PACHINKO, KOI, MEDUSA: the 16 plates UMBRA LIVE comes
+    with (an install loads them too). A plate already in the bank is replaced where it is.</small></div>
     <button id="all" class="load" disabled>Load all</button></div>
   <div id="lib"><p>Loading the list…</p></div>
   <div class="row"><div class="name"><b>A file of your own</b><small>A .plate file built for this firmware's plate API.</small></div>
@@ -66,40 +66,28 @@ const CMD = { LIST: 96, BEGIN: 97, WRITE: 98, END: 99, ERASE: 100 };
 const RC = { 1: "the FM-1 refused the request", 2: "the file was refused (its checksum or header): the slot is empty",
              3: "stop playback first", 4: "a flash write failed" };
 const DESC = { "cinder.plate": "Cold embers: heat rising and cooling under a crust of cracks.",
-               "saros.plate": "The melody as string art on the circle of fifths, turning round a dark umbra.",
-               "filament.plate": "A taut string a track, plucked and bowed.",
                "granule.plate": "The sun's surface: a honeycomb of granules, a note lights its own.",
                "tarn.plate": "The eclipse reflected in dark water, a note a drop.",
-               "beacon.plate": "The lighthouse in line art: its lamp turns, the beam sweeps, a window a track. Lies on a layer.",
-               "zodiac.plate": "Six signs wheeling round the pole, one a track: a melody draws its sign. Lies on a layer.",
-               "sonar.plate": "Six rings and a sweeping hand: notes leave marks that light as it comes round. Lies on a layer.",
-               "moths.plate": "A lamp and its moths: a note lets one in to circle it. Lies on a layer.",
-               "marsh.plate": "Water in dashes, reeds in the wind, fireflies: a note lights the water. Lies on a layer.",
-               "pachinko.plate": "Stars fall through six rows of pegs into cups, a note a star. Lies on a layer.",
+               "beacon.plate": "The lighthouse in line art: its lamp turns, the beam sweeps, a window a track. A veil.",
+               "zodiac.plate": "Six signs wheeling round the pole, one a track: a melody draws its sign. A veil.",
+               "sonar.plate": "Six rings and a sweeping hand: notes leave marks that light as it comes round. A veil.",
+               "moths.plate": "A lamp and its moths: a note lets one in to circle it. A veil.",
+               "marsh.plate": "Water in dashes, reeds in the wind, fireflies: a note lights the water. A veil.",
+               "pachinko.plate": "Stars fall through six rows of pegs into cups, a note a star. A veil.",
                "sepia.plate": "Ink let into still water, pulled into marbled rings by two slow eddies. A note is a drop.",
                "gyre.plate": "A whirlpool: foam wound round a dark eye, drawn in and gone. A note throws foam in.",
-               "wax.plate": "A lamp of wax in warm colours: blobs rise, join and part. A note is a blob.",
-               "rivulet.plate": "Rain on glass: beads gather, run and leave wet trails. A note is a drop.",
                "fathom.plate": "The sea from the side: a bright surface, light let down in shafts. A note is a stone let fall.",
                "aurora.plate": "Three curtains of northern light in green and violet. A note lights its track's curtain.",
-               "blot.plate": "Violet ink bleeding into wet paper and drying to a rim. A note is a blot.",
                "rapids.plate": "A stream drawn by the lines of its flow, bending round eddies. A note is a streak.",
-               "koi.plate": "Koi seen from above: the nearest darts to each note. Made for SEPIA. Lies on a layer.",
-               "boats.plate": "Paper boats with lamps, carried round and down a whirlpool. Made for GYRE. Lies on a layer.",
-               "fizz.plate": "Bubbles rising and bursting, a note in each. Made for WAX. Lies on a layer.",
-               "bokeh.plate": "A city's lights out of focus; a note lights one, cars pass. Made for RIVULET. Lies on a layer.",
-               "medusa.plate": "Jellyfish that beat with the notes. Made for FATHOM. Lies on a layer.",
-               "ridge.plate": "Hills, pines and a fire under falling stars. Made for AURORA. Lies on a layer.",
-               "quill.plate": "A pen writing loops that fade, taller with pitch. Made for BLOT. Lies on a layer.",
-               "murmur.plate": "A flock of birds wheeling, swooping to each note. Made for RAPIDS. Lies on a layer.",
+               "koi.plate": "Koi seen from above: the nearest darts to each note. Made for SEPIA. A veil.",
+               "medusa.plate": "Jellyfish that beat with the notes. Made for FATHOM. A veil.",
                "filament-ember.plate": "FIL EMBER, a test: FILAMENT with warm strings at rest." };
-const ALL = ["cinder.plate", "saros.plate", "filament.plate", "granule.plate", "tarn.plate", "beacon.plate", "zodiac.plate",
-             "sonar.plate", "moths.plate", "marsh.plate", "pachinko.plate",
-             "sepia.plate", "gyre.plate", "wax.plate", "rivulet.plate", "fathom.plate", "aurora.plate", "blot.plate", "rapids.plate",
-             "koi.plate", "boats.plate", "fizz.plate", "bokeh.plate", "medusa.plate", "ridge.plate", "quill.plate", "murmur.plate"];
+const ALL = ["cinder.plate", "granule.plate", "tarn.plate", "sepia.plate", "gyre.plate", "aurora.plate", "fathom.plate",
+             "rapids.plate", "beacon.plate", "zodiac.plate", "sonar.plate", "moths.plate", "marsh.plate", "pachinko.plate",
+             "koi.plate", "medusa.plate"];
 const BANK = 0x20000, RELOC = 0x434C5255;               /* the bank's flash (umb_slot.c: its slots share it evenly, 16 of
-                                                         * 8 KiB before the fluid plates, 32 of 4 KiB since); a plate file's "URLC" */
-let SLOT = 0x1000;                                      /* a slot's size, once the FM-1 has said how many it has */
+                                                         * 8 KiB; 32 of 4 KiB in the release of 2026-11-13); a plate file's "URLC" */
+let SLOT = 0x2000;                                      /* a slot's size, once the FM-1 has said how many it has */
 const $ = (id) => document.getElementById(id);
 let dev = null, bank = [], nslot = 0;
 

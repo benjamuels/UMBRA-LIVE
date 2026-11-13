@@ -90,8 +90,9 @@ static uint32_t oct_leds(void)
     if (UMB_ON && umw_on())                             /* ((UMBRA LIVE) WELCOME: OCT+ the next page, breathing; on the
                                                          * last both, which take it away held together) */
         return umw_pg == UMW_NP - 1u ? OCT_BREATH_DN : OCT_BREATH;   /* (the last page: OCT- alone, which held takes it away) */
-    if (UMB_ON && umk_on())                             /* (LIVE AUDIO / VIZ CTRLS: OCT+ SETUP, its next question) */
-        return OCT_BREATH;
+    if (UMB_ON && umk_on())                             /* (LIVE AUDIO / VIZ CTRLS: OCT+ adds a control, OCT- removes one;
+                                                         * PLATES: neither) */
+        return ui.hset[0] == 3u ? 0u : 1u | OCT_BREATH;
     if (name_on() && !ui.confirm && !ui.menu)           /* NAME: OCT- cancels, OCT+ (breathing) writes */
         return 1u | OCT_BREATH;
     if (layer_set_open())                               /* a SET layer: OCT± do nothing (TONIC: no put back); */
@@ -2670,7 +2671,7 @@ static void ui_input_frame(void)
     oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || umw_on() || umk_on());
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
     umw_input(oct);                                     /* ((UMBRA LIVE) WELCOME: its pages, OCT- + OCT+ held: gone) */
-    umz_input(oct);                                     /* (.. LIVE AUDIO / VIZ CTRLS: SETUP) */
+    umk_oct(oct);                                       /* (.. LIVE AUDIO / VIZ CTRLS: a control added, removed) */
     oct = umv_input(oct);                               /* (.. TIMELINE's picture tracks: OCT+ opens a cell, OCT- closes it) */
     if (!ui.home && !ui.menu && !ui.confirm && !ui.ly && cur_page()->graph == GR_TOOLS && ((pressed >> panel.btn[B_OCTUP]) & 1u))
         tools_arm();
@@ -2776,7 +2777,9 @@ static void ui_input_frame(void)
         {   /* (0.8.5) ALGORITHM: the layer's lens, MAP <-> KNOBS <-> STATE (no wrap; was dropped: another track there,
              * OCT- put back the layer's track only) */
             int32_t a = panel_enc(EN_ALGO);
-            if (a && ui.layer) {
+            if (a && UMB_ON && umt.on && bt_hw_seg() && umt_algo(a))
+                combo = 1;                              /* ((UMBRA LIVE) TOTALITY: SEL held, the next plate on its layer) */
+            else if (a && ui.layer) {
                 ui.lylv = (uint8_t)clamp((int32_t)ui.lylv + a, 0, 2);
                 ui.force = 1;
                 combo = 1;
@@ -3157,7 +3160,9 @@ static void ui_input_frame(void)
                                                     * the tracks that play: TRACKS 4 stops at T4 (T5 / T6 asleep) */
         if (UMB_ON)
             umt.tms = fm1_ms;                       /* ((UMBRA LIVE) TOTALITY: the track's number shown again) */
-        if (umk_on())                               /* (UMBRA LIVE) MACROS - AUDIO / VISUALS: the route */
+        if (UMB_ON && umt.on && bt_hw_seg() && umt_algo(s))
+            ;                                       /* (UMBRA LIVE) TOTALITY: ENV / ARP held, the next plate on its layer */
+        else if (umk_on())                          /* (UMBRA LIVE) MACROS - AUDIO / VISUALS: the route */
             umk_algo(s);
         else if (umv_algo(s))                       /* (.. TIMELINE: past T6 its picture tracks) */
             ;
