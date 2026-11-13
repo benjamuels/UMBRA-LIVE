@@ -7,12 +7,19 @@
  * only with the transport stopped, as project.c settings_poll's: an erase stops the sound for its ~40 ms) */
 static void umv_poll(void)
 {
-    if (umv_req) {                                      /* (the song: a row gone in, its plates; a new one, its cells none) */
+    if (!chain.running)
+        umv_own = 0;                                    /* (the song stopped: nothing taken over any more) */
+    if (umv_req) {                                      /* (the song: a row gone in, its plates; a new one, its cells none.
+                                                         * Taken over in TOTALITY: let be; handed back by GLO: the row's
+                                                         * plates again, every layer shown) */
         uint32_t q = umv_req, g;
         umv_req = 0;
         if (q == 0xFFu)
             umv_rows(CHAIN_ROWS, 0);
-        else {
+        else if (umv_own != 1u) {
+            if (umv_own)                                /* (handed back: the layers hidden shown again) */
+                umt.lh = 0;
+            umv_own = 0;
             umv_apply(q - 1u);
             umv_st.row = (uint8_t)(q - 1u);
             for (g = 0; g < 2u; g++)                    /* (a cell of the row's own: its plate comes in as it says) */

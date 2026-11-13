@@ -158,6 +158,7 @@ static void umt_btns(void)
                     }
                     umt.lh ^= (uint8_t)(1u << f);
                     umt_say(UMX_BF[f], umt.lh >> f & 1u ? "OFF" : "ON");
+                    umt_take();
                 }
             }
             umt.bt[i] = 0;
@@ -212,7 +213,8 @@ BTAPP_FN static void umv_tick(void)                     /* (in the Bluetooth seg
     umv_mo = 0;
     umv_gt = 256u;
     uint32_t r = umv_st.row;                            /* (the row whose plates show) */
-    if (chain.running && !chain.hold && b > mb && r + 1u < chain.config.count)   /* ms to the row's end; past it, the next */
+    if (chain.running && !chain.hold && umv_own != 1u && b > mb && r + 1u < chain.config.count)   /* ms to the row's end; past
+                                                         * it, the next (taken over in TOTALITY: nothing goes) */
         left = chain.row != r ? 0u : ((chain.remaining ? chain.remaining : 1u) * chain_bar() - chain.bar_pos) / (b / mb);   /* row's
                                                          * plates not in yet: gone still */
     for (tk = 0; tk < 2u; tk++) {

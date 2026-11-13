@@ -4,8 +4,11 @@
  * In: HOME tapped on HOME (its button lit there; on GEN too, which closes), or PLAY on SAVE > SONG > TIMELINE or SAVE >
  * PROJECT > ARRANGE (the song starts, and TOTALITY with it). Out: HOME again (back to the page it came from), or a button
  * that goes to a page (a section's, SAVE, SEQ, HOME held for the menu, a dialog, GEN: umt_check). In it:
- *   PRESETS the MAIN plate (the ground), round, a detent a plate; the new one spreads from the middle over the old
- *   (DISSOLVE: gfx.c dc_gate, the cells not yet reached keep what they showed; 0 a cut .. 99 four seconds);
+ *   PRESETS the MAIN plate (the ground), round, a detent a plate: the old one fades out, then the new one in (the user,
+ *   2026-11-14: no more the blocks spreading from the middle; DISSLV how long, both halves: 0 a cut .. 99 four seconds);
+ *   while the song plays, a plate chosen here (PRESETS, SELECT, a layer's button) takes the picture over: the rows'
+ *   cells let be, GLO lit; GLO tapped hands it back, blinking until the next row (or its next round) brings the
+ *   row's plates again, every layer shown (umv_own, ui_umbra_plate.c umv_poll);
  *   PRESETS a ground, never a veil (the user, 2026-11-13);
  *   SELECT the OVER plate (LAYER 1: OFF, then the veils: the light plates and BODIES), round (the user, 2026-11-13);
  *   SEL ENV ARP LFO EDIT as LIVE VIZ CTRLS' BUTTONS page sets them (the user, 2026-11-13; at first SEL LAYER 3, the
@@ -38,7 +41,8 @@ static struct {
     char say[32];
     uint32_t qr, gms;                                   /* GLITCH: the notes read, its clock */
     int32_t ge;                                         /* .. its energy (Q8) */
-    uint32_t fms;                                       /* DISSOLVE: since when (0: none) */
+    uint32_t fms;                                       /* PRESETS' fade: since when (0: none) */
+    uint8_t np;                                         /* .. the ground coming once the old one is out (| 0x80; 0: none) */
     uint8_t lh;                                         /* hidden (bits): the ground, OVER, LAYER 3 (BUTTONS) */
     uint8_t bh;                                         /* SEL ENV ARP LFO EDIT (bits): held past a tap (ALGORITHM turned) */
     uint32_t bt[5];                                     /* .. down since (| 1; 0: up) */
@@ -118,6 +122,8 @@ static int umt_home(void)
         return 0;
     return 1;
 }
+static uint32_t umt_fade(void);
+static void umt_take(void);
 /* the next page for tk, round: 0 (PRESETS) a ground; 1 (SELECT) a veil (a light plate, BODIES) lying nowhere else, for
  * LAYER 1 (OVER), through OFF; 2 the same on LAYER 3. | 4: never OFF (a button held). What is chosen is shown */
 BTAPP_FN static void umt_select(int32_t s, uint32_t tk)   /* (in the Bluetooth segment: the app slot is full) */
@@ -126,7 +132,7 @@ BTAPP_FN static void umt_select(int32_t s, uint32_t tk)   /* (in the Bluetooth s
     int32_t n = (int32_t)UMX_BODY + 2, pl, k;
     uint32_t t = tk & 3u, w = t == 2u ? 4u : t + 1u;
     umc_load();
-    pl = (int32_t)(t ? umx_find(umc.lay[w - 2u]) : umb_pl());
+    pl = (int32_t)(t ? umx_find(umc.lay[w - 2u]) : umt.np ? umt.np & 0x3Fu : umb_pl());
     if (pl > (int32_t)UMX_BODY)
         pl = -1;                                        /* (none) */
     for (k = 0; k < n; k++) {
@@ -137,11 +143,11 @@ BTAPP_FN static void umt_select(int32_t s, uint32_t tk)   /* (in the Bluetooth s
     }
     if (k == n)
         return;
-    if (!t) {
-        umb_plate = (uint8_t)(0x80u | (uint32_t)pl);
-        umv_dirty = 1;
-        umv_ms = fm1_ms;
-        umt.fms = umt.on ? fm1_ms | 1u : 0u;            /* (DISSOLVE: from here) */
+    umt_take();
+    if (!t) {                                           /* (the new ground once the old one has faded out: umb_full) */
+        if (!umt.np || fm1_ms - umt.fms >= umt_fade() / 2u)
+            umt.fms = fm1_ms | 1u;
+        umt.np = (uint8_t)(0x80u | (uint32_t)pl);
     } else if (pl < 0) {
         umc.lay[w - 2u] = 0;
         umc_gen++;
@@ -150,6 +156,13 @@ BTAPP_FN static void umt_select(int32_t s, uint32_t tk)   /* (in the Bluetooth s
         umx_place_set((uint32_t)pl, w);
     umt.lh &= (uint8_t)~(1u << t);
     umt_say(UMX_BF[t], pl < 0 ? "OFF" : d.name);
+}
+/* PRESETS' fade, both halves, ms (SCREEN's DISSLV: 0 a cut .. 99 four seconds) */
+static uint32_t umt_fade(void) { return umq_o[G_FADE] * umq_o[G_FADE] * 4000u / 9801u; }
+static void umt_take(void)                              /* a plate chosen in TOTALITY: the song's rows let it be (GLO lit) */
+{
+    if (chain.running && chain.config.count)
+        umv_own = 1;
 }
 static void umt_seq_tap(void)                           /* SEQ: the words at the foot on, or off again (lit while on) */
 {
@@ -344,7 +357,7 @@ static void umt_fig(uint32_t y, uint32_t pl, uint32_t a)
 static void umb_full(void)
 {
     static uint32_t ms;
-    uint32_t y, h, i, mir = umq_o[G_MIR], f = umq_o[G_FADE] * umq_o[G_FADE] * 4000u / 9801u, el = fm1_ms - umt.fms, ba = fm1_ms - ms;
+    uint32_t y, h, i, mir = umq_o[G_MIR], f = umt_fade() / 2u, el = fm1_ms - umt.fms, ba = fm1_ms - ms, g = 256u;
     uint32_t pf = perf_held | perf_latched, tg = fm1_ms - umt.tms;
     uint16_t la[4] = {0, 0, 256u, 0};
     int32_t ro = (mir & 2u) ? 0 : (int32_t)(pf >> PF_OCTU & 1u) * 64 - (int32_t)(pf >> PF_OCTD & 1u) * 64;   /* (T-B: none) */
@@ -357,10 +370,17 @@ static void umb_full(void)
         umt.ba[i] = (uint16_t)(!(umt.lh >> i & 1u) ? (umt.ba[i] + ba > 256u ? 256u : umt.ba[i] + ba) : (umt.ba[i] > ba ? umt.ba[i] - ba : 0u));
     la[0] = umt.ba[0], la[1] = umt.ba[1], la[3] = umt.ba[2];
     umb_clock();                                        /* (the routes and a cell's transition now: before the gate) */
-    if (umt.fms && el < f)                              /* DISSOLVE: the cells let through so far (gfx.c) */
-        dc_gate = (uint16_t)(el * 256u / f);
+    if (umt.np && el >= f) {                            /* PRESETS: the old ground out, the new one in */
+        umb_plate = umt.np;
+        umt.np = 0;
+        umv_dirty = 1;
+        umv_ms = fm1_ms;
+    }
+    if (umt.fms && el < 2u * f)                         /* (its light: down to none, then up again) */
+        g = el < f ? (f - el) * 256u / f : (el - f) * 256u / f;
     else
         umt.fms = 0;
+    la[0] = (uint16_t)(la[0] * g >> 8);
     if (umv_gt < dc_gate)                               /* (.. a TIMELINE cell's) */
         dc_gate = umv_gt;
     umt_glitch_tick();

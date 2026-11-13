@@ -368,6 +368,8 @@ static __attribute__((noinline)) void ui_leds(void)
         for (k = 0; k < 5u; k++)                        /* SEL ENV ARP LFO EDIT: as their BUTTONS say */
             led_put(nl, panel.btn[UMT_BB[k]], umt_blit(k));
         led_put(nl, panel.btn[B_REC], song.rec != 0u);
+        led_put(nl, panel.btn[B_GLO], umv_own == 1u || (umv_own == 2u && (fm1_ms >> 8 & 1u)));   /* (taken over; handed back:
+                                                         * blinking until the next row) */
         for (c = 0; c < FM1_NCOL; c++) {
             fm1_led_dim[c] = fm1_led_breath[c] = fm1_led_hi[c] = fm1_led_mid[c] = 0;
             fm1_led[c] = nl[c];
@@ -2981,6 +2983,10 @@ static void ui_input_frame(void)
     }
     if (lytap && UMB_ON && umt.on && lytap == LAYER_FX)   /* (UMBRA LIVE) TOTALITY: FX, the knobs' effects */
         umt_fx_tap();
+    else if (lytap && UMB_ON && umt.on && lytap == LAYER_GLO && umv_own) {   /* .. GLO, the picture taken over: handed */
+        umv_own = (uint8_t)(umv_own == 1u ? 2u : 1u);   /* back at the next row (again: kept) */
+        umt_say("GLO", umv_own == 2u ? "BACK AT THE NEXT ROW" : "KEPT");
+    }
     else if (lytap && UMB_ON && umt.on && (lytap == LAYER_SCL || lytap == LAYER_MACRO || lytap == LAYER_EDIT))
         ;                                               /* .. SEL, LFO, EDIT: umt_btns's */
     else if (lytap)                                     /* a layer's button acts on release (held: the layer) */

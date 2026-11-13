@@ -2688,7 +2688,8 @@ static void gen_make(void)
         for (j = 0; j < gs.pn; j++) h = h * 7u + gs.pdeg[j];
         gq = q;
         for (j = 0; j < 8u && gsr.h[j] != (uint16_t)h; j++) {}
-        if (j == 8u || k == 8u) { gsr.h[gsr.at++ & 7u] = (uint16_t)h; break; }
+        if (j == 8u || k == 12u) { gsr.h[gsr.at++ & 7u] = (uint16_t)h; break; }   /* ((UMBRA LIVE) 12 tries, was 8: DEMBOW's
+                                                         * few cores ran out of them once the ambient genres moved the dice) */
         gp.seed = (uint16_t)(rng() % 10000u);           /* (its core one of the last eight: another seed) */
         gseed(GS_PICK);
         gmut = GENRE[gs.gi];
@@ -3105,8 +3106,11 @@ static void gen_knob(uint32_t k, int32_t s)
     uint32_t p = gp.page;
     gp.hot = (uint8_t)k;
     if (p == 0u) {
-        if (k == 0u) {                                  /* (0.8.6) EXPLORE first, then RANDOM, then the genres */
+        if (k == 0u) {                                  /* (0.8.6) EXPLORE first, then RANDOM, then the genres; ((UMBRA
+                                                         * LIVE, the user 2026-11-14) its whole name a moment over the
+                                                         * header, the column too narrow for the long ones) */
             gp.genre=gen_genre_next(gp.genre,s);
+            ui_message(gp.genre == GEN_EXPLORE ? "EXPLORE" : gp.genre ? GENRE[(gp.genre - 1u) % NGENRE].name : "RANDOM");
         }
         else if (k == 1u) gp.seed = (uint16_t)((gp.seed + 10000u + (uint32_t)clamp(accel(EN_K2, s, 9999), -9999, 9999)) % 10000u);
         else if (k == 2u) gp.energy = (uint8_t)clamp((int32_t)gp.energy + s * 5, 0, 100);

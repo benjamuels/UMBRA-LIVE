@@ -11405,11 +11405,12 @@ static int test_skin(void)
         for (c = 0; c < FM1_NCOL; c++) dim |= fm1_led_dim[c] | fm1_led_breath[c];
         ok &= umt.on && umb_bare() && !led_of(fm1_led, panel.btn[B_HOME]) && !led_of(fm1_led, panel.btn[B_FX]) && !dim;
         pl = umb_pl();
-        turn(EN_PRESET, 1);                                        /* (2026-11-13: PRESETS the MAIN plate, SELECT OVER's) */
+        turn(EN_PRESET, 1); frames(1200);                          /* (2026-11-13: PRESETS the MAIN plate, SELECT OVER's; it
+                                                                    * comes after a fade, 2026-11-14) */
         ok &= umb_pl() == 3u && umt.on;                           /* (the next ground, GRANULE: SAROS, FILAMENT not there) */
-        turn(EN_PRESET, -1); turn(EN_PRESET, -1);
+        turn(EN_PRESET, -1); turn(EN_PRESET, -1); frames(1200);    /* (two detents in the fade: the second from the first's) */
         ok &= umb_pl() == UMP_NPL + 7u;                            /* (round: the bank's last ground, RAPIDS; no veil) */
-        turn(EN_PRESET, 1);
+        turn(EN_PRESET, 1); frames(1200);
         turn(EN_SELECT, 1);                                        /* (OVER: a plate on LAYER 1, MAIN as it was; back: OFF) */
         ok &= umb_pl() == pl && umc.lay[0] && umt.on;
         turn(EN_SELECT, -1);
@@ -11744,14 +11745,15 @@ static int test_skin(void)
         ok = dc_key(120u, 120u) < 64u && dc_key(2u, 2u) >= 188u && dc_gate == 256u;
         nav_go(SEC_HOME, 2, 0); frame(); press(B_HOME); frames(4);   /* (TOTALITY: TARN, from MACROS - VISUALS) */
         for (y = 0; y < 16u; y++) for (x = 0; x < 16u; x++) corner[y * 16u + x] = host_screen[y * 240u + x];
-        turn(EN_PRESET, 1);                                        /* (SEPIA, the bank's next ground, dissolving in: a second at
-                                                                    * 50; 2026-11-13: PRESETS, the MAIN plate's) */
-        ok &= umt.on && umb_pl() == UMP_NPL + 3u && umt.fms;
+        turn(EN_PRESET, 1);                                        /* (SEPIA, the bank's next ground: TARN fades out over half
+                                                                    * a second at 50, then SEPIA in; 2026-11-14) */
+        ok &= umt.on && umb_pl() == 5u && umt.np == (0x80u | (UMP_NPL + 3u)) && umt.fms;
         fm1_ms += 150; frame();
-        for (y = 0; y < 16u; y++) for (x = 0; x < 16u; x++) same &= corner[y * 16u + x] == host_screen[y * 240u + x];
-        ok &= same && umt.fms && dc_gate == 256u;
+        ok &= umb_pl() == 5u && umt.np && dc_gate == 256u;         /* (still TARN, darker) */
+        fm1_ms += 400; frame();
+        ok &= umb_pl() == UMP_NPL + 3u && !umt.np && umt.fms;     /* (SEPIA, coming in) */
         fm1_ms += 1000; frame();
-        ok &= !umt.fms;
+        ok &= !umt.fms && umb_pl() == UMP_NPL + 3u;
         sel0 = song.sel;                                           /* (2026-11-13: entered from LIVE VIZ CTRLS, ALGORITHM */
         turn(EN_ALGO, trk_live > 1u && sel0 + 1u < trk_live ? 1 : -1);   /* still the track, its number shown again) */
         ok &= umt.on && umb_pl() == UMP_NPL + 3u && (trk_live < 2u || song.sel != sel0) && umt.tms == fm1_ms;
