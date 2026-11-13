@@ -187,14 +187,14 @@ def bt_check(bt):
             raise SystemExit(f"bt.bin has an update-record look-alike at {BT_BASE + s - 0x100:#x}")
 
 
-# (UMBRA LIVE) the plate bank's first slots (tools/build.py plate_bank): whole 8 KiB slots from slot 0, each a plate
-# linked for its slot with its record. The update loader (ldr_core.c 3c) writes them at flash 0xB8000
+# (UMBRA LIVE) the plate bank's first slots (tools/build.py plate_bank): whole 4 KiB slots from slot 0, each a plate
+# linked for its slot with its record, in pairs (PL_SLOT: the loader takes them two sectors at a time). The update loader (ldr_core.c 3c) writes them at flash 0xB8000
 PL_TYPE, PL_SLOT, PL_ROOM, PL_MAGIC = 201, 0x2000, 0x20000, 0x544C5055
 
 
 def plates_check(pl):
     if not pl or len(pl) % PL_SLOT or len(pl) > PL_ROOM or struct.unpack_from("<I", pl)[0] != PL_MAGIC:
-        raise SystemExit(f"plates.bin: {len(pl)} B: whole 8 KiB slots, at most 16, a plate first")
+        raise SystemExit(f"plates.bin: {len(pl)} B: 4 KiB slots in pairs, at most 32, a plate first")
 
 
 def ufw(flash, ota, product, bt=None, plates=None):

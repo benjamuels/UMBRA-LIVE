@@ -1,8 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 UMBRA LIVE contributors */
 /* UMBRA LIVE: the plate bank (plans/umbra-plate-bank.md, phase 2): plate files in flash, each run where it lies.
- * UPS_NSLOT slots of two 4 KiB sectors each from flash 0xB8000: JIANT's projects 5..8 (songs 5..8, storage.c's map), retired
- * for it (song_chain.c NSONG_USE: four projects). From a slot's start, the plate's image as its plate file holds it (its
+ * UPS_NSLOT slots of one 4 KiB sector each from flash 0xB8000: JIANT's projects 5..8 (songs 5..8, storage.c's map), retired
+ * for it (song_chain.c NSONG_USE: four projects). (They were 16 of two sectors until the fluid plates and their layers
+ * came: 27 plates in an install, the largest of them 3.9 KB. A plate left by the older layout fails its slot's check
+ * and reads empty.) From a slot's start, the plate's image as its plate file holds it (its
  * header, umb_plate_t, first), linked for that slot (tools/build.py plate_files links every plate for slot 0 and lists its
  * absolute words; the plates page adds the slot's distance to them before sending); in its last 32 bytes the slot's
  * record, written last, so a transfer cut short leaves none and the slot reads empty. The editor fills them
@@ -13,11 +15,11 @@
  * start without one; the editor can still reach the FM-1 and erase it). Included by felucca.c after storage.c (st_read,
  * st_erase, st_prog, st_crc32_add); the host test (tests/plate_slot_test.c) brings its own on a simulated NOR. */
 #ifndef UMB_NSLOT
-#define UMB_NSLOT 16u
+#define UMB_NSLOT 32u
 #endif
 #define UPS_NSLOT UMB_NSLOT
 #define UPS_BASE 0xB8000u                               /* slot 0's sector (flash offset): song 5's first */
-#define UPS_SIZE 0x2000u                                /* (two sectors: room for a plate with tables of its own) */
+#define UPS_SIZE 0x1000u                                /* (a sector: every plate so far is under 4 KB) */
 #define UPS_OFF(i) (UPS_BASE + (uint32_t)(i) * UPS_SIZE)
 #define UPS_REC (UPS_SIZE - 32u)                        /* the record's place, and the image's room */
 #define UPS_MAGIC 0x4C535055u                           /* "UPSL" */
@@ -29,7 +31,12 @@ typedef struct {
     uint32_t rsv[5];
 } ups_rec_t;
 _Static_assert(sizeof(ups_rec_t) == 32u, "the slot's record");
-static uint8_t ups_st[UPS_NSLOT];                       /* each slot: 0 not checked, 1 a plate there, 2 none (or a transfer) */
+/* each slot: 0 not checked, 1 a plate there, 2 none (or a transfer). (In the pool, zeroed at boot: 32 slots' worth in
+ * .bss moved what lies after it, and 200 functions that reach those by a short address grew, 1.4 KB in all) */
+#ifndef UPS_POOL                                        /* (a host test's build has no pool: tests/plate_slot_test.c) */
+#define UPS_POOL __attribute__((section(".pool")))
+#endif
+static uint8_t ups_st[UPS_NSLOT] UPS_POOL;
 static uint32_t ups_len, ups_got = 0xFFFFFFFFu;         /* a transfer: the image's length, the bytes written (none: ~0) .. */
 static uint8_t ups_ws;                                  /* .. into this slot */
 static uint8_t boot_clean;                              /* (main.c's: no crash, hang or failed boot before this one) */
@@ -94,7 +101,7 @@ static uint32_t ups_begin(uint32_t i, uint32_t len)
     ups_st[i] = 2;                                      /* (nothing runs from the slot while it changes) */
     ups_gen++;
     ups_got = 0xFFFFFFFFu;
-    if (st_erase(UPS_OFF(i)) || st_erase(UPS_OFF(i) + 0x1000u))
+    if (st_erase(UPS_OFF(i)))
         return 4;
     ups_ws = (uint8_t)i;
     ups_len = len;
@@ -130,8 +137,7 @@ static uint32_t ups_end(uint32_t i, uint32_t crc)
     ups_gen++;
     if (ups_check(i))                                   /* (read back: the CRC over what the flash holds, the header) */
         return 0;
-    (void)st_erase(UPS_OFF(i) + UPS_REC);               /* (refused: never left half there; its record's sector first) */
-    (void)st_erase(UPS_OFF(i));
+    (void)st_erase(UPS_OFF(i));                         /* (refused: never left half there) */
     ups_st[i] = 2;
     return 2;
 }
@@ -143,6 +149,5 @@ static uint32_t ups_erase(uint32_t i)
     ups_gen++;
     if (i == ups_ws)
         ups_got = 0xFFFFFFFFu;
-    return st_erase(UPS_OFF(i) + UPS_REC) || st_erase(UPS_OFF(i)) ? 4u : 0u;   /* (the record's sector first: none
-                                                         * there, the slot reads empty whatever follows) */
+    return st_erase(UPS_OFF(i)) ? 4u : 0u;
 }

@@ -356,14 +356,16 @@ static __attribute__((noinline)) void ui_leds(void)
         led_pos_init();
         ready = 1;
     }
-    if (UMB_ON && umt_shown()) {                        /* (UMBRA LIVE) TOTALITY: dark, but the keys of the notes that
-                                                         * sound, FX while its knobs are the effects, REC armed */
+    if (UMB_ON && umt_shown()) {                        /* (UMBRA LIVE) TOTALITY: the keys of the notes that sound, FX
+                                                         * while its knobs are the effects, REC armed, SEL ENV ARP LFO
+                                                         * EDIT as LIVE VIZ CTRLS' BUTTONS say */
         c = key_leds(0);
         for (k = 0; k < 27u; k++)
             led_put(nl, 14u + k, (int)((c >> k) & 1u));
         led_put(nl, panel.btn[B_FX], umt.fx);
         led_put(nl, panel.btn[B_SEQ], umt.info);
-        led_put(nl, panel.btn[B_SCL], !umt.lh && (umc.lay[0] | umc.lay[1] | umc.lay[2]));
+        for (k = 0; k < 5u; k++)                        /* SEL ENV ARP LFO EDIT: as their BUTTONS say */
+            led_put(nl, panel.btn[UMT_BB[k]], umt_blit(k));
         led_put(nl, panel.btn[B_REC], song.rec != 0u);
         for (c = 0; c < FM1_NCOL; c++) {
             fm1_led_dim[c] = fm1_led_breath[c] = fm1_led_hi[c] = fm1_led_mid[c] = 0;
@@ -2976,12 +2978,12 @@ static void ui_input_frame(void)
     }
     if (lytap && UMB_ON && umt.on && lytap == LAYER_FX)   /* (UMBRA LIVE) TOTALITY: FX, the knobs' effects */
         umt_fx_tap();
-    else if (lytap && UMB_ON && umt.on && lytap == LAYER_SCL)   /* .. SCL, JIANT's beings over the plate */
-        umt_scl_tap();
-    else if (lytap && UMB_ON && umt.on && (lytap == LAYER_MACRO || lytap == LAYER_EDIT) && umq_tap(lytap == LAYER_EDIT ? 2u : 1u))
-        ;                                               /* .. LFO, EDIT: a route's tap (LIVE VIZ CTRLS) */
+    else if (lytap && UMB_ON && umt.on && (lytap == LAYER_SCL || lytap == LAYER_MACRO || lytap == LAYER_EDIT))
+        ;                                               /* .. SEL, LFO, EDIT: umt_btns's */
     else if (lytap)                                     /* a layer's button acts on release (held: the layer) */
         layer_tap(lytap);
+    if (UMB_ON && umt.on && !ui.menu && !ui.confirm && bt_hw_seg())
+        umt_btns();                                     /* (UMBRA LIVE) TOTALITY: SEL ENV ARP LFO EDIT, LIVE VIZ CTRLS' BUTTONS */
     if (UMB_ON && umt.on && seq == BT_TAP)              /* (UMBRA LIVE) TOTALITY: SEQ the words at the foot, no page */
         umt_seq_tap();
     else if (seq == BT_TAP || seq == BT_HOLD)           /* (SONG: SAVE held, G5) */
@@ -2994,7 +2996,7 @@ static void ui_input_frame(void)
         if (!((pressed >> id) & 1u))
             continue;
         b = panel_btn_of(id);
-        if (UMB_ON && umt.on && b == B_ENV && umt_shown() && umq_tap(0))   /* (UMBRA LIVE) TOTALITY: ENV, a route's tap */
+        if (UMB_ON && umt.on && (b == B_ENV || b == B_ARP))   /* (UMBRA LIVE) TOTALITY: ENV, ARP: umt_btns's, no page */
             continue;
         switch (b) {
         case B_PLAY:

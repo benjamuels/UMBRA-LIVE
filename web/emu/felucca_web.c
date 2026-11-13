@@ -532,6 +532,10 @@ EXPORT uint32_t web_umb_get(uint32_t i)                /* (UMBRA LIVE) 99: the g
         return i == 70u ? chain_config.count : (uint32_t)(uint8_t)umx_rec(i == 71u ? UMX_SCREEN : UMX_FX)->ld[UMV_GL + (i == 73u)];
     if (i == 80u || i == 81u)                           /* (80: LAYER 1's page (63: none); 81: the ground's preset) */
         return i == 80u ? (umx_layers(), umx_lp[0]) : pl != UMB_NONE ? umx_pre(pl) : 0u;
+    if (i == 82u || i == 83u)                           /* (82: TOTALITY's hidden layers (bits: MAIN OVER LAYER 3), its buttons'
+                                                         * lights << 4 (SEL ENV ARP LFO EDIT); 83: LAYER 3's page) */
+        return i == 83u ? (umx_layers(), umx_lp[2]) : umt.lh | (uint32_t)umt_blit(0) << 4 | (uint32_t)umt_blit(1) << 5 |
+               (uint32_t)umt_blit(2) << 6 | (uint32_t)umt_blit(3) << 7 | (uint32_t)umt_blit(4) << 8;
     return i == 99u ? pl : i == 90u ? UMX_N : i >= 100u ? (uint32_t)umx_desc(i - 100u, &d) : i == 2u ? umg_raw(G_LIGHT)
            : i < 18u && pl != UMB_NONE ? umx_raw(pl, i >= 10u ? i - 10u : i == 3u ? 2u : i) : 0u;
 }

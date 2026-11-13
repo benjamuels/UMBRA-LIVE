@@ -11408,7 +11408,7 @@ static int test_skin(void)
         turn(EN_PRESET, 1);                                        /* (2026-11-13: PRESETS the MAIN plate, SELECT OVER's) */
         ok &= umb_pl() == (pl + 1u) % UMP_NPL && umt.on;
         turn(EN_PRESET, -1); turn(EN_PRESET, -1);
-        ok &= umb_pl() == UMP_NPL + 10u;                           /* (round: the bank's last, PACHINKO) */
+        ok &= umb_pl() == UMP_NPL + 26u;                           /* (round: the bank's last, MURMUR) */
         turn(EN_PRESET, 1);
         turn(EN_SELECT, 1);                                        /* (OVER: a plate on LAYER 1, MAIN as it was; back: OFF) */
         ok &= umb_pl() == pl && umc.lay[0] && umt.on;
@@ -11433,51 +11433,64 @@ static int test_skin(void)
         ok &= umt.on && !umt.info && !led_of(fm1_led, panel.btn[B_SEQ]);   /* (SEQ again: the words off) */
         press(B_HOME); frame();
         ok &= !umt.on && ui.home && ui.hset[0] == 1u && !ui.hlv;   /* (MACROS - AUDIO again) */
-        press(B_HOME); frame(); press(B_EDIT); frame();
-        ok &= umt.on && ui.home;                                   /* (EDIT's tap a route's, at first: TOTALITY stays) */
-        umx_rec(UMX_FX)->ls[2] = 0;                                /* (no link takes it: EDIT's own tap, its page) */
+        press(B_HOME); frame(); press(B_EDIT);
+        ok &= umt.on && ui.home && umq.tap[2] > 200u;              /* (EDIT: TAP at first, its link MOSAIC fires; TOTALITY stays) */
+        umx_rec(UMX_FX)->ls[2] = 0;                                /* (no link takes it: still TOTALITY, 2026-11-13) */
         press(B_EDIT); frame();
-        ok &= !umt.on && !ui.home;
+        ok &= umt.on && ui.home;
+        press(B_HOME); frame();
         memset(&umc, 0, sizeof umc);
         favorites.factory[4][16] = 0;
         macro_v[2] = 0;
-        bad += check("(UMBRA LIVE) TOTALITY: HOME on HOME; PRESETS the MAIN plates round, SELECT OVER's, KNOBs the macros, FX effects; LEDs dark; HOME back; EDIT ends it", ok);
+        bad += check("(UMBRA LIVE) TOTALITY: HOME on HOME; PRESETS the MAIN plates round, SELECT OVER's, KNOBs the macros, FX effects; LEDs dark; HOME back; EDIT a tap, TOTALITY stays", ok);
     }
-    {   /* (UMBRA LIVE) TOTALITY: SCL tapped, the selected track's being over the plate (HOME > BEING's; SCL lit), fading in
-         * over half a second; tapped again, fading out; SCL held: its layer, the being as it was; left and entered again: as it was */
+    {   /* (UMBRA LIVE, the user 2026-11-13) TOTALITY's SEL ENV ARP (LIVE VIZ CTRLS' BUTTONS, at first LAYER 3, OVER, MAIN):
+         * tapped, the layer hidden or back over half a second, lit while it shows something (LAYER 3 empty: BODIES laid on
+         * it); held, the next plate there; LFO's tap its link, INVERT (the strobe); kept on leaving */
         uint32_t a;
         ui_power_on(); frame();
         memset(&umc, 0, sizeof umc);
         umt.lh = 0;
-        umt.ba = 0;
+        umt.ba[0] = umt.ba[1] = umt.ba[2] = 256u;
         umb_plate = 0x80u;                                         /* (CINDER) */
         memset(led_pos, 0xFF, sizeof led_pos);
         led_pos[panel.btn[B_SCL]] = 0u << 3 | 5u;
+        led_pos[panel.btn[B_ENV]] = 0u << 3 | 3u;
+        led_pos[panel.btn[B_ARP]] = 0u << 3 | 6u;
+        led_pos[panel.btn[B_LFO]] = 0u << 3 | 7u;
         nav_go(SEC_HOME, 0, 0); frame();
         press(B_HOME); frames(32); ui_leds();
-        ok = umt.on && !umt.lh && !led_of(fm1_led, panel.btn[B_SCL]);   /* (nothing on any layer yet: SCL dark) */
+        ok = umt.on && !umt.lh && !led_of(fm1_led, panel.btn[B_SCL]) && !led_of(fm1_led, panel.btn[B_ENV]) &&
+             led_of(fm1_led, panel.btn[B_ARP]) && !led_of(fm1_led, panel.btn[B_LFO]);   /* (MAIN shows: ARP lit) */
+        umt.ba[2] = 0;
         press(B_SCL); frames(160); ui_leds();
-        a = umt.ba;                                                /* (BODIES laid on LAYER 3: part way in) */
-        ok &= umt.on && ui.home && !umt.lh && umx_place(UMX_BODY) == 4u && a > 40u && a < 160u && led_of(fm1_led, panel.btn[B_SCL]);
+        a = umt.ba[2];                                             /* (BODIES laid on LAYER 3: part way in) */
+        ok &= umt.on && ui.home && !umt.lh && umx_place(UMX_BODY) == 4u && a > 40u && a < 200u && led_of(fm1_led, panel.btn[B_SCL]);
         frames(400);
-        ok &= umt.ba == 256u;
+        ok &= umt.ba[2] == 256u;
         press(B_SCL); frames(160); ui_leds();
-        a = umt.ba;                                                /* (part way out) */
-        ok &= umt.on && umt.lh && a > 96u && a < 216u && !led_of(fm1_led, panel.btn[B_SCL]);
+        a = umt.ba[2];                                             /* (part way out) */
+        ok &= umt.on && umt.lh == 4u && a > 56u && a < 216u && !led_of(fm1_led, panel.btn[B_SCL]);
         frames(400);
-        ok &= !umt.ba;
+        ok &= !umt.ba[2] && umt.ba[0] == 256u;
         press(B_SCL); frames(600);
-        hold(B_SCL); frames(32);
-        ok &= umt.on && !umt.lh && umt.ba == 256u;                 /* (held: the scale's layer, no toggle) */
+        hold(B_SCL); frames(32);                                   /* (held: the next on LAYER 3, a plate; shown) */
+        ok &= umt.on && !umt.lh && umx_place(UMX_BODY) != 4u && umc.lay[2];
+        hold(B_ENV); frames(32); ui_leds();                        /* (ENV held: a plate on OVER, ENV lit; no page) */
+        ok &= umt.on && ui.home && umc.lay[0] && led_of(fm1_led, panel.btn[B_ENV]);
+        press(B_ENV); frames(32); ui_leds();
+        ok &= umt.on && umt.lh == 2u && !led_of(fm1_led, panel.btn[B_ENV]);
+        press(B_ENV); press(B_ARP); frames(32); ui_leds();         /* (ARP: the ground hidden, ARP dark; no page) */
+        ok &= umt.on && ui.home && umt.lh == 1u && !led_of(fm1_led, panel.btn[B_ARP]) && umb_pl() == 0u;
+        press(B_LFO); ui_leds();                                   /* (LFO: TAP, INVERT at once, lit while it lasts) */
+        ok &= umt.on && umq.tap[1] > 200u && led_of(fm1_led, panel.btn[B_LFO]) && umq_o[G_INV] >= 50u;
+        frames(600);
         press(B_HOME); frame(); press(B_HOME); frames(32); ui_leds();
-        ok &= umt.on && !umt.lh && umt.ba == 256u && led_of(fm1_led, panel.btn[B_SCL]);   /* (entered again: still shown) */
-        press(B_SCL); frames(600);
-        press(B_HOME); frame(); press(B_HOME); frames(32);
-        ok &= umt.on && umt.lh && !umt.ba;                         /* (.. and hidden, still hidden) */
+        ok &= umt.on && umt.lh == 1u && !umt.ba[0];                /* (entered again: as it was) */
         memset(&umc, 0, sizeof umc);
         umt.lh = 0;
         press(B_HOME); frame();
-        bad += check("(UMBRA LIVE) TOTALITY: SCL the being over the plate (lit), half a second's fade in and out; held its layer; kept on leaving", ok);
+        bad += check("(UMBRA LIVE) TOTALITY: SEL ENV ARP show or hide LAYER 3, OVER, MAIN (lit, half a second's fade), held the next plate; LFO's tap the strobe; kept on leaving", ok);
     }
     {   /* (UMBRA LIVE, the user 2026-11-09) HOME: WELCOME . UMBRA (MACROS - AUDIO, MACROS - VISUALS, BEING, ROUTES) . GEN
          * (GEN 1..3), one chain by SELECT, WELCOME at power-on; WELCOME and the MACROS pages: no knobs (KNOB 1..4 turn
@@ -11543,9 +11556,9 @@ static int test_skin(void)
         memset(macro_v, 0, sizeof macro_v);
         umb_plate = 0x80u;                                         /* (CINDER) */
         {                                                          /* (the links at first: KNOB 1..3 a plate's first three, */
-            const umc_rec_t *r = umx_rec(0u), *sc = umx_rec(UMX_SCREEN), *fx = umx_rec(UMX_FX);   /* KNOB 4 LIGHT down, ENV TAP INVERT) */
+            const umc_rec_t *r = umx_rec(0u), *sc = umx_rec(UMX_SCREEN), *fx = umx_rec(UMX_FX);   /* KNOB 4 LIGHT down, LFO TAP INVERT) */
             ok = r->ls[0] == UMQ_M1 && r->ld[0] == 99 && r->ls[2] == ((UMQ_M1 + 2u) | 2u << 5) && !r->ls[3] &&
-                 sc->ls[0] == UMQ_M1 + 3u && sc->ld[0] == -99 && fx->ls[0] == (UMQ_TAP | (G_INV - G_MIR) << 5) && fx->ld[0] == 99;
+                 sc->ls[0] == UMQ_M1 + 3u && sc->ld[0] == -99 && fx->ls[0] == ((UMQ_TAP + 1u) | (G_INV - G_MIR) << 5) && fx->ld[0] == 99;
         }
         nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(32);
         ok &= umt.on && umq_o[G_LIGHT] == umg_raw(G_LIGHT) && t_el(0u, 0u) == umx_raw(0u, 0u);   /* (the macros at 0: as set) */
@@ -11553,8 +11566,8 @@ static int test_skin(void)
         turn(EN_K4, 127); turn(EN_K1, 127); frames(32);
         ok &= macro_v[3] == 127u && macro_v[0] == 127u && umq_o[G_LIGHT] == 0u && t_el(0u, 0u) == 99u && str_eq(umt.say, "KNOB 1 100");
         ok &= umg_raw(G_LIGHT) == 99u;                             /* (LIGHT as set, kept) */
-        press(B_ENV); frame();                                     /* (ENV tapped: its route fires, TOTALITY stays) */
-        ok &= umt.on && umq.tap[0] > 128u;
+        press(B_LFO); frame();                                     /* (LFO tapped: its route fires, TOTALITY stays) */
+        ok &= umt.on && umq.tap[1] > 128u;
         press(B_HOME); frame();
         memset(macro_v, 0, sizeof macro_v);
         nav_go(SEC_HOME, 1, 0); frame();                           /* LIVE AUDIO CTRLS */
@@ -11636,7 +11649,7 @@ static int test_skin(void)
         memset(&umc, 0, sizeof umc);
         for (k = 0; k < NTRK; k++) memset(&trk[k].p[P_M1SRC], 0, 12u * sizeof trk[k].p[0]);
         trk[0].p[P_MSLEN] = 16;
-        bad += check("(UMBRA LIVE) LIVE CTRLS: TOTALITY's knobs M1..M4, ENV TAP; VIZ at first the plate as set; AUDIO SLOT, SOURCE, DEST, AMOUNT, ALGORITHM the track, SETUP by OCT+; VIZ ROUTE, ALGORITHM the plate, hits and steps, routes adding", ok);
+        bad += check("(UMBRA LIVE) LIVE CTRLS: TOTALITY's knobs M1..M4, LFO TAP; VIZ at first the plate as set; AUDIO SLOT, SOURCE, DEST, AMOUNT, ALGORITHM the track, SETUP by OCT+; VIZ ROUTE, ALGORITHM the plate, hits and steps, routes adding", ok);
     }
     {   /* (UMBRA LIVE) NOTE MOVEMENT (its page, HOME > ECO > NOTES, gone: set here as it set it): STATIC MOVE DRIFT RANDOM (MOVE at first);
          * STATIC: no offset, a plate's places as ever; MOVE: a note a step along the track's own path (each track its own);
@@ -11835,7 +11848,11 @@ static int test_skin(void)
              umb_mod(4u) == &umb_plate_corona && umb_mod(0u) == &umb_plate_cinder && umb_mod(5u) == &umb_plate_tarn &&
              str_eq(umb_pname(3u), "GRANULE") && str_eq(umb_mod(1u)->ctl[0].name, "SPIN") && umb_plate_cinder.api == UMB_API &&
              umb_has(UMP_NPL + 5u) && str_eq(umb_pname(UMP_NPL + 5u), "BEACON") && umb_has(UMP_NPL + 10u) &&   /* (the six line-art ones) */
-             str_eq(umb_pname(UMP_NPL + 10u), "PACHINKO") && !umb_has(UMP_NPL + 11u);
+             str_eq(umb_pname(UMP_NPL + 10u), "PACHINKO") &&
+             umb_has(UMP_NPL + 11u) && str_eq(umb_pname(UMP_NPL + 11u), "SEPIA") && umb_mod(UMP_NPL + 18u)->kind == UMB_KIND_FIELD &&   /* (the
+                                                                     * eight fluid grounds, the layer made for each) */
+             umb_mod(UMP_NPL + 19u)->kind == UMB_KIND_OVERLAY && str_eq(umb_pname(UMP_NPL + 19u), "KOI") && umb_has(UMP_NPL + 26u) &&
+             str_eq(umb_pname(UMP_NPL + 26u), "MURMUR") && !umb_has(UMP_NPL + 27u);
         umb_plate = (uint8_t)(0x80u | UMP_NPL);                    /* (a slot's plate, none here) */
         ok &= umb_pl() == 4u;
         umb_plate = 0x80u;

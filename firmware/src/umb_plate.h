@@ -24,7 +24,7 @@
                                                          * and the beat in the context, UMB_EL_* in the header; 4: the
                                                          * plate's own line of description and its presets in the header;
                                                          * 5: how lively it reads and its still picture in the header) */
-#define UMB_SPL 64u                                     /* (API 5) a plate's still picture: UMB_SPL px square; 16 colours as
+#define UMB_SPL 32u                                     /* (API 5) a plate's still picture: UMB_SPL px square; 16 colours as
                                                          * the panel takes them (RGB565, the high byte first), then its
                                                          * rows, a nibble a pixel (the left one the byte's high) */
 #define UMB_SPL_BYTES (32u + UMB_SPL * UMB_SPL / 2u)

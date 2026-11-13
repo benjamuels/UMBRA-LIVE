@@ -67,7 +67,7 @@ static void uma_knob(uint32_t k, int32_t s)             /* KNOB k turned s: the 
 
 /* ------------------------------------------------------------------------------------ LIVE VIZ CTRLS --- */
 static struct {
-    uint16_t hit[NTRK], tap[3];                         /* each track's hits, the three taps, falling off (Q8) */
+    uint16_t hit[NTRK], tap[5];                         /* each track's hits, the five taps, falling off (Q8) */
     uint32_t qr, ms;                                    /* the notes read; the last frame's time */
 } umq __attribute__((section(".pool")));
 static uint8_t umx_pg = 0xFFu;                          /* the page chosen (a plate's number, UMX_*; 0xFF: not yet) */
@@ -83,7 +83,7 @@ static void umq_tick(void)
     umq.ms = fm1_ms;
     for (c = 0; c < NTRK; c++)                          /* (a hit falls off over 0.3 s) */
         umq.hit[c] = (uint16_t)(umq.hit[c] > dt * 256u / 300u ? umq.hit[c] - dt * 256u / 300u : 0u);
-    for (c = 0; c < 3u; c++)                            /* (a tap over 0.4 s) */
+    for (c = 0; c < 5u; c++)                            /* (a tap over 0.4 s) */
         umq.tap[c] = (uint16_t)(umq.tap[c] > dt * 256u / 400u ? umq.tap[c] - dt * 256u / 400u : 0u);
     if (umb_q.w - umq.qr > UMB_NQ)
         umq.qr = umb_q.w - UMB_NQ;
@@ -104,7 +104,7 @@ static void umq_tick(void)
     umq_s[UMQ_LEVEL] = (int16_t)bg_energy();
     c = beat_samples();                                 /* BEAT: full on the beat, falling to the next (stopped: 0) */
     umq_s[UMQ_BEAT] = (int16_t)(song.playing && c ? 256 - (int32_t)(ms_clock % c * 256u / c) : 0);
-    for (c = 0; c < 3u; c++)
+    for (c = 0; c < 5u; c++)
         umq_s[UMQ_TAP + c] = (int16_t)umq.tap[c];
     for (pg = 0; pg < 2u; pg++) {
         const umc_rec_t *r = umx_rec(UMX_SCREEN + pg);
@@ -112,7 +112,7 @@ static void umq_tick(void)
             umq_o[pg * 8u + j] = (uint8_t)umc_ev(r, j, UMX_C[1u + pg][j].def, umx_max(UMX_SCREEN + pg, j));
     }
 }
-/* TOTALITY: ENV (0), LFO (1) or EDIT (2) tapped. 1: a link takes that tap (it fires: the button's own tap is left out) */
+/* TOTALITY: ENV (0), LFO (1), EDIT (2), SEL (3) or ARP (4) tapped, set to TAP. 1: a link takes that tap (it fires) */
 static int umq_tap(uint32_t i)
 {
     uint32_t r, k;
@@ -124,6 +124,54 @@ static int umq_tap(uint32_t i)
                 return 1;
             }
     return 0;
+}
+/* BUTTONS' button i (SEL ENV ARP LFO EDIT): what it does, UMX_BF's; its tap's source (UMQ_TAP + ..) */
+static const uint8_t UMT_BB[5] = {B_SCL, B_ENV, B_ARP, B_LFO, B_EDIT}, UMT_BQ[5] = {3, 0, 4, 1, 2};
+static uint32_t umt_bf(uint32_t i) { return umx_raw(UMX_BTN, i); }
+static int umt_lay_on(uint32_t f)                       /* layer f (UMX_BF: MAIN, OVER, LAYER 3) has something */
+{
+    umc_load();
+    return f ? umc.lay[f * 2u - 2u] != 0u : umb_pick() != UMB_NONE;
+}
+/* each input pass in TOTALITY (none over it): the five buttons. A layer's: tapped, it hides or shows (LAYER 3 shown with
+ * nothing there: BODIES laid on it); held 0.5 s, the next plate there, then every 0.6 s. TAP's: tapped, its links fire
+ * (held: its layer, ui_layer.c). ENV and ARP are no page's here (ui_input.c lets them be) */
+BTAPP_FN static void umt_btns(void)
+{
+    uint32_t i, f;
+    for (i = 0; i < 5u; i++) {
+        f = umt_bf(i);
+        if ((fm1_in.buttons >> panel.btn[UMT_BB[i]]) & 1u) {
+            if (!umt.bt[i])
+                umt.bt[i] = fm1_ms | 1u;
+            else if (f < 3u && (int32_t)(fm1_ms - umt.bt[i]) >= 500) {
+                umt_select(1, f | 4u);
+                umt.bt[i] = (fm1_ms + 100u) | 1u;       /* (the next in 0.6 s) */
+                umt.bh |= (uint8_t)(1u << i);
+            }
+        } else if (umt.bt[i]) {
+            if (!(umt.bh >> i & 1u)) {
+                if (f == 3u)
+                    (void)umq_tap(UMT_BQ[i]);
+                else {
+                    if (f == 2u && !umt_lay_on(2u)) {
+                        umx_place_set(UMX_BODY, 4u);
+                        umt.lh |= 4u;                   /* (shown below: it fades in from where it was) */
+                    }
+                    umt.lh ^= (uint8_t)(1u << f);
+                    umt_say(UMX_BF[f], umt.lh >> f & 1u ? "OFF" : "ON");
+                }
+            }
+            umt.bt[i] = 0;
+            umt.bh &= (uint8_t)~(1u << i);
+        }
+    }
+}
+/* (ui_input.c ui_leds) button i lit: its layer shows something; TAP: its tap lasting */
+static int umt_blit(uint32_t i)
+{
+    uint32_t f = umt_bf(i);
+    return f == 3u ? umq.tap[UMT_BQ[i]] != 0u : !(umt.lh >> f & 1u) && umt_lay_on(f);
 }
 /* SAVE > SONG > TIMELINE's picture tracks (the user, 2026-11-13): past T6, ALGORITHM reaches MAIN and OVER, a cell a row
  * each: the plate that is the ground, and the one on LAYER 1, from that row on (umv_apply). KNOB 4 there turns the cell's
@@ -203,11 +251,14 @@ static uint32_t umx_cur(void)                           /* the page chosen (at f
 }
 /* the chosen element j's control row ct: 0 SET, 1 NOTES (notes: it has one), 2 a link (*li: which), 3 + ADD (*li: a free
  * link), 4: past its last */
+#define UMX_NT(d, j) ((d).el ? (int)((d).el[j] & (UMB_EL_NOTES | 0x80u)) : 0)   /* (umx_row's notes) */
 static uint32_t umx_row(const umc_rec_t *r, uint32_t j, int notes, uint32_t ct, uint32_t *li)
 {
     uint32_t i;
     if (!ct)
         return 0;
+    if (notes > 1)                                      /* (BUTTONS: SET alone) */
+        return 4;
     if (notes && !--ct)
         return 1;
     for (i = 0; i < UMC_NL; i++)
@@ -224,7 +275,7 @@ static uint32_t umx_row(const umc_rec_t *r, uint32_t j, int notes, uint32_t ct, 
 }
 static void umx_src(char *b, uint32_t s)                /* a source's name (12 bytes) */
 {
-    static const char *const SL[5] = {"LEVEL", "BEAT", "ENV TAP", "LFO TAP", "EDIT TAP"};
+    static const char *const SL[7] = {"LEVEL", "BEAT", "ENV TAP", "LFO TAP", "EDIT TAP", "SEL TAP", "ARP TAP"};
     static const char *const SN[3] = {"HIT", "LFO", "STEP"};
     if (!s)
         str_cpy(b, "OFF", 12);
@@ -241,7 +292,7 @@ static void umx_src(char *b, uint32_t s)                /* a source's name (12 b
 static void umx_fmt(char *b, uint32_t pl, uint32_t j, uint32_t v)   /* page pl's element j's value v, as words */
 {
     if (umx_max(pl, j) == 3u)
-        str_cpy(b, (pl == UMX_SCREEN ? UMN_MV : UMT_MIRN)[v & 3u], 12);
+        str_cpy(b, (pl == UMX_SCREEN ? UMN_MV : pl == UMX_BTN ? UMX_BF : UMT_MIRN)[v & 3u], 12);
     else if (umx_max(pl, j) == NTRK) {
         str_cpy(b, "SEL", 12);
         if (v)
@@ -298,7 +349,7 @@ static void umx_knob(uint32_t k, int32_t s)
     }
     j = umx_el - 1u;
     r = umx_recf(pl, k >= 2u);                          /* (a preset not changed yet: its own record now) */
-    notes = d.el && (d.el[j] & UMB_EL_NOTES);
+    notes = UMX_NT(d, j);
     row = umx_row(r, j, notes, umx_ct, &li);
     if (k == 1u) {
         if (s < 0 ? umx_ct : umx_row(r, j, notes, umx_ct + 1u, &li) < 4u)
@@ -363,7 +414,7 @@ static int umx_names(char (*b)[12])
         return 1;
     }
     r = umx_rec(pl);
-    row = umx_row(r, j, d.el && (d.el[j] & UMB_EL_NOTES), umx_ct, &li);
+    row = umx_row(r, j, UMX_NT(d, j), umx_ct, &li);
     if (row == 0u) {
         str_cpy(b[1], "SET", 12);
         umx_fmt(b[3], pl, j, umx_raw(pl, j));
@@ -433,7 +484,7 @@ static void umz_input(uint32_t oct)
             umx_desc_t d;
             uint32_t li;
             (void)umx_desc(umx_cur(), &d);
-            for (umx_ct = 0; umx_row(umx_rec(umx_pg), umx_el - 1u, d.el && (d.el[umx_el - 1u] & UMB_EL_NOTES), umx_ct + 1u, &li) < 4u; umx_ct++) {}
+            for (umx_ct = 0; umx_row(umx_rec(umx_pg), umx_el - 1u, UMX_NT(d, umx_el - 1u), umx_ct + 1u, &li) < 4u; umx_ct++) {}
         }
         if (!umz)
             ui_message("CONTROL SET");
@@ -538,7 +589,7 @@ static void umx_draw(int32_t x0, int32_t y, int32_t bot)
         for (i = umx_ct >= rows ? umx_ct - rows + 1u : 0u, k = i + rows, yy = y; i < k; i++, yy += UMK_RH) {
             uint16_t col = i == umx_ct ? T_THEME : T_TEXT;
             uint32_t j = umx_el - 1u;
-            row = umx_row(r, j, d.el && (d.el[j] & UMB_EL_NOTES), i, &li);
+            row = umx_row(r, j, UMX_NT(d, j), i, &li);
             if (row == 4u)
                 break;
             b[0] = 0;
@@ -574,18 +625,19 @@ static void umx_draw(int32_t x0, int32_t y, int32_t bot)
  * the new plate's box and its words coming in from the side. It is LIVE VIZ CTRLS' page too */
 /* a plate's still picture (umb_plate_t.splash, API 5) at x, y on the canvas; a plate with none (CORONA, an older file):
  * a ring of light round a black disc */
+#define UMX_SB 64                                       /* PLATES' side boxes: a picture's side as drawn */
 BTAPP_FN static void umx_splash(const umb_plate_t *p, int32_t x, int32_t y)
 {
     const uint8_t *sp = p->api >= 5u ? p->splash : 0;
     int32_t i, j;
     y += cv_oy;
-    for (j = 0; j < (int32_t)UMB_SPL; j++)
-        for (i = 0; i < (int32_t)UMB_SPL; i++) {
+    for (j = 0; j < UMX_SB; j++)                        /* (its pixels doubled: the box is twice its side) */
+        for (i = 0; i < UMX_SB; i++) {
             uint32_t c;
             if ((uint32_t)(x + i) >= cv_w || (uint32_t)(y + j) >= cv_h)
                 continue;
             if (sp) {
-                c = (sp[32 + j * 32 + (i >> 1)] >> (i & 1 ? 0 : 4) & 15u) * 2u;
+                c = (sp[32 + (j >> 1) * (UMB_SPL / 2u) + (i >> 2)] >> (i & 2 ? 0 : 4) & 15u) * 2u;
                 c = sp[c] | (uint32_t)sp[c + 1u] << 8;
             } else {
                 c = (uint32_t)((i - 32) * (i - 32) + (j - 32) * (j - 32));
@@ -631,11 +683,11 @@ BTAPP_FN static void umx_list(int32_t x0, int32_t y, int32_t bot)   /* (in the B
             continue;
         }
         if (i < 0)                                      /* (a neighbour: a smaller box against the middle one, its still */
-            x += UMX_BW - (int32_t)UMB_SPL;             /* picture in it, its name under it) */
-        m = y + (bh - (int32_t)UMB_SPL) / 2 - 6;
-        cv_frame(x - 1, m - 1, (int32_t)UMB_SPL + 2, (int32_t)UMB_SPL + 2, T_LINE);
+            x += UMX_BW - UMX_SB;             /* picture in it, its name under it) */
+        m = y + (bh - UMX_SB) / 2 - 6;
+        cv_frame(x - 1, m - 1, UMX_SB + 2, UMX_SB + 2, T_LINE);
         umx_splash(p, x, m);
-        cv_text(i < 0 ? x + (int32_t)UMB_SPL - text_w(&AF_X, p->name) : x, m + (int32_t)UMB_SPL + 4, &AF_X, p->name, T_MID);
+        cv_text(i < 0 ? x + UMX_SB - text_w(&AF_X, p->name) : x, m + UMX_SB + 4, &AF_X, p->name, T_MID);
     }
     p = umb_mod(cur);
     x = bx + UMX_BW / 2;

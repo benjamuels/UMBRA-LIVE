@@ -1143,20 +1143,20 @@ flash write, also while playing): the track's lyric starts over at its next note
 
 ## Plates (UMBRA LIVE, 96-100)
 
-UMBRA LIVE's plate bank (`firmware/src/umb_slot.c`, `editor_plate.c`; plans/umbra-plate-bank.md, phase 2): 16 slots of
-8 KiB (two sectors) each, flash 0xB8000..0xD7FFF (JIANT's projects 5..8, retired: UMBRA keeps four projects), each holding a
+UMBRA LIVE's plate bank (`firmware/src/umb_slot.c`, `editor_plate.c`; plans/umbra-plate-bank.md, phase 2): 32 slots of
+4 KiB (one sector) each (16 of 8 KiB before the fluid plates: LIST's reply gives the count), flash 0xB8000..0xD7FFF (JIANT's projects 5..8, retired: UMBRA keeps four projects), each holding a
 plate file run where it lies. A plate file is a plate built alone against `firmware/src/umb_plate.h` and linked for slot 0
-(`tools/build.py` plate_files, `firmware/plate.ld`): its header (`umb_plate_t`, magic "UPLT") first, at most 8160 bytes,
-whole words. After the image the file lists the words that hold an address in it (u32 offsets), then their count, the
+(`tools/build.py` plate_files, `firmware/plate.ld`): its header (`umb_plate_t`, magic "UPLT") first, at most 4064 bytes
+(8160 in the bank of 16), whole words. After the image the file lists the words that hold an address in it (u32 offsets), then their count, the
 magic "URLC" (0x434C5255) and the image's length (u32 each, little-endian). The sender adds the slot's distance
-(slot x 0x2000) to each listed word and sends the image alone. A slot holding a plate of a known name (CINDER, SAROS,
+(slot x the slot's size: 0x1000, or 0x2000 in the bank of 16) to each listed word and sends the image alone. A slot holding a plate of a known name (CINDER, SAROS,
 FILAMENT, GRANULE, TARN) is that plate; another name is a plate of its own after the six. CORONA is built into the
 firmware. The page that sends them is `web/plates.html` (on the site: webapp/plates/, with the plate files CI built and
 `plates.json`, their names).
 
 | cmd | args | reply |
 | --- | --- | --- |
-| 96 PLATE_LIST | [first slot] (0 if none) | API (the firmware's plate API version), slots (16), the first slot listed, then for up to 8 slots from it: state (0 empty, 1 a plate, 2 a plate held back: the FM-1 has not started cleanly since, main.c boot_clean), name string, length (u32) |
+| 96 PLATE_LIST | [first slot] (0 if none) | API (the firmware's plate API version), slots (32), the first slot listed, then for up to 8 slots from it: state (0 empty, 1 a plate, 2 a plate held back: the FM-1 has not started cleanly since, main.c boot_clean), name string, length (u32) |
 | 97 PLATE_BEGIN | slot, length (u32) | slot, rc. Erases the slot (stops the transport; allow 1 s). Nothing runs from the slot until END |
 | 98 PLATE_WRITE | slot, offset (u32), the bytes 7-bit packed (as BACKUP_PUT: groups of a top-bits byte and up to 7 bytes), up to 256 | slot, rc. In order: each offset where the last write ended, into BEGIN's slot |
 | 99 PLATE_END | slot, CRC-32 (u32, zlib's) of the image as sent | slot, rc. The slot's record is written last, after the image is read back: the CRC, the header (a plate, an API the firmware has, its names, every entry point inside the slot's image: an image not moved for its slot is refused). Refused (2): the slot is erased |

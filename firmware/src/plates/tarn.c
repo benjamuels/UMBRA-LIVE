@@ -204,7 +204,7 @@ static void plt_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     for (i = 0; i < 8; i++) {                           /* the stars glinting: 0.35 s, 6 steps */
         int32_t f = s->tv[i] ? pl_fade(cx->now - s->tt[i], 350u, 6u) : 0;
         if (f)
-            pl_glint(S, s->tx[i] * 256, s->ty[i] * 256, (f * (128 + (s->tv[i] >> 1)) * 230) >> 16, PL_WT);
+            pl_dot(S, s->tx[i], s->ty[i], (f * (128 + (s->tv[i] >> 1)) * 230) >> 16, PL_WT);
     }
 }
 

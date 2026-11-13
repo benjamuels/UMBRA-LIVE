@@ -36,6 +36,7 @@ run(*cc, "-w", "-Ifirmware/src", "-Ifirmware/hal", "-o", out / "plate_slot_test"
 run(out / "plate_slot_test", "image", out / "host.plate")
 plate = (out / "host.plate").read_bytes()
 bank = b"".join(build.plate_slot(plate, i) for i in range(5))
+bank += b"\xFF" * (-len(bank) % (2 * build.PLATE_SLOT))                 # (as build.py plate_bank: in pairs, the sixth empty)
 (out / "bank.bin").write_bytes(bank)
 run(out / "plate_slot_test", "bank", out / "bank.bin", 5)
 

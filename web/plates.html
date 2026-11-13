@@ -48,8 +48,9 @@
   <div id="bank"><p>Connect to see what it holds.</p></div>
 
   <h2>PLATE FILES</h2>
-  <div class="row"><div class="name"><b>Every plate</b><small>CINDER, SAROS, FILAMENT, GRANULE, TARN, BEACON, ZODIAC, SONAR,
-    MOTHS, MARSH and PACHINKO: the plates UMBRA LIVE comes with (an install loads them too). A plate already in the bank is replaced where it is.</small></div>
+  <div class="row"><div class="name"><b>Every plate</b><small>CINDER, SAROS, FILAMENT, GRANULE, TARN; BEACON, ZODIAC, SONAR,
+    MOTHS, MARSH, PACHINKO; the eight fluid plates SEPIA, GYRE, WAX, RIVULET, FATHOM, AURORA, BLOT, RAPIDS and the layer made for each,
+    KOI, BOATS, FIZZ, BOKEH, MEDUSA, RIDGE, QUILL, MURMUR: the 27 plates UMBRA LIVE comes with (an install loads them too). A plate already in the bank is replaced where it is.</small></div>
     <button id="all" class="load" disabled>Load all</button></div>
   <div id="lib"><p>Loading the list…</p></div>
   <div class="row"><div class="name"><b>A file of your own</b><small>A .plate file built for this firmware's plate API.</small></div>
@@ -75,10 +76,30 @@ const DESC = { "cinder.plate": "Cold embers: heat rising and cooling under a cru
                "moths.plate": "A lamp and its moths: a note lets one in to circle it. Lies on a layer.",
                "marsh.plate": "Water in dashes, reeds in the wind, fireflies: a note lights the water. Lies on a layer.",
                "pachinko.plate": "Stars fall through six rows of pegs into cups, a note a star. Lies on a layer.",
+               "sepia.plate": "Ink let into still water, pulled into marbled rings by two slow eddies. A note is a drop.",
+               "gyre.plate": "A whirlpool: foam wound round a dark eye, drawn in and gone. A note throws foam in.",
+               "wax.plate": "A lamp of wax in warm colours: blobs rise, join and part. A note is a blob.",
+               "rivulet.plate": "Rain on glass: beads gather, run and leave wet trails. A note is a drop.",
+               "fathom.plate": "The sea from the side: a bright surface, light let down in shafts. A note is a stone let fall.",
+               "aurora.plate": "Three curtains of northern light in green and violet. A note lights its track's curtain.",
+               "blot.plate": "Violet ink bleeding into wet paper and drying to a rim. A note is a blot.",
+               "rapids.plate": "A stream drawn by the lines of its flow, bending round eddies. A note is a streak.",
+               "koi.plate": "Koi seen from above: the nearest darts to each note. Made for SEPIA. Lies on a layer.",
+               "boats.plate": "Paper boats with lamps, carried round and down a whirlpool. Made for GYRE. Lies on a layer.",
+               "fizz.plate": "Bubbles rising and bursting, a note in each. Made for WAX. Lies on a layer.",
+               "bokeh.plate": "A city's lights out of focus; a note lights one, cars pass. Made for RIVULET. Lies on a layer.",
+               "medusa.plate": "Jellyfish that beat with the notes. Made for FATHOM. Lies on a layer.",
+               "ridge.plate": "Hills, pines and a fire under falling stars. Made for AURORA. Lies on a layer.",
+               "quill.plate": "A pen writing loops that fade, taller with pitch. Made for BLOT. Lies on a layer.",
+               "murmur.plate": "A flock of birds wheeling, swooping to each note. Made for RAPIDS. Lies on a layer.",
                "filament-ember.plate": "FIL EMBER, a test: FILAMENT with warm strings at rest." };
 const ALL = ["cinder.plate", "saros.plate", "filament.plate", "granule.plate", "tarn.plate", "beacon.plate", "zodiac.plate",
-             "sonar.plate", "moths.plate", "marsh.plate", "pachinko.plate"];
-const SLOT = 0x2000, RELOC = 0x434C5255;                /* a slot's size (umb_slot.c); a plate file's "URLC" */
+             "sonar.plate", "moths.plate", "marsh.plate", "pachinko.plate",
+             "sepia.plate", "gyre.plate", "wax.plate", "rivulet.plate", "fathom.plate", "aurora.plate", "blot.plate", "rapids.plate",
+             "koi.plate", "boats.plate", "fizz.plate", "bokeh.plate", "medusa.plate", "ridge.plate", "quill.plate", "murmur.plate"];
+const BANK = 0x20000, RELOC = 0x434C5255;               /* the bank's flash (umb_slot.c: its slots share it evenly, 16 of
+                                                         * 8 KiB before the fluid plates, 32 of 4 KiB since); a plate file's "URLC" */
+let SLOT = 0x1000;                                      /* a slot's size, once the FM-1 has said how many it has */
 const $ = (id) => document.getElementById(id);
 let dev = null, bank = [], nslot = 0;
 
@@ -103,7 +124,7 @@ function parse(f) {
   if (f.length < 12 + 128) return null;
   const v = new DataView(f.buffer, f.byteOffset, f.byteLength), e = f.length;
   const len = v.getUint32(e - 4, true), magic = v.getUint32(e - 8, true), n = v.getUint32(e - 12, true);
-  if (magic !== RELOC || len % 4 || len + 4 * n + 12 !== e || len < 128 || len > SLOT - 32) return null;
+  if (magic !== RELOC || len % 4 || len + 4 * n + 12 !== e || len < 128 || len > 0x2000 - 32) return null;   /* (the largest slot any firmware had) */
   const rel = []; for (let i = 0; i < n; i++) rel.push(v.getUint32(len + 4 * i, true));
   if (rel.some((w) => w % 2 || w + 4 > len)) return null;   /* (an address at any halfword: build.py) */
   const name = String.fromCharCode(...f.subarray(8, 18)).replace(/\0.*$/s, "");
@@ -154,7 +175,7 @@ async function refresh() {
     for (let first = 0; first === 0 || first < nslot; first += 8) {
       const a = await request(CMD.LIST, [first]);
       if (!first && (a[1] < 2 || a.length < 4)) throw new Error("old");   /* (phase 1's single slot: no bank) */
-      api = a[0]; nslot = a[1]; devApi = api;
+      api = a[0]; nslot = a[1]; devApi = api; SLOT = BANK / nslot;
       for (let i = 3, k = a[2]; i < a.length && k < nslot && k < first + 8; k++) {
         const st = a[i], z = a.indexOf(0, i + 1);
         bank[k] = { st, name: String.fromCharCode(...a.slice(i + 1, z)), len: fromU32(a.slice(z + 1, z + 6)) };
@@ -196,6 +217,8 @@ async function put(p, label) {                        /* plate p into its slot (
   const need = p.img[4] | p.img[5] << 8;              /* (umb_plate_t.api: a plate newer than the firmware is refused there) */
   if (devApi && need > devApi)
     throw new Error(`${label} needs newer firmware (plate API ${need}, this FM-1 has ${devApi}). Update the FM-1 first.`);
+  if (p.img.length > SLOT - 32)
+    throw new Error(`${label} is ${p.img.length} bytes: this FM-1's slots hold ${SLOT - 32}.`);
   const slot = slotFor(p);
   if (slot < 0) throw new Error(`The bank is full: empty a slot for ${label}.`);
   const bytes = moved(p, slot);

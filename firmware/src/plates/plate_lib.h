@@ -21,6 +21,8 @@ static const uint8_t PL_LANE_POS[PL_NLANE] = {3, 5, 6, 2, 1, 4, 7, 0};  /* a kit
 static int32_t pl_clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 static inline __attribute__((always_inline)) int32_t pl_ix(int32_t i) { return i < 0 ? 0 : i > 255 ? 255 : i; }
 #define PL_IX(v, vg) pl_ix(((v) * (vg)) >> 8)
+/* (a plate short of room in its 4 KiB slot) a function that runs a note or a frame, not a pixel: built smallest */
+#define PL_SMALL __attribute__((minsize))
 static void pl_cpy(uint8_t *d, const uint8_t *s, uint32_t n)   /* (no memcpy: a plate links nothing) */
 {
     while (n--)
@@ -67,6 +69,14 @@ static void pl_splat(const umb_strip_t *s, int32_t X, int32_t Y, int32_t a, cons
     pl_px(s, x + 1, y, (bx * (256 - fy)) >> 8, c[0], c[1], c[2]);
     pl_px(s, x, y + 1, (ax * fy) >> 8, c[0], c[1], c[2]);
     pl_px(s, x + 1, y + 1, (bx * fy) >> 8, c[0], c[1], c[2]);
+}
+/* a glint at x, y (whole px): a point and the four round it a third as bright (pl_glint's pixels there, without
+ * pl_splat: for plates short of room in their 4 KiB slot) */
+static void pl_dot(const umb_strip_t *s, int32_t x, int32_t y, int32_t a, const uint8_t *c)
+{
+    int32_t k;
+    for (k = 0; k < 5; k++)
+        pl_px(s, x + (k == 1) - (k == 2), y + (k == 3) - (k == 4), k ? a * 77 >> 8 : a, c[0], c[1], c[2]);
 }
 /* a glint at X, Y (px, Q8): a point and the four round it a third as bright */
 static void pl_glint(const umb_strip_t *s, int32_t X, int32_t Y, int32_t a, const uint8_t *c)
@@ -223,4 +233,97 @@ static void pl_star(const umb_strip_t *s, int32_t X, int32_t Y, int32_t l, int32
     pl_line(s, X, Y - l, X, Y + l, a >> 1, c);
 }
 #define PL_LERP(vv, xi, xf) (((vv)[xi] + ((((vv)[(xi) + 1] - (vv)[xi]) * (xf)) >> 8)) >> 8)
+/* ---- the fluid plates (SEPIA, GYRE, WAX, RIVULET, FATHOM, AURORA, BLOT, RAPIDS) and what lies over them ---- */
+/* add amt (0..255) to field f (60 x 60 bytes) round cx, cy (cells, Q8) within r (cells, Q8), falling off to the edge
+ * (amt below 0: -amt added, falling off as the square: rounder, a body that joins its neighbours) */
+static __attribute__((noinline)) void pl_stamp(uint8_t *f, int32_t cx, int32_t cy, int32_t r, int32_t amt)
+{
+    int32_t x, y, r2 = (r * r) >> 8, q = (1 << 24) / (r2 + 1), m = amt < 0 ? -amt : amt;
+    for (y = pl_clamp((cy - r) >> 8, 0, PL_N - 1); y <= pl_clamp((cy + r + 255) >> 8, 0, PL_N - 1); y++)
+        for (x = pl_clamp((cx - r) >> 8, 0, PL_N - 1); x <= pl_clamp((cx + r + 255) >> 8, 0, PL_N - 1); x++) {
+            int32_t dx = x * 256 - cx, dy = y * 256 - cy, d2 = (dx * dx + dy * dy) >> 8, v;
+            if (d2 > r2)
+                continue;
+            v = ((r2 - d2) * q) >> 16;                  /* (0 at the edge .. 256 in the middle) */
+            v = f[y * PL_N + x] + ((m * (amt < 0 ? (v * v) >> 8 : v)) >> 8);
+            f[y * PL_N + x] = (uint8_t)(v > 255 ? 255 : v);
+        }
+}
+/* .. where note n's track has moved it (NOTE MOVEMENT: the field 3 .. 57 cells either way) */
+static void pl_stamp_at(uint8_t *f, const umb_note_t *n, int32_t x, int32_t y, int32_t r, int32_t amt)
+{
+    pl_stamp(f, 768 + pl_fold(n->mo[0], x - 768, 13824), 768 + pl_fold(n->mo[1], y - 768, 13824), r, amt);
+}
+/* a palette of a plate's own, from black through n colours evenly spaced: lut[(x ^ y) & 1][light], as the panel takes it
+ * (two phases of dither; black stays black) */
+static void pl_lut(uint16_t (*lut)[256], const uint8_t (*st)[3], int32_t n)
+{
+    int32_t i, k, c[3];
+    for (i = 0; i < 256; i++) {
+        int32_t p = i * n, g = p >> 8, f = p & 255;
+        for (k = 0; k < 3; k++) {
+            int32_t c0 = g ? st[g - 1][k] : 0;
+            c[k] = c0 + (((st[g][k] - c0) * f) >> 8);
+        }
+        lut[0][i] = pl_pack(c[0], c[1], c[2], 0);
+        lut[1][i] = pl_pack(c[0], c[1], c[2], 8);
+    }
+}
+/* field f (60 x 60) on the strip: each pixel its cells blended, through curve cv (the light, 0..255, of each amount) and
+ * a palette: the plate's own (pl_lut; own: 1) or the cold one (umb_api_t.pal) */
+static __attribute__((noinline)) void pl_fdraw(const umb_strip_t *S, const uint8_t *f, const uint8_t *cv, const uint16_t (*lut)[256], int own)
+{
+    uint8_t xi[240], xf[240];
+    int32_t vv[PL_N + 1], cx, cy;
+    pl_cols(S, xi, xf);
+    for (cy = 0; cy < S->h; cy++) {
+        int32_t py = S->y0 + cy, vg = S->vg[cy], any = pl_vrow(f, py, vv, 255);
+        const uint16_t *L0 = own ? lut[py & 1] : lut[(py & 1) << 1], *L1 = own ? lut[~py & 1] : L0 + 256;
+        uint16_t *row = S->px + cy * S->w;
+        if (S->x0 & 1) {
+            const uint16_t *t = L0;
+            L0 = L1;
+            L1 = t;
+        }
+        for (cx = 0; cx < S->w; cx++) {
+            int32_t v = any ? PL_LERP(vv, xi[cx], xf[cx]) : 0;
+            row[cx] = (cx & 1 ? L1 : L0)[v > 0 ? PL_IX(cv[v], vg) : 0];
+        }
+    }
+}
+/* the steps owed since *ms, per ms each: 4 at most (the rest dropped) */
+static uint32_t pl_owed(uint32_t now, uint32_t *ms, uint32_t per)
+{
+    uint32_t n = (uint32_t)(now - *ms) / per;
+    if (n > 4u) {
+        n = 4u;
+        *ms = now;
+    } else
+        *ms += n * per;
+    return n;
+}
+/* a field's point (cells, Q8) on the screen (px, Q8): a cell's centre is 4 i + 1.5 */
+#define PL_C2P(c) ((c) * 4 + 384)
+/* a note's own colour: its track's, a drum's its lane's */
+static const uint8_t *pl_ncol(const umb_api_t *a, uint32_t track) { return a->colour[(track * 3u) % 8u]; }
+/* ---- what lies over them (KOI, BOATS, FIZZ, BOKEH, MEDUSA, RIDGE, QUILL, MURMUR) ---- */
+/* light gl of colour b and light e of colour c as one light: its colour into m, how much of it back (255 at most) */
+static __attribute__((noinline)) int32_t pl_mix(uint8_t *m, const uint8_t *b, const uint8_t *c, int32_t gl, int32_t e)
+{
+    int32_t k, t = gl + e;
+    for (k = 0; k < 3; k++)
+        m[k] = (uint8_t)(t ? (b[k] * gl + c[k] * e) / t : 0);
+    return t > 255 ? 255 : t;
+}
+/* heading h (65536 a turn): its cosine, its sine (Q15) */
+#define PL_COS(a, h) pl_sine(a, ((uint32_t)(h) << 16) + 0x40000000u)
+#define PL_SIN(a, h) pl_sine(a, (uint32_t)(h) << 16)
+/* the screen's first row that is a plate's: all of it in TOTALITY, under the page's head otherwise */
+#define PL_TOP(cx) ((cx)->bare ? 0 : 44)
+/* a note's place across (px, lo .. hi by its pitch) and down (its track's row of six), where NOTE MOVEMENT put it */
+static int32_t pl_nx(const umb_note_t *n, int32_t lo, int32_t hi) { return lo + pl_fold(n->mo[0], pl_pk(n->note), 256) * (hi - lo) / 256; }
+static int32_t pl_ny(const umb_note_t *n, int32_t lo, int32_t hi) { return lo + pl_fold(n->mo[1], (int32_t)n->track * 51, 256) * (hi - lo) / 256; }
+static uint32_t pl_hash(uint32_t i) { return (i + 1u) * 2654435761u; }   /* (thing i's own dice) */
+/* v (0..255) going out over life ms, at age */
+static int32_t pl_out(int32_t v, uint32_t age, uint32_t life) { return age >= life ? 0 : v * (int32_t)(life - age) / (int32_t)life; }
 #endif

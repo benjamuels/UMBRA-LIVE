@@ -592,11 +592,18 @@ async function midiOn() {
 // TOTALITY drawn as large as the window: the emulator runs silent and plays the notes the FM-1 sends (MENU >
 // CONTROL > MIDI OUT: ALL, each track on its channel; MIDI IN's CH1-6 here gives each its track), so the plates see what
 // the FM-1 plays. The FM-1's screen at 240 x 240 is drawn up (SOFT: smoothed; GLOW: a blurred copy added over it).
-const PLATES = ["CINDER", "SAROS", "FILAMENT", "GRANULE", "CORONA", "TARN", "BEACON", "ZODIAC", "SONAR", "MOTHS", "MARSH", "PACHINKO"];
-const PNUM = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 16];   // (each one's number: the six known, then the bank's slots 6..11, ui_umbra.c)
+const PLATES = ["CINDER", "SAROS", "FILAMENT", "GRANULE", "CORONA", "TARN", "BEACON", "ZODIAC", "SONAR", "MOTHS", "MARSH", "PACHINKO",
+                "SEPIA", "GYRE", "WAX", "RIVULET", "FATHOM", "AURORA", "BLOT", "RAPIDS",
+                "KOI", "BOATS", "FIZZ", "BOKEH", "MEDUSA", "RIDGE", "QUILL", "MURMUR"];
+const PNUM = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 16,
+              17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32];   // (each one's number: the six known, then the bank's slots 6..27, ui_umbra.c)
 const PSET = [["RISE", "COOL"], ["SPIN", "FADE"], ["SWING", "RING"], ["BOIL", "FADE"], ["REACH", "FADE"], ["DRAG", "BEND"],
-              ["TURN", "SPREAD"], ["TURN", "FADE"], ["TURN", "FADE"], ["FLIGHT", "FADE"], ["WIND", "FADE"], ["GRAVTY", "BOUNCE"]];   // (each plate's first two elements)
-const PDEF = [[45, 50], [30, 45], [50, 50], [35, 45], [50, 45], [55, 50], [50, 50], [30, 50], [50, 50], [50, 50], [50, 50], [50, 50]];   // (their defaults; LIGHT 99)
+              ["TURN", "SPREAD"], ["TURN", "FADE"], ["TURN", "FADE"], ["FLIGHT", "FADE"], ["WIND", "FADE"], ["GRAVTY", "BOUNCE"],
+              ["FLOW", "FADE"], ["SPIN", "PULL"], ["HEAT", "THICK"], ["RUN", "DRY"], ["SWELL", "CALM"], ["DRIFT", "FADE"], ["BLEED", "DRY"], ["SPEED", "FADE"],
+              ["SWIM", "FADE"], ["DRIFT", "PULL"], ["RISE", "WOBBLE"], ["BLUR", "FADE"], ["DEPTH", "FADE"], ["STARS", "FADE"], ["SPEED", "FADE"], ["SPEED", "FADE"]];   // (each plate's first two elements)
+const PDEF = [[45, 50], [30, 45], [50, 50], [35, 45], [50, 45], [55, 50], [50, 50], [30, 50], [50, 50], [50, 50], [50, 50], [50, 50],
+              [50, 45], [60, 40], [40, 50], [50, 50], [50, 40], [50, 50], [50, 45], [50, 50],
+              [50, 50], [50, 50], [50, 50], [50, 50], [50, 50], [50, 50], [50, 50], [50, 50]];   // (their defaults; LIGHT 99)
 const PKEY = "umbra-projector";
 const pv = (() => { try { return JSON.parse(localStorage.getItem(PKEY)) || {}; } catch { return {}; } })();
 pv.plate ??= 0; pv.s ??= PDEF.map((d) => d.slice()); while (pv.s.length < PDEF.length) pv.s.push(PDEF[pv.s.length].slice()); pv.light ??= 99; pv.soft ??= true; pv.glow ??= true; pv.midi ??= "auto";
@@ -817,9 +824,9 @@ document.addEventListener("visibilitychange", () => send({ type: "visible", on: 
 <script>
 (() => {
   const pbox = document.getElementById("umb-p");
-  const NUM = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 16];   /* (each plate's number: ui_umbra.c) */
+  const NUM = PNUM;                                         /* (each plate's number: ui_umbra.c) */
   pbox.style.flexWrap = "wrap";
-  ["CINDER", "SAROS", "FILAMENT", "GRANULE", "CORONA", "TARN", "BEACON", "ZODIAC", "SONAR", "MOTHS", "MARSH", "PACHINKO"].forEach((name, k0) => {
+  PLATES.forEach((name, k0) => {
     const b = document.createElement("button"), v = NUM[k0];
     b.textContent = name;
     b.style.cssText = "background:transparent;color:inherit;border:1px solid #1a2233;border-radius:4px;padding:4px 10px;font:inherit;cursor:pointer";

@@ -27,7 +27,7 @@ typedef struct {
     uint32_t rs;                                        /* the dice */
 } plg_t;
 
-static void plg_seed(plg_t *s, uint32_t g, uint32_t now)   /* a granule (re)born: its heart in its cell, +- 7 px */
+PL_SMALL static void plg_seed(plg_t *s, uint32_t g, uint32_t now)   /* a granule (re)born: its heart in its cell, +- 7 px */
 {
     s->sx[g] = (uint8_t)((g % PLG_G) * PLG_C + 3u + pl_rnd(&s->rs) % 15u);
     s->sy[g] = (uint8_t)((g / PLG_G) * PLG_C + 3u + pl_rnd(&s->rs) % 15u);
@@ -36,7 +36,7 @@ static void plg_seed(plg_t *s, uint32_t g, uint32_t now)   /* a granule (re)born
 }
 /* the blocks bx0 .. bx1, by0 .. by1: each one's granule (the nearest heart) and profile: dark in the lanes, brightest at
  * the heart */
-static void plg_map(plg_t *s, const umb_api_t *a, int32_t bx0, int32_t by0, int32_t bx1, int32_t by1)
+PL_SMALL static void plg_map(plg_t *s, const umb_api_t *a, int32_t bx0, int32_t by0, int32_t bx1, int32_t by1)
 {
     int32_t bx, by, dx, dy;
     for (by = pl_clamp(by0, 0, PL_N - 1); by <= pl_clamp(by1, 0, PL_N - 1); by++)
@@ -74,7 +74,7 @@ static void plg_map(plg_t *s, const umb_api_t *a, int32_t bx0, int32_t by0, int3
             s->prof[by * PL_N + bx] = (uint8_t)pl_clamp((((t * t * (768 - 2 * t)) >> 16) * k) >> 8, 0, 255);
         }
 }
-static void plg_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
+PL_SMALL static void plg_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 {
     plg_t *s = st;
     uint32_t g;
@@ -88,7 +88,7 @@ static void plg_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
     }
     plg_map(s, a, 0, 0, PL_N - 1, PL_N - 1);
 }
-static void plg_light(plg_t *s, uint32_t g, int32_t e, const uint8_t *c)   /* granule g lit e (Q8) in colour c */
+PL_SMALL static void plg_light(plg_t *s, uint32_t g, int32_t e, const uint8_t *c)   /* granule g lit e (Q8) in colour c */
 {
     int32_t E, k, j;
     if (g >= PLG_N)
@@ -101,14 +101,15 @@ static void plg_light(plg_t *s, uint32_t g, int32_t e, const uint8_t *c)   /* gr
         s->col[g][j] = (uint8_t)(s->col[g][j] + (((c[j] - s->col[g][j]) * k) >> 8));
 }
 /* the granule at row, col (0 .. 11) where note n's track has moved it (NOTE MOVEMENT) */
-static uint32_t plg_at(const umb_note_t *n, uint32_t row, uint32_t col)
+PL_SMALL static uint32_t plg_at(const umb_note_t *n, uint32_t row, uint32_t col)
 {
     return (uint32_t)pl_fold(n->mo[1], (int32_t)row, PLG_G - 1) * PLG_G + (uint32_t)pl_fold(n->mo[0], (int32_t)col, PLG_G - 1);
 }
-static void plg_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_note_t *nt)
+PL_SMALL static void plg_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_note_t *nt)
 {
     plg_t *s = st;
-    uint32_t g, c = nt->track, n = nt->note, lane = nt->lane, o = n / 12u,
+    static const int8_t PLG_K[5] = {0, -1, 1, -(int8_t)PLG_G, (int8_t)PLG_G};
+    uint32_t g, k, c = nt->track, n = nt->note, lane = nt->lane, o = n / 12u,
              nt6 = cx->tracks < 1u ? 1u : cx->tracks > UMB_NTRK ? UMB_NTRK : cx->tracks;
     int32_t v;
     const uint8_t *col = a->colour[nt->drum ? PL_LANE_POS[lane] : (c * 3u) % 8u];
@@ -118,11 +119,8 @@ static void plg_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         if (!lane) {                                    /* the kick (and what is no drum): a cluster */
             uint32_t row = 3u + pl_rnd(&s->rs) % 7u;
             g = plg_at(nt, row, 2u + pl_rnd(&s->rs) % 8u);
-            plg_light(s, g, 102 + ((205 * v) >> 8), col);
-            plg_light(s, g - 1u, (90 * v) >> 8, col);
-            plg_light(s, g + 1u, (90 * v) >> 8, col);
-            plg_light(s, g - PLG_G, (90 * v) >> 8, col);
-            plg_light(s, g + PLG_G, (90 * v) >> 8, col);
+            for (k = 0; k < 5; k++)                     /* (its heart, then the four round it) */
+                plg_light(s, g + (uint32_t)PLG_K[k], k ? (90 * v) >> 8 : 102 + ((205 * v) >> 8), col);
         } else                                          /* the snare, the clap: three */
             for (g = 0; g < 3u; g++)
                 plg_light(s, pl_rnd(&s->rs) % PLG_N, 128 + ((102 * v) >> 8), col);
@@ -141,7 +139,7 @@ static void plg_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     plg_light(s, g, 115 + ((154 * v) >> 8), col);
 }
 /* once a frame: the light fades (FADE: 0.3 .. 4.2 s), granules reborn (BOIL: 0.3 .. 6 a second), this frame's levels */
-static void plg_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
+PL_SMALL static void plg_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 {
     plg_t *s = st;
     int32_t k0 = (int32_t)cx->k[0], k1 = (int32_t)cx->k[1], life = 300 + k1 * k1 * 2 / 5, f = (int32_t)cx->dt * 65536 / life;
@@ -206,7 +204,7 @@ static void plg_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     for (i = 0; i < (int32_t)PLG_NB; i++) {             /* the bright points: 0.4 s, 8 steps */
         int32_t f = pl_fade(cx->now - s->bt[i], 400u, 8u);
         if (f && s->bv[i])
-            pl_glint(S, s->bx[i] * 256, s->by[i] * 256, (f * (128 + (s->bv[i] >> 1)) * 384) >> 16,
+            pl_dot(S, s->bx[i], s->by[i], (f * (128 + (s->bv[i] >> 1)) * 384) >> 16,
                      s->bc[i] == 4u ? PL_WT : a->colour[PL_LANE_POS[s->bc[i] % PL_NLANE]]);
     }
 }
