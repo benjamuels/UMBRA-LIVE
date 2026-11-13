@@ -18,16 +18,28 @@
 #define UMB_PLATE_H
 #include <stdint.h>
 
-#define UMB_API 3u                                      /* (2: the context's tracks' offsets and roots, the
+#define UMB_API 4u                                      /* (2: the context's tracks' offsets and roots, the
                                                          * services' tables: what the field plates read; 3: the
                                                          * controls are elements: the tracks chosen for each, the level
-                                                         * and the beat in the context, UMB_EL_* in the header) */
+                                                         * and the beat in the context, UMB_EL_* in the header; 4: the
+                                                         * plate's own line of description and its presets in the header) */
 #define UMB_PLATE_MAGIC 0x544C5055u                     /* "UPLT", first in a plate's header */
 #define UMB_NTRK 6u                                     /* tracks (a note's track is 0 .. UMB_NTRK - 1) */
 #define UMB_NCTL 8u                                     /* controls a plate may declare: its elements, as LIVE VIZ CTRLS
                                                          * lists them (a setting, or a part of the picture the notes drive) */
 #define UMB_EL_NOTES 1u                                 /* (API 3) umb_plate_t.el: the notes drive this control (LIVE VIZ
                                                          * CTRLS offers its tracks: umb_lctx_t.et); its value how hard */
+
+/* (API 4) what can move an element, as a preset's link names it: KNOB 1..4, a track's hits, its LFO, its step sequence, the
+ * mix's level, the beat (t: the track, 0 .. UMB_NTRK - 1). A link: the source and the element it moves */
+#define UMB_SRC_KNOB(k) (1u + (k))
+#define UMB_SRC_HIT(t) (5u + (t))
+#define UMB_SRC_LFO(t) (11u + (t))
+#define UMB_SRC_STEP(t) (17u + (t))
+#define UMB_SRC_LEVEL 23u
+#define UMB_SRC_BEAT 24u
+#define UMB_LINK(src, el) ((uint8_t)((src) | (el) << 5))
+#define UMB_NPRE 3u                                     /* the presets a plate may bring (beside BASIC, every plate's) */
 
 enum { UMB_KIND_FIELD = 1u, UMB_KIND_OVERLAY = 2u };    /* what it draws: every pixel (a ground), or sparse light */
 enum { UMB_DRAW_REPLACE = 0u, UMB_DRAW_ADD = 1u };      /* every pixel of the strip set / light added to what is there */
@@ -51,6 +63,13 @@ typedef struct {                                        /* a control a plate dec
     char name[7];                                       /* as the PLATE page shows it, 0-ended */
     uint8_t def;                                        /* its default, 0..99 */
 } umb_ctl_t;
+
+typedef struct {                                        /* (API 4) a preset: the elements set another way, what moves them */
+    char name[8];                                       /* as LIVE VIZ CTRLS shows it, 0-ended */
+    uint8_t v[UMB_NCTL];                                /* each element's value + 1 (0: its default) */
+    uint8_t ls[4];                                      /* four links: UMB_LINK(source, element) (0: none) .. */
+    int8_t ld[4];                                       /* .. how far, -99 .. 99 of the element's range with the source full */
+} umb_pre_t;
 
 typedef struct {                                        /* a layer, worked out once a frame */
     uint32_t now;                                       /* the plates' clock (ms; SPEED applied, frozen at 0) */
@@ -117,6 +136,10 @@ typedef struct umb_plate_s {                            /* (not umb_plate: ui_um
     void (*draw)(void *st, const umb_lctx_t *c, const umb_api_t *a, const umb_strip_t *s);
     /* (API 3: read only where api >= 3) */
     uint8_t el[UMB_NCTL];                               /* each control: UMB_EL_* */
+    /* (API 4: read only where api >= 4) */
+    char desc[40];                                      /* what it is, a line for the PLATES page, 0-ended */
+    uint8_t npre, rsv4[3];                              /* its presets (pre[0 .. npre - 1]) */
+    umb_pre_t pre[UMB_NPRE];
 } umb_plate_t;
 
 #endif

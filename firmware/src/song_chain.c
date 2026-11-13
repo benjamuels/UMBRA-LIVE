@@ -74,6 +74,10 @@ static void scene_capture(scene_t *s)
     memcpy(s->mac, macro_v, sizeof s->mac);
 }
 static song_index_t song_idx;
+static uint8_t umv_tk, umv_ed;                /* (UMBRA LIVE) TIMELINE: the picture track ALGORITHM chose + 1 (0: a sound's),
+                                              * its cell open (ui_umbra_mac.c) */
+static uint8_t umv_req;                       /* (UMBRA LIVE) for TIMELINE's picture tracks (ui_umbra_plate.c umv_poll): a
+                                              * song's row gone in + 1; 0xFF: the song made new, its cells emptied */
 static uint8_t song_draft;                    /* Generated workspace: never auto-written to project slots. */
 static uint8_t song_cur;                      /* the song whose sections proj_slot holds (0: the four project slots) */
 /* track k of the current song's row r: the section it plays (the row's own unless ARRANGE 2 gave it another) */

@@ -1306,6 +1306,7 @@ static void fit_ui_set(track_t *t, uint8_t value) { fit_ui_edit(t, 0, value); }
  * rows: an empty one (A, 4 bars) */
 static void row_copy(uint32_t d, uint32_t s)
 {
+    umv_rows(d, s);                                     /* ((UMBRA LIVE) its picture cells with it) */
     if (s < CHAIN_ROWS) {
         chain_config.row[d] = chain_config.row[s];
         song_idx.scene[song_cur][d] = song_idx.scene[song_cur][s];
@@ -1519,6 +1520,10 @@ static void edit_param(uint32_t slot, int32_t steps)
     if (SONG_TRK(pg)) {                                 /* (V10.6o) TIMELINE: ROW, its SECT, its BARS, the VAR of the track
                                                          * ALGORITHM picks (its mute: the keys) */
         chain_row_t *r;
+        if (umv_on()) {                                 /* ((UMBRA LIVE) a picture cell open: its knobs) */
+            (void)umv_knob(slot, steps);
+            return;
+        }
         if (slot == 0u) {
             ui.song_row = (uint8_t)clamp((int32_t)ui.song_row + steps, 0, chain_config.count ? chain_config.count - 1 : 0);
             return;
@@ -1527,6 +1532,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         if (!chain_config.count) { ui_message("NO ROW"); return; }
         if (ui.song_row >= chain_config.count) ui.song_row = chain_config.count - 1u;   /* (ARRANGE's ADD / END) */
         r = &chain_config.row[ui.song_row];
+        if (umv_knob(slot, steps))                      /* ((UMBRA LIVE) a picture track's cell, or the cell open) */
+            return;
         if (slot == 1u) r->slot = (uint8_t)clamp((int32_t)r->slot + steps, 0, 3);
         else if (slot == 2u) r->bars = (uint8_t)clamp((int32_t)r->bars + steps, 1, (int32_t)CHAIN_BARS);
         else {
@@ -2660,6 +2667,7 @@ static void ui_input_frame(void)
     oct = layer_oct(pressed, oct);                      /* (a SET layer's OCT-: put back) */
     umw_input(oct);                                     /* ((UMBRA LIVE) WELCOME: its pages, OCT- + OCT+ held: gone) */
     umz_input(oct);                                     /* (.. LIVE AUDIO / VIZ CTRLS: SETUP) */
+    oct = umv_input(oct);                               /* (.. TIMELINE's picture tracks: OCT+ opens a cell, OCT- closes it) */
     if (!ui.home && !ui.menu && !ui.confirm && !ui.ly && cur_page()->graph == GR_TOOLS && ((pressed >> panel.btn[B_OCTUP]) & 1u))
         tools_arm();
     if (tl_t0) {                                        /* (V10.24) TOOLS: OCT+ held TL_HOLD does the action */
@@ -3129,13 +3137,15 @@ static void ui_input_frame(void)
     if (!lay && (s = panel_enc(EN_PRESET)) != 0) {
         if (gen_on())
             gen_knob(0, s);                             /* (GEN: its GENRE, the generator's preset) */
-        else
+        else if (!umk_preset(s))                        /* ((UMBRA LIVE) LIVE VIZ CTRLS, PLATES, a TIMELINE cell: the plate's) */
             presets_turn(s);
     }
     if (!lay && (s = panel_enc(EN_ALGO)) != 0) {   /* ALGORITHM: the selected track, on every page. (0.6.55) Only
                                                     * the tracks that play: TRACKS 4 stops at T4 (T5 / T6 asleep) */
         if (umk_on())                               /* (UMBRA LIVE) MACROS - AUDIO / VISUALS: the route */
             umk_algo(s);
+        else if (umv_algo(s))                       /* (.. TIMELINE: past T6 its picture tracks) */
+            ;
         else
             track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));
     }

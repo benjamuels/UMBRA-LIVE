@@ -250,7 +250,8 @@ static void graph_clips(void)
 }
 /* (V10.6o, the owner's mock-up B) TIMELINE: the song as blocks (the cursor's row framed), what plays; under it the row
  * opened: each track's bar (its own part's colour calm, another part's bright with FROM and its letter,
- * MUTE dark, silent in its part --), its VAR on the right; ALGORITHM's track lit */
+ * MUTE dark, silent in its part --), its VAR on the right; ALGORITHM's track lit. ((UMBRA LIVE) in the left half; the
+ * right half the row's two plates, MAIN and OVER, previewed: ui_umbra_mac.c umv_tl; a cell open: its editor, umv_draw) */
 static uint32_t tl_muted(uint32_t r, uint32_t k)
 {
     uint32_t j = r + 1u;
@@ -261,10 +262,14 @@ static uint32_t tl_muted(uint32_t r, uint32_t k)
     sc = &song_idx.scene[song_cur][j];
     return k < 4u ? (sc->mute >> k) & 1u : (sc->on >> (k - 3u)) & 1u;
 }
+static int umv_draw(void);                            /* ((UMBRA LIVE) ui_umbra_mac.c: TIMELINE's picture tracks) */
+static void umv_tl(void);
 static __attribute__((noinline)) void graph_tl(void)
 {
     uint32_t n = chain_config.count, r = ui.song_row < n ? ui.song_row : n - 1u, k;
     char b[24];
+    if (umv_draw())                                      /* ((UMBRA LIVE) a picture cell open: its editor) */
+        return;
     if (!n) {
         cv_text_in(4, 60, 232, &AF_X, "NO ROWS: OCT+ ADDS ONE", T_DIM, T_SURF);
         return;
@@ -284,26 +289,27 @@ static __attribute__((noinline)) void graph_tl(void)
         uint16_t c = src != sl ? sec_col(src) : lz_sec(src, 1, 1), ink = src != sl ? T_INK : T_TEXT;
         b[0] = 'T'; b[1] = (char)('1' + k); b[2] = 0;
         GFX_HOOK_ALIGN(0, y, 0, y + 12, AL_V | AL_PASS, "timeline track row");
-        cv_text(4, y + CAP_IN(X, 12), &AF_X, b, k == song.sel ? T_THEME : T_MID);
-        if (k == song.sel) cv_rect(0, y + 2, 2, 8, T_THEME);
+        cv_text(4, y + CAP_IN(X, 12), &AF_X, b, k == song.sel && !umv_tk ? T_THEME : T_MID);
+        if (k == song.sel && !umv_tk) cv_rect(0, y + 2, 2, 8, T_THEME);
         if (!on) {
-            cv_frame(24, y, 212, 12, T_DIM);
+            cv_frame(24, y, 92, 12, T_DIM);
             cv_text(28, y + CAP_IN(X, 12), &AF_X, mu ? "MUTE" : "--", T_DIM);
         } else {
-            cv_rect(24, y, 212, 12, c);
+            cv_rect(24, y, 92, 12, c);
             if (src != sl) {
                 str_cpy(b, "FROM  ", sizeof b); b[5] = (char)('A' + src);
                 cv_text_on(28, y + CAP_IN(X, 12), &AF_X, b, ink, c);
             }
         }
         if (v > RV_MUTE) {
-            cv_rect(195, y + 1, 1, 10, T_SURF);
-            cv_rect(196, y + 1, 39, 10, T_ACCENT);
-            GFX_HOOK_ALIGN(196, y + 1, 235, y + 11, AL_HV, "timeline variation chip");
-            cv_text_in(196, y + 1 + CAP_IN(X, 10), 39, &AF_X, RV_NAME[v < RV_N ? v : 0], T_INK, T_ACCENT);
+            cv_rect(75, y + 1, 1, 10, T_SURF);
+            cv_rect(76, y + 1, 39, 10, T_ACCENT);
+            GFX_HOOK_ALIGN(76, y + 1, 115, y + 11, AL_HV, "timeline variation chip");
+            cv_text_in(76, y + 1 + CAP_IN(X, 10), 39, &AF_X, RV_NAME[v < RV_N ? v : 0], T_INK, T_ACCENT);
         }
     }
-    cv_text(4, 128, &AF_X, "KEYS: F3-D4 MUTE \xB7 F4-B4 FROM", T_DIM);
+    umv_tl();                                            /* ((UMBRA LIVE) the right half: the row's two plates) */
+    cv_text(4, 128, &AF_X, umv_tk ? "KNOB 4 PLATE \xB7 OCT+ OPENS IT" : "KEYS: F3-D4 MUTE \xB7 F4-B4 FROM", T_DIM);
 }
 /* PROJECT: the sections, the arrangement's chips, the song's strip (ar: ARRANGE, its rows picked; 2: GENE's lanes) */
 static void graph_proj(int ar)

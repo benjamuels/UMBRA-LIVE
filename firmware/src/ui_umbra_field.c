@@ -181,7 +181,7 @@ static void ump_co_blocks(int32_t x0, int32_t py, int16_t *bv, uint8_t *bt)
     ump_co_t *s = &umb.co;
     int32_t dy = (py & ~1) - 120, qy = dy >= 0 ? dy >> 1 : (-dy - 1) >> 1, lnm = umb_ln[UMR_RM - 16], b, n;
     const uint8_t *pa = s->pa + qy * UMB_N, *pr = s->pr + qy * UMB_N;
-    for (b = x0 >> 1, n = 0; b <= (x0 + (int32_t)cv_w - 1) >> 1; b++, n++) {
+    for (b = x0 >> 1, n = 0; b <= (x0 + (int32_t)umm_w - 1) >> 1; b++, n++) {
         int32_t dx = 2 * b - 120, qx = dx >= 0 ? dx >> 1 : (-dx - 1) >> 1, A = pa[qx], i, f, sv, kx, r, l, k, t;
         A = (dx >= 0 ? (dy >= 0 ? A : 1024 - A) : (dy >= 0 ? 512 - A : 512 + A)) & 1023;
         i = A >> 3;
@@ -204,13 +204,13 @@ static void ump_co_draw(int32_t x0, int32_t y0)
     int16_t bv[122];
     uint8_t bt[122];
     uint32_t cx, cy, t, k, pk;
-    for (cy = 0; cy < cv_h; cy++) {
+    for (cy = 0; cy < umm_h; cy++) {
         int32_t py = y0 + (int32_t)cy, vg = umm_vg(py), dy = py - 120, fdy2 = (2 * dy + 1) * (2 * dy + 1) - 4 * UMR_RM * UMR_RM;
         const uint16_t *L = ump_lut[(py & 1) << 1];
-        uint16_t *row = cv_px + cy * cv_w;
+        uint16_t *row = umm_p + cy * umm_w;
         if (!cy || !(py & 1))
             ump_co_blocks(x0, py, bv, bt);
-        for (cx = 0, pk = 0; cx < cv_w; cx++) {
+        for (cx = 0, pk = 0; cx < umm_w; cx++) {
             int32_t px = x0 + (int32_t)cx, dx = 2 * (px - 120) + 1, v;
             u = ((dx * dx + fdy2) * umr_k) >> 8;        /* (px past the limb, Q8) */
             if (u < -128) {                             /* the disc: black */
@@ -277,6 +277,9 @@ static void ump_co_strip(void *st, const umb_lctx_t *cx, const umb_api_t *ap, co
     umm_lq = cx->light;                                 /* (LIGHT: umm_vg) */
     umm_x0 = sp->x0;                                    /* (the glints: umm_splat) */
     umm_y0 = sp->y0;
+    umm_p = sp->px;
+    umm_w = (uint32_t)sp->w;
+    umm_h = (uint32_t)sp->h;
     ump_co_draw(sp->x0, sp->y0);
 }
 static const umb_plate_t umb_plate_corona = {
@@ -284,7 +287,11 @@ static const umb_plate_t umb_plate_corona = {
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 8u, {0, 0, 0},
     {{"REACH", 50}, {"FADE", 45}, {"SIZE", 50}, {"STREAM", 50}, {"PULSE", 50}, {"PROM", 50}, {"BEADS", 50}, {"HALO", 50}},
     ump_co_start, ump_co_note, ump_co_frame, ump_co_strip,
-    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, 0}};
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, 0},
+    "The eclipse, streamers fed by notes", 3u, {0, 0, 0},
+    {{"BREATH", {0, 71, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 20, 50}},
+     {"DIAMOND", {0, 0, 36, 31, 0, 91, 96, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 7u), UMB_LINK(UMB_SRC_HIT(0), 0u)}, {99, 99, 60, 40}},
+     {"ANNULAR", {26, 0, 81, 71, 0, 0, 0, 91}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 50, 30}}}};
 
 /* ------------------------------------------------------------------------------------------------ WELCOME --- */
 /* (UMBRA LIVE) the power-on screen, UMW_T ms (ui_draw.c draw_splash, splash_write: main.c boot_splash, web/emu): an
@@ -351,10 +358,10 @@ static void umb_welcome(uint32_t ms)
         cv_begin(240, 120, 0);
         umm_y0 = y + UMW_DY;
         umm_lq = (g * c) >> 8;
-        cv_h = y ? 96u : 120u;                          /* (CORONA's maps end at its screen's foot, 240 - UMW_DY) */
+        umm_p = cv_px, umm_w = 240u, umm_h = y ? 96u : 120u;                         /* (CORONA's maps end at its screen's foot, 240 - UMW_DY) */
         if (c)
             ump_co_draw(0, y + UMW_DY);
-        cv_h = 120;
+        umm_h = 120u;
         umm_lq = g;
         h = 33 + (off >> 8);                            /* the sun (r 29, its limb darker) and the moon (r 30): a box */
         for (a = 120 - h; a < 120 + h; a++) {

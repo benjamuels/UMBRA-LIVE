@@ -124,4 +124,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_marsh = {
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
     {{"WIND", 50}, {"FADE", 50}, {"SIZE", 50}, {"WATER", 50}, {"GUST", 50}, {"FLIES", 50}, {"REEDS", 50}, {"MOON", 50}},
     plw_init, plw_note, plw_frame, plw_draw,
-    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, 0, 0}};
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, 0, 0},
+    "Reeds, water and fireflies by a moon", 3u, {0, 0, 0},
+    {{"CALM", {16, 0, 0, 31, 0, 36, 0, 91}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 0u), 0}, {99, 99, 20, 0}},
+     {"GALE", {91, 0, 0, 0, 96, 0, 81, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 0u), UMB_LINK(UMB_SRC_LEVEL, 3u)}, {99, 99, 40, 50}},
+     {"FIREFLY", {0, 81, 0, 0, 0, 100, 31, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 2u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 25, 30}}}};

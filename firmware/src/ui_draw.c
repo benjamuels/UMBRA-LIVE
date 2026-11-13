@@ -1457,6 +1457,10 @@ static void draw_columns(void)
     }
     if (SONG_TRK(cur_page())) {                        /* (V10.6o) TIMELINE: ROW, SECT, BARS, the ALGORITHM track's VAR */
         uint32_t row = ui.song_row < chain_config.count ? ui.song_row : chain_config.count - 1u, v;
+        if (umv_on()) {                                 /* ((UMBRA LIVE) a picture cell open: LIVE VIZ CTRLS' columns) */
+            umk_cards();
+            return;
+        }
         if (!chain_config.count) {
             hot_text_column(0, "ROW", "--");
             empty_column(1); empty_column(2); empty_column(3);
@@ -1468,6 +1472,11 @@ static void draw_columns(void)
         text_column(1, "SECT", val, VAL(1u));
         fmt_int(val, chain_config.row[row].bars);
         text_column(2, "BARS", val, VAL(2u));
+        if (umv_tk) {                                   /* ((UMBRA LIVE) a picture track: its cell's plate) */
+            umv_name(umv_cc(), val);
+            text_column(3, UMV_TN[umv_tk - 1u], val, umv_cc()->key ? VAL(3u) : T_DIM);
+            return;
+        }
         v = row_var(row, song.sel % NTRK);
         val[0] = 'T'; val[1] = (char)('1' + song.sel % NTRK); str_cpy(val + 2, " VAR", 5);
         text_column(3, val, RV_NAME[v < RV_N ? v : 0], v ? VAL(3u) : T_DIM);

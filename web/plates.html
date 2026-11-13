@@ -154,7 +154,7 @@ async function refresh() {
     for (let first = 0; first === 0 || first < nslot; first += 8) {
       const a = await request(CMD.LIST, [first]);
       if (!first && (a[1] < 2 || a.length < 4)) throw new Error("old");   /* (phase 1's single slot: no bank) */
-      api = a[0]; nslot = a[1];
+      api = a[0]; nslot = a[1]; devApi = api;
       for (let i = 3, k = a[2]; i < a.length && k < nslot && k < first + 8; k++) {
         const st = a[i], z = a.indexOf(0, i + 1);
         bank[k] = { st, name: String.fromCharCode(...a.slice(i + 1, z)), len: fromU32(a.slice(z + 1, z + 6)) };
@@ -191,7 +191,11 @@ function slotFor(p) {
   const k = bank.findIndex((b) => b && b.st && b.name === p.name);
   return k >= 0 ? k : bank.findIndex((b) => b && !b.st);
 }
+let devApi = 0;                                       /* the FM-1's plate API (refresh) */
 async function put(p, label) {                        /* plate p into its slot (BEGIN, WRITEs, END) */
+  const need = p.img[4] | p.img[5] << 8;              /* (umb_plate_t.api: a plate newer than the firmware is refused there) */
+  if (devApi && need > devApi)
+    throw new Error(`${label} needs newer firmware (plate API ${need}, this FM-1 has ${devApi}). Update the FM-1 first.`);
   const slot = slotFor(p);
   if (slot < 0) throw new Error(`The bank is full: empty a slot for ${label}.`);
   const bytes = moved(p, slot);

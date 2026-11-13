@@ -7,6 +7,17 @@
  * only with the transport stopped, as project.c settings_poll's: an erase stops the sound for its ~40 ms) */
 static void umv_poll(void)
 {
+    if (umv_req) {                                      /* (the song: a row gone in, its plates; a new one, its cells none) */
+        uint32_t q = umv_req, g = umb_pick();
+        umv_req = 0;
+        if (q == 0xFFu)
+            umv_rows(CHAIN_ROWS, 0);
+        else {
+            umv_apply(q - 1u);
+            if (umt.on && umb_pick() != g)
+                umt.fms = fm1_ms | 1u;                  /* (TOTALITY: the new ground dissolves in) */
+        }
+    }
     if (fm1_ms - umv_ms <= 1500u)
         return;
     if (umv_dirty) {

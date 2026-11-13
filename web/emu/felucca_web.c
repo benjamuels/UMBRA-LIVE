@@ -481,6 +481,17 @@ EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA LIVE) 99: the g
         nav_go(SEC_HOME, 0, 0);                         /* (ui_umbra_tot.c) */
         umt_enter(0);
         umt.say_ms = 0;
+    } else if (i == 94u || i == 93u) {                  /* 94: the song's row v >> 24's cell on picture track v >> 16 & 1: page
+                                                         * v & 255 (254: as before it, 255: off), its preset v >> 8 & 3;
+                                                         * 93: page v & 255's preset v >> 8 */
+        umx_desc_t d;
+        if (i == 93u)
+            umx_pre_set(v & 255u, v >> 8);
+        else {
+            umc_cell_t *c = umv_cell(v >> 24, v >> 16 & 1u);
+            c->key = (uint16_t)((v & 255u) == 254u ? 0u : (v & 255u) == 255u ? UMC_OFF : umx_desc(v & 255u, &d) ? umx_key(d.name) : 0u);
+            c->pre = (uint8_t)(v >> 8 & 3u);
+        }
     } else if (i == 97u)
         umx_place_set(v & 255u, v >> 8);
     else if (i == 96u || i == 95u) {
@@ -489,7 +500,7 @@ EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA LIVE) 99: the g
         umc_rec_t *r;
         if (!umx_desc(pg, &d) || j >= d.nctl)
             return;
-        r = umx_rec(pg);
+        r = umx_recf(pg, 1);
         if (i == 96u)
             r->t[j] = (uint8_t)(v & 63u);
         else
@@ -512,6 +523,8 @@ EXPORT uint32_t web_umb_get(uint32_t i)                /* (UMBRA LIVE) 99: the g
 {
     umx_desc_t d;
     uint32_t pl = umb_pl();
+    if (i == 80u || i == 81u)                           /* (80: LAYER 1's page (63: none); 81: the ground's preset) */
+        return i == 80u ? (umx_layers(), umx_lp[0]) : pl != UMB_NONE ? umx_pre(pl) : 0u;
     return i == 99u ? pl : i == 90u ? UMX_N : i >= 100u ? (uint32_t)umx_desc(i - 100u, &d) : i == 2u ? umg_raw(G_LIGHT)
            : i < 18u && pl != UMB_NONE ? umx_raw(pl, i >= 10u ? i - 10u : i == 3u ? 2u : i) : 0u;
 }

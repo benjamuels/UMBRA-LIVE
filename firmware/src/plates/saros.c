@@ -216,4 +216,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_saros = {
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 6u, {0, 0, 0},
     {{"SPIN", 30}, {"FADE", 45}, {"SIZE", 50}, {"THREAD", 50}, {"POINT", 50}, {"DIAL", 50}},
     pls_init, pls_note, pls_frame, pls_draw,
-    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0}};
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0},
+    "The melody as string art on a circle", 3u, {0, 0, 0},
+    {{"ORBIT", {71, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), UMB_LINK(UMB_SRC_BEAT, 5u)}, {99, 99, 30, 50}},
+     {"LOOM", {0, 86, 0, 91, 21, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 2u), 0}, {99, 99, 25, 0}},
+     {"SPARKS", {0, 21, 0, 26, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_BEAT, 4u)}, {99, 99, 30, 40}}}};

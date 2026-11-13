@@ -107,4 +107,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_moths = {
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 7u, {0, 0, 0},
     {{"FLIGHT", 50}, {"FADE", 50}, {"SIZE", 50}, {"MOTHS", 50}, {"SCATTR", 50}, {"LAMP", 50}, {"ORBIT", 50}},
     plm_init, plm_note, plm_frame, plm_draw,
-    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, 0}};
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, 0},
+    "A lamp at night, a moth for each note", 3u, {0, 0, 0},
+    {{"DUSK", {26, 81, 0, 0, 0, 36, 71, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 6u), UMB_LINK(UMB_SRC_LEVEL, 5u)}, {99, 99, 30, 50}},
+     {"SWARM", {86, 0, 0, 96, 61, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), UMB_LINK(UMB_SRC_HIT(0), 4u)}, {99, 99, 60, 40}},
+     {"FLICKER", {0, 26, 71, 0, 0, 91, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, -70, 40}}}};

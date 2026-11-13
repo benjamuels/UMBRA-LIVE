@@ -85,4 +85,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_sonar = {
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 7u, {0, 0, 0},
     {{"TURN", 50}, {"FADE", 50}, {"SIZE", 50}, {"MARKS", 50}, {"PINGS", 50}, {"RINGS", 50}, {"HAND", 50}},
     plo_init, plo_note, plo_frame, plo_draw,
-    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0, 0}};
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0, 0},
+    "Rings and a sweeping hand find notes", 3u, {0, 0, 0},
+    {{"SCAN", {81, 0, 0, 0, 0, 31, 91, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), 0}, {99, 99, 50, 0}},
+     {"DEEP", {21, 91, 76, 81, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u), UMB_LINK(UMB_SRC_LFO(0), 2u)}, {99, 99, 40, 20}},
+     {"CONTACT", {0, 31, 0, 96, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 6u), UMB_LINK(UMB_SRC_BEAT, 2u)}, {99, 99, 50, 15}}}};

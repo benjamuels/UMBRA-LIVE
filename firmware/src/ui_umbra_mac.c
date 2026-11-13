@@ -23,7 +23,14 @@
  *                                        button, falling off over 0.4 s; OFF: the link gone), KNOB 4 how far (-99 .. 99
  *                                        of the element's range with the source at full)
  *                       + ADD            KNOB 3: a new link
+ *                     ALGORITHM's plate, lying nowhere, becomes the ground: the plate behind the page is the page's.
+ *                     PRESETS (KNOB 3 on the name's row): the page's four presets, BASIC and three more (a plate's own,
+ *                     from its file: umb_pre_t); what is set goes into the preset chosen.
  *                     Kept in LIVE VIZ CTRLS' own store (ui_umbra.c umc), one set for every song.
+ *   PLATES            every plate, four a page, a line on each (umx_list): KNOB 1 or ALGORITHM the plate, KNOB 3 or
+ *                     PRESETS its preset, KNOB 4 where it lies.
+ *   SAVE > SONG > TIMELINE   two picture tracks, MAIN and OVER, a cell a row; a cell opened by OCT+ is LIVE VIZ CTRLS
+ *                     for its plate (umv_*, at the end).
  *   OCT+ on either    SETUP: a control made a question at a time, large, any knob the answer, OCT+ the next, OCT- back
  *                     (from the first: out).
  * Built for size, as the main loop is (tools/size_fns.py) */
@@ -113,6 +120,25 @@ static int umq_tap(uint32_t i)
             }
     return 0;
 }
+/* SAVE > SONG > TIMELINE's picture tracks (the user, 2026-11-13): past T6, ALGORITHM reaches MAIN and OVER, a cell a row
+ * each: the plate that is the ground, and the one on LAYER 1, from that row on (umv_apply). KNOB 4 there turns the cell's
+ * plate; OCT+ opens the cell: LIVE VIZ CTRLS for its plate and its preset, over the picture (ALGORITHM the plate, PRESETS
+ * the preset, the knobs as on that page; OCT- back) */
+static int umv_on(void) { return umv_ed && umv_tk && !ui.home && !ui.menu && !ui.confirm && SONG_TRK(cur_page()); }
+static umc_cell_t *umv_cc(void) { return umv_cell(ui.song_row, umv_tk - 1u); }
+/* the cursor's row shown (not while the song plays its own), the open cell's page LIVE VIZ CTRLS' */
+static void umv_sync(void)
+{
+    uint32_t pl;
+    if (!chain.running)
+        umv_apply(ui.song_row);
+    if (umv_ed && umv_tk && (pl = umx_find(umv_cc()->key)) != umx_pg) {
+        umx_pg = (uint8_t)pl;
+        umx_el = umx_ct = 0;
+    }
+    ui.force = 1;
+}
+static uint32_t umk_au(void) { return !umv_on() && ui.hset[0] == 1u; }   /* LIVE AUDIO CTRLS shown */
 static uint32_t umx_cur(void)                           /* the page chosen (at first the ground's plate; none: SCREEN) */
 {
     umx_desc_t d;
@@ -176,15 +202,19 @@ static int umx_can(uint32_t pl, uint32_t w)
     uint32_t m = pl < UMB_NPLT ? umb_mod(pl)->modes : UMB_MODE(UMB_DRAW_ADD);
     return pl <= UMX_BEING && (!w || (m & UMB_MODE(w == 1u ? UMB_DRAW_REPLACE : UMB_DRAW_ADD)));
 }
-static void umx_algo(int32_t s)                         /* ALGORITHM: the next page there is, round */
+/* ALGORITHM: the next page there is of the first lim, round. A plate lying nowhere becomes the ground: the plate
+ * behind the page is the one the page is about (the user, 2026-11-13) */
+static void umx_algo(int32_t s, uint32_t lim)
 {
     umx_desc_t d;
-    uint32_t k, pl = umx_cur();
-    for (k = 0; k < UMX_N; k++)
-        if (umx_desc(pl = (pl + (s > 0 ? 1u : UMX_N - 1u)) % UMX_N, &d))
+    uint32_t k, pl = umx_cur() % lim;
+    for (k = 0; k < lim; k++)
+        if (umx_desc(pl = (pl + (s > 0 ? 1u : lim - 1u)) % lim, &d))
             break;
     umx_pg = (uint8_t)pl;
     umx_el = umx_ct = 0;
+    if (!umx_place(pl) && umx_can(pl, 1u))
+        umx_place_set(pl, 1u);
 }
 /* KNOB k turned s: 1 the row, 2 its control, 3 the track or the source, 4 the value */
 static void umx_knob(uint32_t k, int32_t s)
@@ -200,8 +230,10 @@ static void umx_knob(uint32_t k, int32_t s)
         umx_ct = 0;
         return;
     }
-    if (!umx_el) {                                      /* the name's row: where the page lies */
-        for (w = umx_place(pl); k == 3u && (w += (uint32_t)(s > 0 ? 1 : -1)) < 5u;)
+    if (!umx_el) {                                      /* the name's row: its preset, where the page lies */
+        if (k == 2u)
+            umx_pre_set(pl, (uint32_t)clamp((int32_t)umx_pre(pl) + s, 0, UMC_NPRE - 1));
+        for (w = umx_place(pl); k == 3u && !umv_on() && (w += (uint32_t)(s > 0 ? 1 : -1)) < 5u;)
             if (umx_can(pl, w)) {
                 umx_place_set(pl, w);
                 break;
@@ -209,7 +241,7 @@ static void umx_knob(uint32_t k, int32_t s)
         return;
     }
     j = umx_el - 1u;
-    r = umx_rec(pl);
+    r = umx_recf(pl, k >= 2u);                          /* (a preset not changed yet: its own record now) */
     notes = d.el && (d.el[j] & UMB_EL_NOTES);
     row = umx_row(r, j, notes, umx_ct, &li);
     if (k == 1u) {
@@ -241,7 +273,8 @@ static void umx_knob(uint32_t k, int32_t s)
 }
 
 /* ------------------------------------------------------------------------------------------- the pages --- */
-static int umk_on(void) { return UMB_ON && !umt.on && home_bare() && ui.hset[0]; }   /* a LIVE CTRLS page shown */
+static int umk_on(void) { return UMB_ON && !umt.on && home_bare() && ui.hset[0]; }   /* a LIVE CTRLS page or PLATES shown */
+static const char *const UMV_TN[2] = {"MAIN", "OVER"};
 /* LIVE AUDIO CTRLS' row i's words, a column each (slot i of the selected track): its number, the SOURCE, the DEST, the
  * AMOUNT; 1: it acts (else drawn dim) */
 static int umk_names(uint32_t i, char (*b)[12])
@@ -268,9 +301,11 @@ static int umx_names(char (*b)[12])
     }
     str_cpy(b[0], umx_el ? d.ctl[j].name : d.name, 12);
     if (!umx_el) {
-        str_cpy(b[1], "WHERE", 12);
-        str_cpy(b[3], pl > UMX_BEING ? "ALWAYS" : UMX_WH[umx_place(pl)], 12);
-        return 0;
+        umx_pre_name(pl, umx_pre(pl), b[2]);
+        if (b[2][2])                                    /* (the column: its name alone) */
+            str_cpy(b[2], b[2] + 3, 9);
+        str_cpy(b[3], umv_on() ? UMV_TN[umv_tk - 1u] : pl > UMX_BEING ? "ALWAYS" : UMX_WH[umx_place(pl)], 12);
+        return 1;
     }
     r = umx_rec(pl);
     row = umx_row(r, j, d.el && (d.el[j] & UMB_EL_NOTES), umx_ct, &li);
@@ -295,7 +330,7 @@ static int umx_names(char (*b)[12])
 static void umk_algo(int32_t s)                         /* ALGORITHM: the track (LIVE AUDIO CTRLS), the page (LIVE VIZ CTRLS) */
 {
     if (ui.hset[0] != 1u) {
-        umx_algo(s);
+        umx_algo(s, ui.hset[0] == 3u ? UMB_NPLT : UMX_N);
         return;
     }
     track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));
@@ -305,6 +340,14 @@ static void umk_algo(int32_t s)                         /* ALGORITHM: the track 
 static void umk_knob(uint32_t k, int32_t s)
 {
     uint32_t au = ui.hset[0] == 1u;
+    if (ui.hset[0] == 3u) {                             /* PLATES: KNOB 1 the plate, 3 its preset, 4 where it lies */
+        umx_el = 0;
+        if (!k)
+            umx_algo(s, UMB_NPLT);
+        else
+            umx_knob(k, s);
+        return;
+    }
     if (umz == 1u) {                                    /* (SETUP: any knob the answer; the first, ALGORITHM's) */
         umk_algo(s);
         return;
@@ -321,7 +364,7 @@ static void umk_knob(uint32_t k, int32_t s)
  * moves it (a new link: its + ADD row), how far */
 static void umz_input(uint32_t oct)
 {
-    if (!umk_on()) {
+    if (!umk_on() || ui.hset[0] == 3u) {
         umz = 0;
         return;
     }
@@ -347,12 +390,22 @@ static void umz_input(uint32_t oct)
 }
 static void umk_cards(void)                             /* KNOB 1..4: the chosen row's columns */
 {
-    static const char *const LB[2][4] = {{"SLOT", "SOURCE", "DEST", "AMOUNT"}, {"ELEMENT", "CONTROL", "SOURCE", "VALUE"}};
+    static const char *const LB[3][4] = {{"SLOT", "SOURCE", "DEST", "AMOUNT"}, {"ELEMENT", "CONTROL", "SOURCE", "VALUE"},
+                                         {"PAGE", "", "PRESET", "WHERE"}};
     char b[4][12];
-    uint32_t k, au = ui.hset[0] == 1u;
-    int on = au ? umk_names(uma_slot, b) : umx_names(b);
+    uint32_t k, au = umk_au(), nm;
+    int on;
+    if (!umv_on() && ui.hset[0] == 3u)                  /* (PLATES: the plate's own row) */
+        umx_el = 0;
+    nm = !au && !umx_el;
+    if (umv_on() && umx_pg == UMB_NONE) {               /* (a cell with no plate: its word, nothing to turn) */
+        umv_name(umv_cc(), b[0]);
+        b[1][0] = b[2][0] = b[3][0] = 0;
+        on = 0;
+    } else
+        on = au ? umk_names(uma_slot, b) : umx_names(b);
     for (k = 0; k < 4u; k++)
-        text_column(k, !au && k == 2u && b[1][0] == 'N' ? "TRACK" : LB[!au][k], b[k][0] ? b[k] : "-",
+        text_column(k, !au && k == 2u && b[1][0] == 'N' ? "TRACK" : LB[nm ? 2u : !au][k], b[k][0] ? b[k] : "-",
                     (au ? on || k < 2u : k != 2u || on) && b[k][0] ? VAL(k) : T_DIM);
 }
 #define UMK_RH 17                                       /* a row's height (AF_S) */
@@ -391,13 +444,18 @@ static void umx_draw(int32_t x0, int32_t y, int32_t bot)
                 cv_rect(111 - x0, yy + 10, 8, 1, T_MID);
         }
     }
-    if (!umx_el) {                                      /* where it lies */
-        umk_text(124 - x0, y, "WHERE", T_MID);
-        str_cpy(b, pl > UMX_BEING ? "ALWAYS" : UMX_WH[umx_place(pl)], sizeof b);
+    if (!umx_el) {                                      /* where it lies (a TIMELINE cell: its row and track), its preset */
+        str_cpy(t, "ROW ", sizeof t);
+        fmt_int(t + 4, (int32_t)ui.song_row + 1);
+        umk_text(124 - x0, y, umv_on() ? t : "WHERE", T_MID);
+        str_cpy(b, umv_on() ? UMV_TN[umv_tk - 1u] : pl > UMX_BEING ? "ALWAYS" : UMX_WH[umx_place(pl)], sizeof b);
         umk_text(234 - text_w(&AF_S, b) - x0, y, b, pl > UMX_BEING ? T_MID : T_THEME);
+        umk_text(124 - x0, y + UMK_RH, "PRESET", T_MID);
+        umx_pre_name(pl, umx_pre(pl), b);
+        umk_text(234 - text_w(&AF_S, b) - x0, y + UMK_RH, b, T_THEME);
         i = umx_place(pl);                              /* (a plate on a layer with no room beside the ground's: it waits) */
-        if (pl <= UMX_BEING)
-            umk_text(124 - x0, y + UMK_RH, i >= 2u && pl < UMB_NPLT && !umb_lay[i - 1u].pp ? "NO ROOM" : "KNOB 4", T_DIM);
+        if (i >= 2u && pl < UMB_NPLT && !umb_lay[i - 1u].pp)
+            umk_text(124 - x0, y + 2 * UMK_RH, "NO ROOM", T_DIM);
     } else
         for (i = umx_ct >= rows ? umx_ct - rows + 1u : 0u, k = i + rows, yy = y; i < k; i++, yy += UMK_RH) {
             uint16_t col = i == umx_ct ? T_THEME : T_TEXT;
@@ -430,6 +488,47 @@ static void umx_draw(int32_t x0, int32_t y, int32_t bot)
             umk_text(234 - text_w(&AF_S, b) - x0, yy, b, col);
         }
 }
+/* HOME > UMBRA > PLATES (the user, 2026-11-13: a plate browser, four at a time, with descriptions): every plate there is,
+ * a row each: its name, where it lies, under them its own line (its file's, umb_plate_t.desc; an older file: its
+ * elements). The chosen one (KNOB 1, ALGORITHM) plays behind the page as the ground unless it lies on a layer; it is
+ * LIVE VIZ CTRLS' page too */
+static void umx_list(int32_t x0, int32_t y, int32_t bot)
+{
+    char b[48];
+    uint32_t pl, n = 0, at = 0, i = 0, k, cur = umx_cur();
+    int32_t rh = (bot - y - 10) / 4, yy;
+    if (cur >= UMB_NPLT)
+        cur = umx_pg = (uint8_t)(umb_pl() != UMB_NONE ? umb_pl() : 4u);
+    for (pl = 0; pl < UMB_NPLT; pl++)
+        if (umb_has(pl)) {
+            if (pl == cur)
+                at = n;
+            n++;
+        }
+    for (pl = 0; pl < UMB_NPLT; pl++) {
+        const umb_plate_t *p;
+        if (!umb_has(pl) || i++ / 4u != at / 4u)
+            continue;
+        p = umb_mod(pl);
+        yy = y + (int32_t)((i - 1u) % 4u) * rh;
+        if (pl == cur)
+            cv_rect(2 - x0, yy + 2, 2, rh - 6, T_THEME);
+        umk_text(8 - x0, yy, p->name, pl == cur ? T_THEME : T_TEXT);
+        if ((k = umx_place(pl)) != 0u)
+            umk_text(234 - text_w(&AF_S, UMX_WH[k]) - x0, yy, UMX_WH[k], T_MID);
+        b[0] = 0;
+        if (p->api >= 4u)
+            str_cpy(b, p->desc, 40);
+        else
+            for (k = 0; k < p->nctl && str_len(b) < 36u; k++) {
+                str_cpy(b + str_len(b), p->ctl[k].name, 8);
+                str_cpy(b + str_len(b), " ", 2);
+            }
+        cv_text(8 - x0, yy + 15, &AF_X, b, pl == cur ? T_TEXT : T_MID);
+    }
+    fmt_frac(b, (int32_t)(at / 4u) + 1, (int32_t)((n + 3u) / 4u));
+    cv_text(232 - text_w(&AF_X, b) - x0, bot - 10, &AF_X, b, T_MID);
+}
 /* the page over the plate from canvas row y (h rows). LIVE AUDIO CTRLS: the selected track's four slots, then what each
  * macro moves (its routes on every track: "T2 CUT", as many as fit); LIVE VIZ CTRLS: umx_draw. SETUP: its question, large,
  * and the answer */
@@ -443,6 +542,11 @@ static void umk_draw(int32_t x0, int32_t y, int32_t h)
     uint32_t i, k, c, au = ui.hset[0] == 1u;
     int32_t bot = y + h;
     cv_halo = 1;
+    if (ui.hset[0] == 3u) {
+        umx_list(x0, y, bot);
+        cv_halo = ha;
+        return;
+    }
     if (umz) {                                          /* SETUP */
         const char *a = b[umz - 1u];
         if (au) {
@@ -497,4 +601,129 @@ static void umk_draw(int32_t x0, int32_t y, int32_t h)
     }
     cv_text(232 - text_w(&AF_X, "setup  Oct +") - x0, bot - 10, &AF_X, "setup  Oct +", T_MID);
     cv_halo = ha;
+}
+
+/* --------------------------------------------------------------------- SAVE > SONG > TIMELINE's picture tracks --- */
+/* ALGORITHM on TIMELINE: past the last sound track MAIN, then OVER; back the same way. In an open cell: its plate.
+ * 1: taken */
+static int umv_algo(int32_t s)
+{
+    if (ui.home || !SONG_TRK(cur_page()))
+        return 0;
+    if (umv_on())
+        umv_turn(umv_cc(), umv_tk - 1u, s);
+    else if (umv_tk)
+        umv_tk = (uint8_t)clamp((int32_t)umv_tk + (s > 0 ? 1 : -1), 0, 2);
+    else if (s > 0 && (uint32_t)song.sel + 1u >= trk_live)
+        umv_tk = 1;
+    else
+        return 0;
+    umv_sync();
+    return 1;
+}
+/* a knob there. KNOB 4 on a picture track: its cell's plate. In an open cell LIVE VIZ CTRLS' knobs for its plate (on its
+ * name's row KNOB 3 the cell's preset; a cell with no plate: none). 1: taken */
+static int umv_knob(uint32_t k, int32_t s)
+{
+    umc_cell_t *c;
+    if (!umv_tk || !(umv_on() || k == 3u))
+        return 0;
+    c = umv_cc();
+    if (!umv_on())
+        umv_turn(c, umv_tk - 1u, s);
+    else if (umx_pg != UMB_NONE && (umx_el || !k))
+        umx_knob(k, s);
+    else if (umx_pg != UMB_NONE && k == 2u) {
+        c->pre = (uint8_t)clamp((int32_t)c->pre + s, 0, UMC_NPRE - 1);
+        umc_touch();
+    }
+    umv_sync();
+    return 1;
+}
+/* PRESETS: an open cell's preset; LIVE VIZ CTRLS' or PLATES' page's. 1: taken */
+static int umk_preset(int32_t s)
+{
+    if (umv_on()) {
+        if (umx_pg != UMB_NONE) {
+            umv_cc()->pre = (uint8_t)clamp((int32_t)umv_cc()->pre + s, 0, UMC_NPRE - 1);
+            umc_touch();
+            umv_sync();
+        }
+        return 1;
+    }
+    if (!umk_on() || ui.hset[0] == 1u)
+        return 0;
+    umx_pre_set(umx_cur(), (uint32_t)clamp((int32_t)umx_pre(umx_cur()) + s, 0, UMC_NPRE - 1));
+    ui.force = 1;
+    return 1;
+}
+/* each input pass, the octave keys' taps there: OCT+ on a picture track opens its cell, OCT- closes it. What is left of
+ * the taps for the page (OCT+ ADD ROW, OCT- DELETE) */
+static uint32_t umv_input(uint32_t oct)
+{
+    if (ui.home || !SONG_TRK(cur_page()) || !umv_tk || chain_busy() || !chain_config.count) {
+        umv_ed = 0;
+        return oct;
+    }
+    if (!oct || ui.menu || ui.confirm)
+        return oct;
+    if (oct & 2u)
+        umv_ed = 1;
+    else if (umv_ed)
+        umv_ed = 0;
+    else
+        return oct;
+    umv_sync();
+    return 0;
+}
+/* TIMELINE's right half: two previews, the ground and LAYER 1 as the cursor's row leaves them, under each its track, its
+ * cell's plate and preset (while the song plays: the picture as it plays, and the plates' names); the track ALGORITHM
+ * chose framed */
+static void umv_tl(void)
+{
+    char b[12];
+    uint32_t tk;
+    if (!chain.running)
+        umv_apply(ui.song_row);
+    for (tk = 0; tk < 2u; tk++) {
+        int32_t x = 124 + (int32_t)tk * 58;
+        const umc_cell_t *c = umv_cell(ui.song_row, tk);
+        if (!umb_thumb(tk, x, 38)) {
+            cv_rect(x, 38, UMB_THS, UMB_THS, T_BG);
+            if (tk && umx_lp[0] >= UMX_BODY && umx_lp[0] <= UMX_BEING)   /* (a figure: its name) */
+                cv_text(x + 4, 60, &AF_X, UMX_PN[umx_lp[0] - UMX_BODY], T_MID);
+        }
+        cv_frame(x - 1, 37, UMB_THS + 2, UMB_THS + 2, umv_tk == tk + 1u ? T_THEME : T_LINE);
+        cv_text(x, 96, &AF_X, UMV_TN[tk], umv_tk == tk + 1u ? T_THEME : T_MID);
+        umv_name(c, b);
+        if (chain.running) {                            /* (the song plays: what it shows now, whatever the cursor's row says) */
+            uint32_t pl = tk ? umx_lp[0] : umb_pl();
+            umx_desc_t d;
+            cv_text(x, 106, &AF_X, umx_desc(pl, &d) ? d.name : "--", T_TEXT);
+        } else
+            cv_text(x, 106, &AF_X, b, c->key ? T_TEXT : T_DIM);
+        if (!chain.running && c->key && c->key != UMC_OFF) {
+            umx_pre_name(umx_find(c->key), c->pre, b);
+            cv_text(x, 116, &AF_X, b[2] ? b + 3 : b, T_MID);
+        }
+    }
+}
+/* an open cell over TIMELINE's panel: the picture, LIVE VIZ CTRLS for the cell's plate over it. 0: none open */
+static int umv_draw(void)
+{
+    uint8_t ha = cv_halo;
+    char b[12];
+    if (!umv_on())
+        return 0;
+    umb_backdrop(0, (int32_t)graph_y());
+    cv_halo = 1;
+    if (umx_pg == UMB_NONE) {
+        umv_name(umv_cc(), b);
+        cv_text(120 - text_w(&AF_M, b) / 2, 40, &AF_M, b, T_THEME);
+        cv_text(120 - text_w(&AF_X, "ALGORITHM: A PLATE") / 2, 66, &AF_X, "ALGORITHM: A PLATE", T_MID);
+    } else
+        umx_draw(0, 4, (int32_t)graph_h() - 6);
+    cv_text(8, (int32_t)graph_h() - 10, &AF_X, "Oct -  back", T_MID);
+    cv_halo = ha;
+    return 1;
 }

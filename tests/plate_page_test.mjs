@@ -55,7 +55,7 @@ check(el('status').className === 'bad' && /IAC Driver Bus 1, Launchkey MK3/.test
       `connect, no FM-1: says which ports it sees`);
 ctx.navigator.requestMIDIAccess = access(['IAC Driver Bus 1', 'FM-1']);   // (the FM-1's USB name since JIANT V10)
 await vm.runInContext('connect()', ctx);
-check(el('dev').textContent === 'FM-1' && /Plate API 3, 16 slots, 0 in use/.test(el('devinfo').textContent),
+check(el('dev').textContent === 'FM-1' && /Plate API 4, 16 slots, 0 in use/.test(el('devinfo').textContent),
       `connect: finds "FM-1", the bank: "${el('devinfo').textContent}"`);
 check(shown().join('|') === 'CORONA|16 empty slots', `the bank, empty: ${shown().join(' | ')}`);
 await vm.runInContext('send([[__bytes, "FIL EMBER"]])', ctx);

@@ -1459,6 +1459,7 @@ static __attribute__((noinline)) uint32_t graph_signature(void)
         for (uint32_t r = 0; r < CHAIN_ROWS; r++)
             h = (h ^ (song_idx.scene[song_cur][r].on * (r + 1u))) * 16777619u;
         h ^= ui.song_row * 40503u + chain_config.count * 7919u;
+        if (SONG_TRK(pg)) h ^= anim_fr / 2u * 2654435761u;   /* ((UMBRA LIVE) TIMELINE: its two plates move) */
         for (i = 0; i < CHAIN_ROWS; i++)
             h = (h ^ (chain_config.row[i].slot + 4u * chain_config.row[i].bars)) * 16777619u;
         h ^= chain.running ? (chain.row + 1u) * 104729u + chain.remaining * 1299709u + chain.pass * 15485863u : 0u;

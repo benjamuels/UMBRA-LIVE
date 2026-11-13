@@ -163,4 +163,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_pachinko = {
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 7u, {0, 0, 0},
     {{"GRAVTY", 50}, {"BOUNCE", 50}, {"TILT", 50}, {"STARS", 50}, {"SHAKE", 50}, {"PEGS", 50}, {"CUPS", 50}},
     plp_init, plp_note, plp_frame, plp_draw,
-    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0, 0}};
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0, 0},
+    "Stars fall through pegs into cups", 3u, {0, 0, 0},
+    {{"FLOAT", {16, 81, 0, 0, 0, 36, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 40, 0}},
+     {"JACKPOT", {81, 0, 0, 96, 0, 0, 91, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), UMB_LINK(UMB_SRC_HIT(0), 4u)}, {99, 99, 60, 50}},
+     {"TILT", {0, 0, 86, 0, 81, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u), UMB_LINK(UMB_SRC_BEAT, 2u)}, {99, 99, 40, -30}}}};

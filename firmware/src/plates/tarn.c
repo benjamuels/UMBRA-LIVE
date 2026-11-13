@@ -213,4 +213,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_tarn = {
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 6u, {0, 0, 0},
     {{"DRAG", 55}, {"BEND", 50}, {"SIZE", 50}, {"DROP", 50}, {"PLUNGE", 50}, {"GLINT", 50}},
     plt_init, plt_note, plt_frame, plt_draw,
-    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES}};
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES},
+    "The eclipse in dark water, notes drop", 3u, {0, 0, 0},
+    {{"STILL", {86, 21, 0, 31, 0, 26, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 1u), 0}, {99, 99, 20, 0}},
+     {"RAIN", {36, 0, 0, 96, 31, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u)}, {99, 99, 30, 50}},
+     {"SWELL", {0, 81, 0, 0, 91, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 2u), UMB_LINK(UMB_SRC_LEVEL, 1u)}, {99, 99, 20, 40}}}};

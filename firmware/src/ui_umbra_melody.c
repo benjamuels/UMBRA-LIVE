@@ -6,6 +6,8 @@
  * rows' darkening (under the knob row and the footer as on every plate; TOTALITY: the whole screen, undimmed). SAROS and
  * FILAMENT, the melody plates once drawn here, are plate modules since 2026-11-09 (plates/saros.c, plates/filament.c:
  * their own copies of these, plates/plate_lib.h) */
+static uint16_t *umm_p;                                 /* the strip being drawn (CORONA's, the welcome's): its pixels, */
+static uint32_t umm_w, umm_h;                           /* its size (the canvas, or a TIMELINE preview's row) */
 static int32_t umm_x0, umm_y0;                          /* the strip being drawn: its place on the screen */
 static int32_t umm_lq;                                  /* LIGHT (Q8), worked out once a frame */
 /* a row's darkening (under the knob row and the footer; TOTALITY none), LIGHT in it (all the plates') */
@@ -36,17 +38,17 @@ static __attribute__((noinline)) uint16_t umm_add(uint32_t q, int32_t r, int32_t
 static void umm_px(int32_t x, int32_t y, int32_t w, int32_t r, int32_t g, int32_t b)
 {
     uint16_t *p;
-    if (w <= 0 || (uint32_t)(x - umm_x0) >= cv_w || (uint32_t)(y - umm_y0) >= cv_h)
+    if (w <= 0 || (uint32_t)(x - umm_x0) >= umm_w || (uint32_t)(y - umm_y0) >= umm_h)
         return;
     w = (w * umm_vg(y)) >> 8;                           /* (LIGHT; the dimming, TOTALITY: none) */
-    p = cv_px + (uint32_t)(y - umm_y0) * cv_w + (uint32_t)(x - umm_x0);
+    p = umm_p + (uint32_t)(y - umm_y0) * umm_w + (uint32_t)(x - umm_x0);
     *p = umm_add(*p, r, g, b, w, 0);
 }
 /* a point at X, Y (px, Q8), a (Q8) of colour c, shared among the four pixels round it */
 static void umm_splat(int32_t X, int32_t Y, int32_t a, const uint8_t *c)
 {
     int32_t x = X >> 8, y = Y >> 8, fx = X & 255, fy = Y & 255, ax = (a * (256 - fx)) >> 8, bx = (a * fx) >> 8;
-    if (y + 1 < umm_y0 || y >= umm_y0 + (int32_t)cv_h)
+    if (y + 1 < umm_y0 || y >= umm_y0 + (int32_t)umm_h)
         return;
     umm_px(x, y, (ax * (256 - fy)) >> 8, c[0], c[1], c[2]);
     umm_px(x + 1, y, (bx * (256 - fy)) >> 8, c[0], c[1], c[2]);

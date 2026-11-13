@@ -41,15 +41,15 @@ typedef struct { const char *nm, *tab; } ng_t;                /* a group: its na
 typedef struct { const nv_t *e; const ng_t *g; uint8_t n, ng; } ch_t;
 #define NV(t, nm, g, lv) {t, nm, g, lv}
 static const nv_t CE_HOME[] = {NV(0, "WELCOME", 0, 0), NV(0, "LIVE AUDIO CTRLS", 1, 0), NV(0, "LIVE VIZ CTRLS", 1, 0),
-                               NV(0, "BEING", 1, 1), NV(0, "ROUTES", 1, 1), NV(0, "GENE 1", 2, 2), NV(0, "GENE 2", 2, 2),
+                               NV(0, "PLATES", 1, 0), NV(0, "BEING", 1, 1), NV(0, "ROUTES", 1, 1), NV(0, "GENE 1", 2, 2), NV(0, "GENE 2", 2, 2),
                                NV(0, "GENE 3", 2, 2)};
-#define HOME_E_BEING 3u                                 /* (UMBRA LIVE, the user 2026-11-09: WELCOME, then UMBRA's MACROS -
+#define HOME_E_BEING 4u                                 /* (UMBRA LIVE, the user 2026-11-09: WELCOME, then UMBRA's MACROS -
                                                          * AUDIO and MACROS - VISUALS (empty for now) before BEING and ROUTES;
                                                          * JIANT's ECO and MACROS, UMBRA's PLATE, NOTES and ROUTING gone (what
                                                          * those three set stays as it was set: TOTALITY reads it, ui_umbra.c).
                                                          * WELCOME and the MACROS pages: ui.hset[0] 0..2, the plate behind the
                                                          * whole screen, no knobs (home_bare)) BEING's entries, GEN's first */
-#define HOME_E_GEN 5u                                   /* ((UMBRA LIVE, the user 2026-11-09) MACROS - AUDIO and MACROS -
+#define HOME_E_GEN 6u                                   /* ((UMBRA LIVE, the user 2026-11-09) MACROS - AUDIO and MACROS -
                                                          * VISUALS are LIVE AUDIO CTRLS and LIVE VIZ CTRLS; WELCOME, once
                                                          * dismissed, is not among them: ui_umbra_welcome.c) */
 static int umw_gone(void), umw_hid(void);

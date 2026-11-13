@@ -223,4 +223,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_filament = {
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 6u, {0, 0, 0},
     {{"SWING", 50}, {"RING", 50}, {"SPREAD", 50}, {"PLUCK", 50}, {"BOW", 50}, {"GLOW", 50}},
     plf_init, plf_note, plf_frame, plf_draw,
-    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0}};
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0},
+    "A taut string a track, plucked, bowed", 3u, {0, 0, 0},
+    {{"HARP", {0, 86, 0, 86, 21, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), 0}, {99, 99, 50, 0}},
+     {"BOWED", {26, 61, 0, 16, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u), UMB_LINK(UMB_SRC_LFO(0), 2u)}, {99, 99, 60, 30}},
+     {"SNAP", {91, 21, 0, 100, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 0u), UMB_LINK(UMB_SRC_BEAT, 2u)}, {99, 99, 50, 30}}}};

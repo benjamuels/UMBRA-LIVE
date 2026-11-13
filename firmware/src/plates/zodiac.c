@@ -97,4 +97,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_zodiac = {
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 6u, {0, 0, 0},
     {{"TURN", 30}, {"FADE", 50}, {"SIZE", 60}, {"STARS", 50}, {"JOINS", 50}, {"SPREAD", 55}},
     plz_init, plz_note, plz_frame, plz_draw,
-    {0, 0, 0, UMB_EL_NOTES, 0, 0}};
+    {0, 0, 0, UMB_EL_NOTES, 0, 0},
+    "Six constellations, a sign a track", 3u, {0, 0, 0},
+    {{"WHEEL", {76, 0, 0, 0, 0, 81, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), 0}, {99, 99, 50, 0}},
+     {"CHART", {6, 0, 76, 36, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 3u), 0}, {99, 99, 50, 0}},
+     {"TWINKLE", {0, 26, 0, 96, 11, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_LFO(0), 5u)}, {99, 99, 20, 30}}}};

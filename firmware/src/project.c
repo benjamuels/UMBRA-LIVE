@@ -1713,6 +1713,7 @@ static __attribute__((noinline)) void system_init(void)   /* (snd8: out of its c
     memset(song_idx.scene[song_cur], 0, sizeof song_idx.scene[song_cur]);
     memset(song_idx.tsrc[song_cur], 0, sizeof song_idx.tsrc[song_cur]);
     memset(song_idx.tvar[song_cur], 0, sizeof song_idx.tvar[song_cur]);
+    umv_req = 0xFFu;                                    /* ((UMBRA LIVE) the picture's cells too) */
     memset(pfx_lane, 0, sizeof pfx_lane);
     for (i = 0; i < 4u; i++) macro_v[i] = 0;
     for (i = 0; i < NTRK; i++) trk[i].seq_fit = 0;
@@ -1940,7 +1941,7 @@ static int umc_flash(void *p, uint32_t n, int save)
         return 1;
     if (save)
         return transport_busy() ? 1 : st_save(OBJ_UMBCTL, p, n);
-    return st_load(OBJ_UMBCTL, p, n) != (int)n;
+    return st_load(OBJ_UMBCTL, p, n) <= 0;              /* (a shorter one, an older firmware's: its start) */
 #else
     (void)p;
     (void)n;
