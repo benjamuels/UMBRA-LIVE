@@ -1,97 +1,255 @@
 <!doctype html>
-<!-- SPDX-License-Identifier: GPL-3.0-only. UMBRA LIVE: the plates page (plans/umbra-plate-bank.md, phase 2). Sends
-     plate files (build/plates/*.plate, tools/build.py plate_files) into the FM-1's plate bank over USB-MIDI SysEx:
-     EDITOR_PROTOCOL.md "Plates" (cmds 96..100; firmware/src/editor_plate.c, umb_slot.c). Chrome or Edge (Web MIDI). -->
+<!-- SPDX-License-Identifier: GPL-3.0-only. UMBRA LIVE: the plates page. A browser of every plate (build/plates/*.plate,
+     tools/build.py plate_files; each one's picture, docs/live/plate-*.png), a player that runs the plate chosen (the
+     firmware itself with every plate built in: web/emu/build.sh plates.wasm, run by the emulator's worklet), a loading
+     bank laid out as the FM-1's slots, and the FM-1's own bank read and written over USB-MIDI SysEx: EDITOR_PROTOCOL.md
+     "Plates" (cmds 96..100; firmware/src/editor_plate.c, umb_slot.c). Chrome or Edge (Web MIDI) to reach the FM-1.
+     Two scripts: "core" (the plate files, the protocol, the loading bank: tests/plate_page_test.mjs runs it alone) and
+     the page's own (what is drawn, the player). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>UMBRA LIVE · plates</title>
 <style>
-  :root { color-scheme: dark; --bg: #000; --ink: #d8ebe6; --dim: #7f9a96; --line: #1d2b2f; --teal: #8fd9c9; --warn: #f0a868; }
+  :root { color-scheme: dark; --bg: #000; --ink: #d8ebe6; --dim: #7f9a96; --faint: #4d6360; --line: #1d2b2f; --edge: #355;
+          --teal: #8fd9c9; --warn: #f0a868; --panel: #060b0c; --dock: 196px; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, sans-serif; }
-  main { max-width: 640px; margin: 0 auto; padding: 48px 20px 64px; }
-  h1 { font-size: 13px; letter-spacing: .32em; font-weight: 500; color: var(--teal); margin: 0 0 4px; }
-  h2 { font-size: 12px; letter-spacing: .2em; font-weight: 500; color: var(--dim); margin: 36px 0 10px; }
+  [hidden] { display: none !important; }
+  html { scroll-padding-bottom: var(--dock); }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  main { max-width: 1240px; margin: 0 auto; padding: 36px 24px calc(var(--dock) + 48px); }
+  h1 { font-size: 13px; letter-spacing: .32em; font-weight: 500; color: var(--teal); margin: 0 0 6px; }
+  h2 { font-size: 12px; letter-spacing: .2em; font-weight: 500; color: var(--dim); margin: 0; }
   p { margin: 0 0 12px; color: var(--dim); }
-  .row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
-  .row:last-child { border-bottom: 1px solid var(--line); }
-  .slot { font-variant-numeric: tabular-nums; color: var(--dim); width: 2.2em; }
-  .note { border: 1px solid #3a2f22; border-radius: 6px; padding: 10px 14px; color: var(--warn); font-size: 13px; margin: 0 0 12px; }
-  .name { flex: 1; }
-  .name b { font-weight: 500; letter-spacing: .08em; }
-  .name small { display: block; color: var(--dim); font-size: 13px; }
-  button, label.file { font: inherit; font-size: 13px; color: var(--ink); background: none; border: 1px solid #355; border-radius: 6px;
-    padding: 6px 14px; cursor: pointer; }
-  button:hover:not(:disabled), label.file:hover { border-color: var(--teal); color: var(--teal); }
+  .lead { max-width: 68ch; }
+  button, label.file, select { font: inherit; font-size: 13px; color: var(--ink); background: none; border: 1px solid var(--edge);
+    border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+  select { padding: 6px 8px; background: var(--bg); max-width: 100%; }
+  button:hover:not(:disabled), label.file:hover, select:hover { border-color: var(--teal); color: var(--teal); }
   button:disabled { opacity: .35; cursor: default; }
-  #status { margin-top: 20px; min-height: 1.6em; font-size: 13px; color: var(--teal); }
-  #status.bad { color: var(--warn); }
+  button.go { border-color: var(--teal); color: var(--teal); }
+  button.go:hover:not(:disabled) { background: var(--teal); color: #000; }
+  :focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
   input[type=file] { display: none; }
-  footer { margin-top: 56px; font-size: 12px; color: #4d6360; }
+
+  /* the browser and the player, side by side */
+  .work { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 36px; margin-top: 28px; align-items: start; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-bottom: 14px; }
+  .bar h2 { margin-right: auto; }
+  .chips { display: flex; gap: 6px; align-items: center; }
+  .chips span { font-size: 11px; letter-spacing: .16em; color: var(--faint); margin-right: 2px; }
+  .chips button { padding: 4px 11px; border-radius: 999px; border-color: var(--line); color: var(--dim); }
+  .chips button[aria-pressed=true] { border-color: var(--teal); color: #000; background: var(--teal); }
+  #tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 12px; }
+  .tile { position: relative; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; cursor: grab; }
+  .tile:hover { border-color: var(--edge); }
+  .tile.sel { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal); }
+  .tile .pick { display: block; width: 100%; padding: 0; border: 0; border-radius: 0; text-align: left; color: inherit; cursor: inherit; }
+  .tile .pic { display: block; width: 100%; aspect-ratio: 1; background: #000 center / cover no-repeat; }
+  .tile .nm { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; padding: 7px 9px 8px; }
+  .tile .nm b { font-weight: 500; font-size: 12px; letter-spacing: .1em; }
+  .tile .nm i { font-style: normal; font-size: 10px; letter-spacing: .12em; color: var(--faint); }
+  .tile .add { position: absolute; top: 6px; right: 6px; min-width: 26px; height: 26px; padding: 0 7px; border-radius: 999px; background: rgba(0, 0, 0, .72);
+    border-color: var(--edge); font-size: 12px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .tile.in .add { border-color: var(--teal); color: var(--teal); }
+  #none { grid-column: 1 / -1; padding: 24px 0; }
+
+  /* the player */
+  #player { position: sticky; top: 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 16px;
+    max-height: calc(100vh - var(--dock) - 40px); overflow-y: auto; }
+  #screen { position: relative; aspect-ratio: 1; background: #000 center / cover no-repeat; border-radius: 6px; overflow: hidden; }
+  #screen canvas { display: block; width: 100%; height: 100%; }
+  #start { position: absolute; inset: 0; width: 100%; border: 0; border-radius: 0; background: rgba(0, 0, 0, .35); color: var(--ink);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font-size: 13px; letter-spacing: .08em; }
+  #start:hover:not(:disabled) { background: rgba(0, 0, 0, .15); color: var(--ink); }
+  #start svg { width: 54px; height: 54px; }
+  #start small { color: var(--dim); letter-spacing: 0; max-width: 26ch; }
+  .head { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 2px; }
+  .head b { font-size: 17px; font-weight: 500; letter-spacing: .14em; margin-right: auto; }
+  .tag { font-size: 10px; letter-spacing: .14em; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+  #pdesc { margin: 0 0 12px; font-size: 13px; }
+  .ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .ctl label { font-size: 11px; letter-spacing: .14em; color: var(--faint); }
+  .ctl select { flex: 1; min-width: 0; }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seg button { padding: 4px 10px; font-size: 12px; letter-spacing: .06em; border-color: var(--line); color: var(--dim); }
+  .seg button[aria-pressed=true] { border-color: var(--teal); color: var(--teal); }
+  #params { margin: 14px 0 10px; border-top: 1px solid var(--line); }
+  .prm { padding: 9px 0 8px; border-bottom: 1px solid var(--line); }
+  .prm .top { display: grid; grid-template-columns: 64px 1fr 26px; gap: 10px; align-items: center; }
+  .prm .top label { font-size: 12px; letter-spacing: .1em; font-weight: 500; }
+  .prm .top output { font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
+  .prm.set .top output { color: var(--teal); }
+  .prm small { display: block; margin-top: 3px; font-size: 12.5px; line-height: 1.4; color: var(--dim); }
+  input[type=range] { width: 100%; margin: 0; accent-color: var(--teal); }
+  .foot { display: flex; gap: 8px; align-items: center; }
+  .foot .sp { flex: 1; }
+  #pnote { font-size: 12px; margin: 10px 0 0; color: var(--faint); }
+
+  /* the dock: the FM-1's bank and the loading bank, slot over slot */
+  #dock { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, .94); border-top: 1px solid var(--edge); z-index: 5; }
+  #dock .in { max-width: 1240px; margin: 0 auto; padding: 10px 24px 12px; display: grid; grid-template-columns: 148px minmax(0, 1fr) 236px;
+    gap: 6px 16px; align-items: center; }
+  #dock .lab b { display: block; font-size: 11px; letter-spacing: .18em; font-weight: 500; color: var(--dim); }
+  #dock .lab small { display: block; font-size: 11.5px; line-height: 1.35; color: var(--faint); }
+  .slots { display: grid; grid-template-columns: repeat(17, minmax(0, 1fr)); gap: 4px; }
+  .slots.wide { grid-template-columns: repeat(17, minmax(0, 1fr)); }
+  .cell { position: relative; height: 52px; border: 1px solid var(--line); border-radius: 5px; background: #000 center / cover no-repeat; overflow: hidden;
+    padding: 0; color: var(--ink); font-size: 9px; letter-spacing: .04em; display: flex; align-items: flex-end; min-width: 0; }
+  .cell .n { position: absolute; top: 2px; left: 4px; font-size: 9px; color: var(--dim); font-variant-numeric: tabular-nums; text-shadow: 0 0 3px #000, 0 0 3px #000; }
+  .cell .t { width: 100%; padding: 1px 3px; background: rgba(0, 0, 0, .7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+  .cell.empty { border-style: dashed; }
+  .cell.fix { opacity: .7; cursor: default; }
+  .cell.held { border-color: var(--warn); }
+  .cell.held .t { color: var(--warn); }
+  #plan .cell:not(.fix) { cursor: pointer; }
+  #plan .cell.full { cursor: grab; }
+  #plan .cell.diff { border-color: var(--warn); }
+  #plan .cell.over { border-color: var(--teal); border-style: solid; box-shadow: inset 0 0 0 1px var(--teal); }
+  #plan .cell .x { position: absolute; top: 1px; right: 1px; width: 17px; height: 17px; border-radius: 999px; background: rgba(0, 0, 0, .8); color: var(--ink);
+    font-size: 11px; line-height: 15px; text-align: center; border: 1px solid var(--edge); opacity: 0; }
+  #plan .cell:hover .x, #plan .cell:focus-within .x, #plan .cell .x:focus-visible { opacity: 1; }
+  #plan .cell .x:hover { border-color: var(--warn); color: var(--warn); }
+  .acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .acts button { padding: 5px 10px; font-size: 12px; }
+  #status { grid-column: 1 / -1; min-height: 1.5em; font-size: 12.5px; color: var(--teal); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #status.bad { color: var(--warn); }
+  #status button { padding: 3px 12px; font-size: 12px; }
+  footer { margin-top: 48px; font-size: 12px; color: var(--faint); }
   footer a { color: inherit; }
+
+  @media (max-width: 980px) {
+    .work { grid-template-columns: minmax(0, 1fr); }
+    #player { position: static; max-height: none; order: -1; }
+    #screen { max-width: 340px; margin: 0 auto; }
+    #dock .in { grid-template-columns: minmax(0, 1fr); }
+    #dock .lab { display: flex; gap: 10px; align-items: baseline; }
+    .acts { justify-content: flex-start; }
+    .slots { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+    .cell { height: 40px; }
+    :root { --dock: 330px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .tile, .cell, button { transition: border-color .12s, color .12s, background-color .12s; }
+  }
 </style>
 </head>
 <body>
 <main>
-  <h1>UMBRA LIVE</h1>
-  <p>Plates: load plate files into the FM-1's plate bank. CORONA is built into the firmware; every other plate lives in
-    the bank, and SELECT in TOTALITY steps through what is loaded. Loading stops playback and pauses the sound for a
-    moment, so do it between sets.</p>
-  <p class="note">The bank uses the flash where projects 5 to 8 were kept (UMBRA keeps four projects). Loading a plate
-    overwrites what was stored there: back up from the editor first if you had songs in projects 5 to 8.</p>
-  <div class="row"><div class="name"><b id="dev">FM-1</b><small id="devinfo">Not connected. Connect it by USB, then press Connect (Chrome or Edge).</small></div>
-    <button id="connect">Connect</button></div>
+  <h1>UMBRA LIVE · PLATES</h1>
+  <p class="lead">Every plate there is, to watch, try out and choose from. The FM-1's bank holds sixteen, and CORONA is always
+    there besides. Pick a plate to play it and turn its controls; drag the ones you want into the loading bank below, then
+    connect the FM-1 and load them. Loading stops playback and pauses the sound for a moment, so do it between sets.</p>
 
-  <h2>THE BANK</h2>
-  <div id="bank"><p>Connect to see what it holds.</p></div>
+  <div class="work">
+    <section aria-label="Plates">
+      <div class="bar">
+        <h2 id="count">PLATES</h2>
+        <div class="chips" id="fkind" role="group" aria-label="Kind"><span>KIND</span></div>
+        <div class="chips" id="ftheme" role="group" aria-label="Theme"><span>THEME</span></div>
+        <label class="file" id="filelbl">Add a .plate file…<input type="file" id="file" accept=".plate"></label>
+      </div>
+      <div id="tiles"></div>
+    </section>
 
-  <h2>PLATE FILES</h2>
-  <div class="row"><div class="name"><b>Every plate</b><small>The grounds CINDER, GRANULE, TARN, SEPIA, GYRE, AURORA,
-    FATHOM, RAPIDS and the veils BEACON, ZODIAC, SONAR, MOTHS, MARSH, PACHINKO, KOI, MEDUSA: the 16 plates UMBRA LIVE comes
-    with (an install loads them too). A plate already in the bank is replaced where it is.</small></div>
-    <button id="all" class="load" disabled>Load all</button></div>
-  <div id="lib"><p>Loading the list…</p></div>
-  <div class="row"><div class="name"><b>A file of your own</b><small>A .plate file built for this firmware's plate API.</small></div>
-    <label class="file" id="filelbl">Choose…<input type="file" id="file" accept=".plate"></label></div>
+    <aside id="player" aria-label="Plate player">
+      <div id="screen"><canvas id="cv" width="240" height="240" hidden></canvas>
+        <button id="start"><svg viewBox="0 0 54 54" aria-hidden="true"><circle cx="27" cy="27" r="25.5" fill="none" stroke="currentColor"/><path d="M22 17l16 10-16 10z" fill="currentColor"/></svg>
+          <span>Play this plate</span><small>Runs the FM-1's firmware here, with a song for the plate to follow.</small></button></div>
+      <div class="head"><b id="pname"></b><span class="tag" id="pkind"></span></div>
+      <p id="pdesc"></p>
+      <div class="ctl" id="pover" hidden><label for="over">OVER</label><select id="over"></select></div>
+      <div class="ctl" id="pmusic" hidden><label for="genre">MUSIC</label><select id="genre"></select>
+        <button id="song" title="Another song of this kind">New song</button><button id="sound" aria-pressed="true">Sound on</button></div>
+      <div class="ctl"><label>PRESET</label><div class="seg" id="pres"></div></div>
+      <div id="params"></div>
+      <div class="foot"><button id="defs">Defaults</button><span class="sp"></span><button id="padd" class="go">Add to the bank</button></div>
+      <p id="pnote">What you set here is for trying the plate out: it is not sent to the FM-1. There, the same controls are on
+        HOME &gt; UMBRA &gt; LIVE VIZ CTRLS.</p>
+    </aside>
+  </div>
 
-  <div id="status"></div>
-  <footer>UMBRA LIVE is a live-visuals reskin of <a href="https://github.com/juanjiant-bit/JIANT">JIANT FM</a> by Juan Jiant,
-    itself built on Felucca. GPL-3.0. M-VAVE and FM-1 are trademarks of their respective owners.</footer>
+  <footer>The bank uses the flash where projects 5 to 8 were kept (UMBRA keeps four projects): back up from the editor first if
+    you had songs there. UMBRA LIVE is a live-visuals reskin of <a href="https://github.com/juanjiant-bit/JIANT">JIANT FM</a> by
+    Juan Jiant, itself built on Felucca. GPL-3.0. M-VAVE and FM-1 are trademarks of their respective owners.</footer>
 </main>
-<script>
+
+<div id="dock">
+  <div class="in">
+    <div class="lab"><b id="dev">ON THE FM-1</b><small id="devinfo">Not connected.</small></div>
+    <div class="slots" id="bank" aria-label="The FM-1's bank"></div>
+    <div class="acts"><button id="connect" class="go">Connect the FM-1</button></div>
+    <div class="lab"><b>LOADING BANK</b><small id="planinfo">Drop plates into the slots.</small></div>
+    <div class="slots" id="plan" aria-label="The loading bank"></div>
+    <div class="acts"><button id="std" title="The sixteen plates an install brings">Standard 16</button><button id="copy" disabled title="The loading bank as the FM-1's bank is now">As on FM-1</button><button id="clear">Clear</button>
+      <button id="load" class="go" disabled>Load onto the FM-1</button></div>
+    <div id="status" role="status"></div>
+  </div>
+</div>
+
+<script id="core">
 "use strict";
+/* ------------------------------------------------------------------ the plates: what the page knows without their files */
+/* k: g a ground (draws every pixel), v a veil (sparse light, lies over a ground); t: its themes (the browser's filter) */
+const META = {
+  AURORA: { k: "g", t: ["light"] }, BEACON: { k: "v", t: ["light", "sea"] }, BLOT: { k: "g", t: [] }, BOATS: { k: "v", t: ["sea"] },
+  BOKEH: { k: "v", t: ["light"] }, CINDER: { k: "g", t: ["light"] }, CORONA: { k: "g", t: ["space", "light"] }, FATHOM: { k: "g", t: ["sea"] },
+  FILAMENT: { k: "v", t: ["light"] }, FIZZ: { k: "v", t: ["sea"] }, GRANULE: { k: "g", t: ["space"] }, GYRE: { k: "g", t: ["sea"] },
+  KOI: { k: "v", t: ["sea"] }, MARSH: { k: "v", t: ["light", "sea"] }, MEDUSA: { k: "v", t: ["sea"] }, MOTHS: { k: "v", t: ["light"] },
+  MURMUR: { k: "v", t: [] }, PACHINKO: { k: "v", t: ["space"] }, QUILL: { k: "v", t: [] }, RAPIDS: { k: "g", t: ["sea"] },
+  RIDGE: { k: "v", t: ["space"] }, RIVULET: { k: "g", t: ["sea"] }, SAROS: { k: "v", t: ["space"] }, SEPIA: { k: "g", t: ["sea"] },
+  SONAR: { k: "v", t: ["sea"] }, TARN: { k: "g", t: ["space", "sea"] }, WAX: { k: "g", t: ["light"] }, ZODIAC: { k: "v", t: ["space"] } };
+/* each plate's controls: name, default, what it does (umbra-plate-parameters.md, by web/plates_doc.py: between the marks) */
+const DOC = {
+/*@DOC*/
+  "AURORA": [["DRIFT", 50, "How fast the light runs along the curtains"], ["FADE", 50, "How long a note's light lasts"], ["HEIGHT", 30, "Height of the rays"], ["RAY", 50, "Notes that are not drums (light the curtain where the pitch falls)"], ["FLARE", 50, "Kick: flares the foot of one curtain after another"], ["GLINT", 50, "Rest of the kit: stars glinting above"], ["WAVE", 50, "How deep the curtains fold (moves the folds)"], ["REST", 30, "Light of the curtains with no note playing"]],
+  "BEACON": [["TURN", 50, "Lamp rotation speed (0 = still)"], ["STARS", 50, "Notes: constellation per track, stars come out and fade on release"], ["FADE", 50, "How long a window or star stays lit"], ["BEAM", 50, "Beam flare (default: kick)"], ["WINDOW", 50, "A track's window lights in its colour (default: notes that are not drums)"], ["LAMP", 50, "Lamp flash, as a star (default: rest of the kit)"], ["TOWER", 50, "The tower's own lines"], ["SEA", 50, "Restlessness of the water under it, following the level"]],
+  "BLOT": [["BLEED", 50, "How far the ink runs"], ["DRY", 45, "How soon the blot is gone"], ["GRAIN", 50, "Paper grain"], ["BLOT", 50, "Notes that are not drums: a drop each"], ["SPLAT", 50, "Kick: a large drop and what it throws off"], ["FLECK", 50, "Rest of the kit: flecks"], ["RIM", 70, "Brightness of the edge"]],
+  "BOATS": [["DRIFT", 50, "How fast the boats go round the whirlpool"], ["PULL", 50, "How fast they are drawn in"], ["SIZE", 50, "Boat size"], ["BOATS", 50, "Notes that are not drums: let a boat in at the rim"], ["SWELL", 50, "Kick: a ring from the middle, boats rock and lift"], ["LAMPS", 50, "Rest of the kit: lamps flare"], ["TILT", 50, "Tilt of the view (0 = straight above)"], ["WAKE", 50, "Light of the wakes"]],
+  "BOKEH": [["BLUR", 50, "Size of the discs"], ["FADE", 50, "How long a light stays lit"], ["RIM", 50, "How much brighter the disc edge is"], ["LAMPS", 50, "Notes that are not drums: light the nearest disc"], ["FOCUS", 50, "Kick: discs draw in, sharper and brighter"], ["CARS", 50, "Rest of the kit: cars along the bottom"], ["REST", 40, "The lights' own glow at rest"], ["DRIFT", 30, "How far the lights sway"]],
+  "CINDER": [["RISE", 45, "How fast the heat rises"], ["COOL", 50, "How fast it cools"], ["SWAY", 50, "Sideways sway of the heat"], ["COAL", 50, "Notes that are not drums: drop a coal"], ["SWELL", 50, "Kick: swell from below"], ["SPARK", 50, "Rest of the kit: sparks (snare and clap scatter)"]],
+  "CORONA": [["REACH", 50, "How far a bright streamer runs"], ["FADE", 45, "How long the notes' light lasts"], ["SIZE", 50, "Size of the moon's disc (a quarter to twice)"], ["STREAM", 50, "Notes that are not drums: feed the streamer at the note's place on the circle of fifths"], ["PULSE", 50, "Kick: the chromosphere (the limb's ring) flares"], ["PROM", 50, "Snare and clap: a rose prominence"], ["BEADS", 50, "Hats and rest of the kit: Baily's beads"], ["HALO", 50, "The corona at rest"]],
+  "FATHOM": [["SWELL", 50, "Height of the swell"], ["CALM", 40, "How soon ripples die"], ["LEVEL", 50, "Sea level (low to high)"], ["DROP", 50, "Notes that are not drums: a stone's dent and ripples"], ["HEAVE", 50, "Kick: a wave heaves in from one side, then the other"], ["SPRAY", 50, "Rest of the kit: spray off the top"], ["SHAFT", 50, "How much the waves gather the light in the shafts"]],
+  "FILAMENT": [["SWING", 50, "Height of the pluck"], ["RING", 50, "How long a string rings after release"], ["SPREAD", 50, "Spacing of the strings (a quarter to twice)"], ["PLUCK", 50, "Every note plucks its track's string (LIVE VIZ CTRLS chooses tracks)"], ["BOW", 50, "Held notes that are not drums keep bowing the string"], ["GLOW", 50, "Strings' own light"]],
+  "FIZZ": [["RISE", 50, "How fast bubbles rise"], ["WOBBLE", 50, "How far they sway"], ["SIZE", 50, "Bubble size"], ["BUBBLE", 50, "Notes that are not drums: a bubble each"], ["POP", 50, "Kick: bursts the two highest, jolts the rest"], ["FIZZ", 50, "Rest of the kit: fine beads"], ["SHINE", 50, "Brightness of the shine inside each bubble"], ["SIMMER", 50, "How many rise on their own (0 = none)"]],
+  "GRANULE": [["BOIL", 35, "How often a granule dies and a neighbour is born"], ["FADE", 45, "How long a granule's glow lasts (not defined in the header)"], ["GLOW", 50, "Glow at rest"], ["GRAIN", 50, "Notes that are not drums"], ["BURST", 50, "Kick: a cluster; snare: three"], ["POINT", 50, "Rest of the kit: bright points in the lanes"]],
+  "GYRE": [["SPIN", 60, "How fast it turns"], ["PULL", 40, "How fast it draws in"], ["EYE", 50, "Size of the eye"], ["FOAM", 50, "Notes that are not drums: foam where the pitch falls"], ["SURGE", 50, "Kick: turns faster, the rim flares"], ["SPRAY", 50, "Rest of the kit: spray"], ["FADE", 60, "How long the foam lasts"], ["REST", 50, "Its own three arms and the spray that falls unasked"]],
+  "KOI": [["SWIM", 50, "How fast they go"], ["FADE", 50, "How long a fish keeps a note's colour"], ["SIZE", 50, "Fish size"], ["LURE", 50, "Notes that are not drums: a ring, and the nearest fish darts to it"], ["FRIGHT", 50, "Kick: all fish start aside and bolt"], ["RIPPLE", 50, "Rest of the kit: rings on the water"], ["SHOAL", 50, "How many fish (1 to 7)"], ["GLOW", 50, "Fish's own light"]],
+  "MARSH": [["WIND", 50, "Reed sway at rest"], ["FADE", 50, "How long the water stays lit"], ["SIZE", 50, "Horizon height (low to high)"], ["WATER", 50, "Notes that are not drums: light the water where the pitch falls"], ["GUST", 50, "Kick: a gust through the reeds"], ["FLIES", 50, "Rest of the kit: fireflies"], ["REEDS", 50, "Reeds' own light"], ["MOON", 50, "Moon's own light"]],
+  "MEDUSA": [["DEPTH", 50, "How deep they keep (0 top, 99 bottom)"], ["FADE", 50, "How long one keeps a note's colour"], ["SIZE", 50, "Jellyfish size"], ["PULSE", 50, "Notes that are not drums: a beat of the nearest jellyfish"], ["THROB", 50, "Kick: a beat of all of them at once"], ["SPARKS", 50, "Rest of the kit: sparks in the water"], ["BLOOM", 50, "How many jellyfish (1 to 6)"], ["TRAIL", 50, "Length of the threads"]],
+  "MOTHS": [["FLIGHT", 50, "How fast they circle the lamp"], ["FADE", 50, "How long a moth lasts"], ["SIZE", 50, "Wing size"], ["MOTHS", 50, "Notes that are not drums: a moth each"], ["SCATTR", 50, "Kick: they scatter"], ["LAMP", 50, "Rest of the kit: lamp flares"], ["ORBIT", 50, "How far out they circle"]],
+  "MURMUR": [["SPEED", 50, "How fast the birds fly"], ["FADE", 50, "How long a bird keeps a note's colour"], ["SIZE", 50, "Wing size"], ["SWOOP", 50, "Notes that are not drums: the flock is called to the note's place"], ["SCATTR", 50, "Kick: scatters the flock from its middle"], ["WHEEL", 50, "Rest of the kit: drives the wheeling faster (snare and clap turn it the other way)"], ["FLOCK", 50, "How many birds (8 to 40)"], ["SPREAD", 50, "How loose the flock is"]],
+  "PACHINKO": [["GRAVTY", 50, "How fast the stars fall"], ["BOUNCE", 50, "How lively the pegs are"], ["TILT", 50, "Table lean (50 = level)"], ["STARS", 50, "Notes that are not drums: a star each"], ["SHAKE", 50, "Kick: every star jumps"], ["PEGS", 50, "Pegs' own light"], ["CUPS", 50, "Cups' own light"]],
+  "QUILL": [["SPEED", 50, "Speed of the pen"], ["FADE", 50, "How much of the writing is still visible"], ["SIZE", 50, "Loop size at rest"], ["LOOPS", 50, "Notes that are not drums: taller loops as pitch rises"], ["SWASH", 50, "Kick: a loop swells past the line above"], ["DOTS", 50, "Rest of the kit: dots over the line"], ["SLANT", 50, "Lean of the hand (20 = upright)"], ["LINES", 50, "Number of lines (1 to 5)"]],
+  "RAPIDS": [["SPEED", 50, "Stream speed"], ["FADE", 50, "How long a thread lasts"], ["TURB", 50, "Meander (smooth to broken)"], ["STREAK", 50, "Notes that are not drums: two points set down where the pitch lies"], ["SURGE", 50, "Kick: stream runs up to three times as fast"], ["EDDY", 50, "Rest of the kit: eddies that turn the threads"], ["THREAD", 50, "The stream's own points"]],
+  "RIDGE": [["STARS", 50, "Stars' light"], ["FADE", 50, "How long a falling star lasts"], ["SIZE", 50, "Hill height"], ["METEOR", 50, "Notes that are not drums: a falling star"], ["ECHO", 50, "Kick: lights the far hills' line from the middle"], ["SPARKS", 50, "Rest of the kit: sparks from the fire (0 = no fire)"], ["RIDGE", 50, "Hills' light"], ["PINES", 50, "Pines' light"]],
+  "RIVULET": [["RUN", 50, "How fast the drops run"], ["DRY", 50, "How long the wet lasts"], ["SIZE", 50, "Bead size"], ["DROP", 50, "Notes that are not drums: a drop where the pitch falls"], ["GUST", 50, "Kick: shakes the beads loose"], ["MIST", 50, "Rest of the kit: small beads anywhere"], ["WIND", 50, "Slant of the run (50 = straight down)"]],
+  "SAROS": [["SPIN", 30, "Rotation of the plate"], ["FADE", 45, "How long a thread fades (about 6 s at default)"], ["SIZE", 50, "Size of the umbra"], ["THREAD", 50, "Notes that are not drums: the threads they join (LIVE VIZ CTRLS chooses tracks)"], ["POINT", 50, "Notes that are not drums: the points they light (LIVE VIZ CTRLS chooses tracks)"], ["DIAL", 50, "The dial's ticks and the umbra's rim (header does not describe its exact range)"]],
+  "SEPIA": [["FLOW", 50, "How fast the water turns"], ["FADE", 45, "How long the ink lasts"], ["RINGS", 50, "How many rings (0 = plain ink)"], ["DROP", 50, "Notes that are not drums: a drop where the pitch falls"], ["STIR", 50, "Kick: stirs the water"], ["SPLASH", 50, "Rest of the kit: spatter"], ["EDDY", 50, "Eddies' size"]],
+  "SONAR": [["TURN", 50, "Hand speed (50 = one turn in 4 s; 0 = still)"], ["FADE", 50, "How many seconds a mark lasts"], ["SIZE", 50, "Ring size"], ["MARKS", 50, "Notes: a mark on the track's ring (each as hard as its value)"], ["PINGS", 50, "Notes: a ping out from the centre (each as hard as its value)"], ["RINGS", 50, "Rings' own light"], ["HAND", 50, "Hand's own light"]],
+  "TARN": [["DRAG", 55, "Water damping"], ["BEND", 50, "How far the reflection bends"], ["SIZE", 50, "Reflection nearer or further"], ["DROP", 50, "Notes that are not drums, and snare/clap: a drop"], ["PLUNGE", 50, "Kick: a heavy drop by the moon"], ["GLINT", 50, "Rest of the kit: a star's glint"]],
+  "WAX": [["HEAT", 40, "How hard the lamp drives the blobs"], ["THICK", 50, "How much the wax resists"], ["SIZE", 50, "Blob size"], ["BLOB", 50, "Notes that are not drums: a hot blob from the foot"], ["HEAVE", 50, "Kick: heaves them all up and swells them"], ["BEAD", 50, "Rest of the kit: beads that hurry up"], ["GLOW", 50, "Light round the blobs and their rim"]],
+  "ZODIAC": [["TURN", 30, "Sky's wheel speed (0 = still)"], ["FADE", 50, "How long a star stays lit"], ["SIZE", 60, "Size of the signs"], ["STARS", 50, "Notes (default: every note) light one of the track's stars"], ["JOINS", 50, "Joins' own light"], ["SPREAD", 55, "How far from the pole the signs lie"]],
+/*@END*/
+};
+const CORONA_DESC = "The eclipse: streamers, drums as arches and beads.";
+/* the plates an install brings, in the bank's order (tools/build.py BANK_PLATES) */
+const ALL = ["CINDER", "GRANULE", "TARN", "SEPIA", "GYRE", "AURORA", "FATHOM", "RAPIDS", "BEACON", "ZODIAC", "SONAR", "MOTHS", "MARSH",
+             "PACHINKO", "KOI", "MEDUSA"];
+const HIDE = ["FIL EMBER"];                           /* (a test's plate file: no tile of its own) */
+
+/* ------------------------------------------------------------------ plate files */
 const CMD = { LIST: 96, BEGIN: 97, WRITE: 98, END: 99, ERASE: 100 };
 const RC = { 1: "the FM-1 refused the request", 2: "the file was refused (its checksum or header): the slot is empty",
              3: "stop playback first", 4: "a flash write failed" };
-const DESC = { "cinder.plate": "Cold embers: heat rising and cooling under a crust of cracks.",
-               "granule.plate": "The sun's surface: a honeycomb of granules, a note lights its own.",
-               "tarn.plate": "The eclipse reflected in dark water, a note a drop.",
-               "beacon.plate": "The lighthouse in line art: its lamp turns, the beam sweeps, a window a track. A veil.",
-               "zodiac.plate": "Six signs wheeling round the pole, one a track: a melody draws its sign. A veil.",
-               "sonar.plate": "Six rings and a sweeping hand: notes leave marks that light as it comes round. A veil.",
-               "moths.plate": "A lamp and its moths: a note lets one in to circle it. A veil.",
-               "marsh.plate": "Water in dashes, reeds in the wind, fireflies: a note lights the water. A veil.",
-               "pachinko.plate": "Stars fall through six rows of pegs into cups, a note a star. A veil.",
-               "sepia.plate": "Ink let into still water, pulled into marbled rings by two slow eddies. A note is a drop.",
-               "gyre.plate": "A whirlpool: foam wound round a dark eye, drawn in and gone. A note throws foam in.",
-               "fathom.plate": "The sea from the side: a bright surface, light let down in shafts. A note is a stone let fall.",
-               "aurora.plate": "Three curtains of northern light in green and violet. A note lights its track's curtain.",
-               "rapids.plate": "A stream drawn by the lines of its flow, bending round eddies. A note is a streak.",
-               "koi.plate": "Koi seen from above: the nearest darts to each note. Made for SEPIA. A veil.",
-               "medusa.plate": "Jellyfish that beat with the notes. Made for FATHOM. A veil.",
-               "filament-ember.plate": "FIL EMBER, a test: FILAMENT with warm strings at rest." };
-const ALL = ["cinder.plate", "granule.plate", "tarn.plate", "sepia.plate", "gyre.plate", "aurora.plate", "fathom.plate",
-             "rapids.plate", "beacon.plate", "zodiac.plate", "sonar.plate", "moths.plate", "marsh.plate", "pachinko.plate",
-             "koi.plate", "medusa.plate"];
 const BANK = 0x20000, RELOC = 0x434C5255;               /* the bank's flash (umb_slot.c: its slots share it evenly, 16 of
                                                          * 8 KiB; 32 of 4 KiB in the release of 2026-11-13); a plate file's "URLC" */
 let SLOT = 0x2000;                                      /* a slot's size, once the FM-1 has said how many it has */
-const $ = (id) => document.getElementById(id);
-let dev = null, bank = [], nslot = 0;
-
-function say(t, bad) { $("status").textContent = t; $("status").className = bad ? "bad" : ""; }
+const UI = { say() {}, draw() {} };                     /* (the page's script fills these in) */
+let dev = null, bank = [], nslot = 0, devApi = 0;
+let status = { text: "", bad: false };
+function say(t, bad) { status = { text: t, bad: !!bad }; UI.say(t, !!bad); }
 const u32 = (n) => [0, 7, 14, 21, 28].map((s) => (n >>> s) & 127);
 const fromU32 = (a) => (a[0] | a[1] << 7 | a[2] << 14 | a[3] << 21) + a[4] * 268435456;
 function pack7(b) {                                   /* groups: a byte of top bits, then up to 7 bytes (ed_unpack7) */
@@ -106,6 +264,21 @@ function pack7(b) {                                   /* groups: a byte of top b
 const CRC = (() => { const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
   return (b) => { let c = 0xFFFFFFFF; for (const x of b) c = t[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }; })();
+const cstr = (b, at, n) => { let s = ""; for (let i = at; i < at + n && b[i]; i++) s += String.fromCharCode(b[i]); return s; };
+/* a plate's header (umb_plate.h umb_plate_t, as a 32-bit target lays it out: a plate file's first bytes, the player's
+ * module): its name, kind, controls, line, presets and energy; null: not one */
+function head(b) {
+  if (!b || b.length < 112 || cstr(b, 0, 4) !== "UPLT") return null;
+  const api = b[4] | b[5] << 8, nctl = Math.min(8, b[20]), h = { name: cstr(b, 8, 10), api, kind: b[18] === 2 ? "v" : "g", ctl: [], desc: "", pre: [], energy: null };
+  for (let i = 0; i < nctl; i++) h.ctl.push({ name: cstr(b, 24 + 8 * i, 7), def: b[31 + 8 * i] });
+  if (api >= 4 && b.length >= 228) {
+    h.desc = cstr(b, 112, 40);
+    for (let i = 0; i < Math.min(3, b[152]); i++)     /* (umb_pre_t: each element's value + 1, 0 its default) */
+      h.pre.push({ name: cstr(b, 156 + 24 * i, 8), v: h.ctl.map((c, j) => (b[164 + 24 * i + j] ? b[164 + 24 * i + j] - 1 : c.def)) });
+  }
+  if (api >= 5 && b.length >= 232) h.energy = b[228];
+  return h;
+}
 /* a plate file (tools/build.py plate_files): its image, linked for slot 0, and the places in it that hold an address;
  * null: not one */
 function parse(f) {
@@ -124,6 +297,67 @@ function moved(p, slot) {                             /* its image for slot: eac
   return b;
 }
 
+/* ------------------------------------------------------------------ the library: every plate the page can show */
+/* name -> { name, kind, tags, desc, ctl: [{name, def, what}], pre: [{name, v}], energy, file (its plate file's name here),
+ * p (the file, parsed: what goes to the FM-1), len (its image's bytes), own (a file of the user's), builtin (CORONA) } */
+const LIB = new Map();
+function entry(name, h, more) {
+  const m = META[name] || { k: h ? h.kind : "g", t: [] }, doc = DOC[name] || [];
+  const ctl = h ? h.ctl.map((c) => ({ ...c, what: (doc.find((d) => d[0] === c.name) || [])[2] || "" }))
+                : doc.map((d) => ({ name: d[0], def: d[1], what: d[2] }));
+  const e = { name, kind: h ? h.kind : m.k, tags: m.t, desc: h ? h.desc : "", ctl, pre: h ? h.pre : [], energy: h ? h.energy : null,
+              file: null, p: null, len: 0, own: false, builtin: false, ...more };
+  LIB.set(name, e);
+  return e;
+}
+function addFile(bytes, file, own) {                  /* a plate file into the library (null: not one) */
+  const p = parse(bytes), h = p && head(p.img);
+  return h ? entry(h.name, h, { file, p, len: p.img.length, own: !!own }) : null;
+}
+async function library(names) {                       /* the plates published here (plates.json), each one's file read */
+  for (const n of Object.keys(DOC)) entry(n, null, n === "CORONA" ? { builtin: true, desc: CORONA_DESC } : {});
+  if (!names) { try { names = await (await fetch("plates.json", { cache: "no-store" })).json(); } catch (e) { names = []; } }
+  await Promise.all(names.map(async (n) => {
+    try { addFile(new Uint8Array(await (await fetch(n, { cache: "no-store" })).arrayBuffer()), n, false); } catch (e) { /* not there */ }
+  }));
+  UI.draw();
+}
+
+/* ------------------------------------------------------------------ the loading bank */
+/* plan[k]: the name of the plate slot k is to hold (null: empty). Until the user arranges it, it follows the FM-1's bank */
+let plan = new Array(16).fill(null), planOwn = false;
+const have = (k) => (bank[k] && bank[k].st ? bank[k] : null);
+function fit(n) { while (plan.length < n) plan.push(null); if (plan.length > n) plan.length = n; }
+function planSet(k, name) {                           /* name into slot k: a plate lies in the bank once (it moves there) */
+  if (k < 0 || k >= plan.length) return;
+  if (name) { const was = plan.indexOf(name); if (was >= 0 && was !== k) plan[was] = plan[k] && movable(plan[k]) ? plan[k] : null; }
+  plan[k] = name || null; planOwn = true; say(""); UI.draw();
+}
+function planAdd(name) {                              /* .. into the first empty slot (-1: none, -2: there already) */
+  if (plan.includes(name)) return -2;
+  const k = plan.indexOf(null);
+  if (k >= 0) planSet(k, name);
+  return k;
+}
+/* a plate with no file here (one the FM-1 holds, of some other build) stays in the slot it is in */
+const movable = (name) => { const e = LIB.get(name); return !!(e && e.p); };
+function planFrom(names) { plan = names.slice(0, plan.length); fit(Math.max(plan.length, nslot || 16)); }
+/* what loading would do, slot by slot: write, erase, same; stuck: a plate it cannot write (no file) */
+function diff() {
+  const d = { write: [], erase: [], same: 0, stuck: [], at: [] };
+  for (let k = 0; k < plan.length; k++) {
+    const want = plan[k], h = have(k), e = want && LIB.get(want);
+    let w = "same";
+    if (!want) w = h ? "erase" : "same";
+    else if (h && h.name === want && (!e || !e.len || e.len === h.len)) w = "same";
+    else w = e && e.p ? "write" : "stuck";
+    d.at[k] = w;
+    if (w === "same") d.same++; else d[w].push(k);
+  }
+  return d;
+}
+
+/* ------------------------------------------------------------------ the FM-1 */
 /* one request, one reply (the same command), in turn */
 function request(cmd, args, ms = 3000) {
   return new Promise((ok, fail) => {
@@ -137,7 +371,6 @@ function onMidi(e) {
   if (d[0] !== 0xF0 || d[1] !== 0x7D || d[2] !== 0x46 || d[3] !== 0x4C || !dev || !dev.wait || d[4] !== dev.wait.cmd) return;
   dev.wait.done(Array.from(d.subarray(5, d.length - 1)));
 }
-
 async function connect() {
   let acc;
   try { acc = await navigator.requestMIDIAccess({ sysex: true }); }
@@ -152,11 +385,12 @@ async function connect() {
     return;
   }
   inp.onmidimessage = onMidi;
-  dev = { inp, out, wait: null };
-  $("dev").textContent = out.name; $("connect").disabled = true;
+  dev = { inp, out, wait: null, name: out.name, info: "" };
   await refresh();
+  if (dev) say(planOwn ? "Connected. The loading bank is as you left it: slots that would change are marked."
+                       : "Connected. The loading bank shows what the FM-1 holds: change it, then load.");
 }
-async function refresh() {
+async function refresh() {                            /* the FM-1's bank read (the loading bank follows it until arranged) */
   let api = 0;
   bank = []; nslot = 0;
   try {
@@ -171,44 +405,23 @@ async function refresh() {
       }
     }
   } catch (e) {
-    $("devinfo").textContent = "It does not answer plate bank requests: install the UMBRA LIVE firmware with the plate bank first.";
-    dev = null; $("connect").disabled = false; return;
+    dev = null; bank = []; nslot = 0;
+    say("The FM-1 does not answer plate bank requests: install the UMBRA LIVE firmware with the plate bank first.", true);
+    UI.draw(); return;
   }
-  $("devinfo").textContent = `Connected. Plate API ${api}, ${nslot} slots, ${bank.filter((b) => b && b.st).length} in use.`;
-  const el = $("bank"); el.innerHTML = "";
-  const row = (slot, name, info, erase) => {
-    const r = document.createElement("div"); r.className = "row";
-    r.innerHTML = `<span class="slot"></span><div class="name"><b></b><small></small></div>` + (erase ? `<button class="erase">Empty</button>` : "");
-    r.querySelector(".slot").textContent = slot; r.querySelector("b").textContent = name; r.querySelector("small").textContent = info;
-    if (erase) r.querySelector("button").onclick = () => erase();
-    el.appendChild(r);
-  };
-  row("", "CORONA", "Built into the firmware: always there.", null);
-  bank.forEach((b, k) => {
-    if (!b || !b.st) return;
-    row(String(k + 1), b.name, b.st === 1 ? `${b.len} bytes.` :
-        `${b.len} bytes, held back: the FM-1 restarted after a crash or hang. Switch it off and on to run it again, or empty the slot.`,
-        () => erase(k));
-  });
-  const free = bank.filter((b) => b && !b.st).length;
-  row("", free ? `${free} empty slots` : "The bank is full", free ? "A plate loads into the first empty one." : "Empty a slot to load another plate.", null);
-  document.querySelectorAll("button.load").forEach((b) => { b.disabled = false; });
+  dev.info = `Plate API ${api}, ${nslot} slots, ${bank.filter((b) => b && b.st).length} in use.`;
+  fit(nslot);
+  if (!planOwn) plan = bank.map((b) => (b && b.st ? b.name : null));
+  for (const b of bank) if (b && b.st && !LIB.has(b.name)) entry(b.name, null, {});   /* (a plate of some other build) */
+  UI.draw();
 }
 function check(a, what) { if (a[1]) throw new Error(`${what}: ${RC[a[1]] || "rc " + a[1]}`); }
-/* where plate p goes: the slot holding a plate of its name, else the first empty one (-1: none) */
-function slotFor(p) {
-  const k = bank.findIndex((b) => b && b.st && b.name === p.name);
-  return k >= 0 ? k : bank.findIndex((b) => b && !b.st);
-}
-let devApi = 0;                                       /* the FM-1's plate API (refresh) */
-async function put(p, label) {                        /* plate p into its slot (BEGIN, WRITEs, END) */
+async function put(p, label, slot) {                  /* plate p into slot (BEGIN, which erases it; WRITEs; END) */
   const need = p.img[4] | p.img[5] << 8;              /* (umb_plate_t.api: a plate newer than the firmware is refused there) */
   if (devApi && need > devApi)
     throw new Error(`${label} needs newer firmware (plate API ${need}, this FM-1 has ${devApi}). Update the FM-1 first.`);
   if (p.img.length > SLOT - 32)
     throw new Error(`${label} is ${p.img.length} bytes: this FM-1's slots hold ${SLOT - 32}.`);
-  const slot = slotFor(p);
-  if (slot < 0) throw new Error(`The bank is full: empty a slot for ${label}.`);
   const bytes = moved(p, slot);
   say(`Sending ${label} to slot ${slot + 1}…`);
   check(await request(CMD.BEGIN, [slot, ...u32(bytes.length)], 5000), "start");
@@ -218,50 +431,335 @@ async function put(p, label) {                        /* plate p into its slot (
   }
   check(await request(CMD.END, [slot, ...u32(CRC(bytes))], 5000), "finish");
   bank[slot] = { st: 1, name: p.name, len: bytes.length };
-  return slot;
 }
-async function send(files) {                          /* [[bytes, label]..] into the bank, in turn */
+let busy = false;
+/* the FM-1's bank made the loading bank: the slots left empty emptied, then each plate that differs written */
+async function load() {
   if (!dev) { say("Connect the FM-1 first.", true); return; }
-  if (!files.length) { say("No plate files published here.", true); return; }
-  const busy = document.querySelectorAll("button"); busy.forEach((b) => { b.disabled = true; });
-  let done = [];
+  const d = diff();
+  if (d.stuck.length) { say(`No plate file here for ${d.stuck.map((k) => plan[k]).join(", ")}: take it out of the loading bank first.`, true); return; }
+  if (!d.write.length && !d.erase.length) { say("The FM-1 already holds this bank."); return; }
+  busy = true; UI.draw();
+  const done = [];
   try {
-    for (const [bytes, label] of files) {
-      const p = parse(bytes);
-      if (!p) throw new Error(`${label} is not a plate file for the bank (an older or damaged file?)`);
-      done.push(`${label} in slot ${(await put(p, label)) + 1}`);
-    }
-    say(done.length > 1 ? `Loaded: ${done.join(", ")}.` : `${done[0]}.`);
-  } catch (e) { say((done.length ? `Loaded: ${done.join(", ")}. ` : "") + e.message, true); }
-  finally { busy.forEach((b) => { b.disabled = false; }); $("connect").disabled = !!dev; await refresh().catch(() => {}); }
-}
-async function erase(k) {
-  try { check(await request(CMD.ERASE, [k], 5000), "empty"); say(`Slot ${k + 1} is empty.`); }
-  catch (e) { say(e.message, true); }
-  await refresh().catch(() => {});
-}
-const fetchPlate = async (n) => new Uint8Array(await (await fetch(n, { cache: "no-store" })).arrayBuffer());
-async function library() {
-  let names = [];
-  try { names = await (await fetch("plates.json", { cache: "no-store" })).json(); } catch (e) { /* none here */ }
-  $("lib").innerHTML = names.length ? "" : "<p>No plate files published here.</p>";
-  names.sort((a, b) => (ALL.indexOf(a) + 1 || 99) - (ALL.indexOf(b) + 1 || 99));
-  for (const n of names) {
-    const row = document.createElement("div"); row.className = "row";
-    row.innerHTML = `<div class="name"><b></b><small></small></div><button class="load">Load</button>`;
-    row.querySelector("button").disabled = !dev;
-    row.querySelector("b").textContent = n.replace(/\.plate$/, "").toUpperCase();
-    row.querySelector("small").textContent = DESC[n] || "";
-    row.querySelector("button").onclick = async () => send([[await fetchPlate(n), n.replace(/\.plate$/, "").toUpperCase()]]);
-    $("lib").appendChild(row);
+    for (const k of d.erase) { check(await request(CMD.ERASE, [k], 5000), "empty"); bank[k] = { st: 0, name: "", len: 0 }; done.push(`slot ${k + 1} emptied`); }
+    for (const k of d.write) { await put(LIB.get(plan[k]).p, plan[k], k); done.push(`${plan[k]} in slot ${k + 1}`); }
+    say(`Loaded: ${done.join(", ")}.`);
+  } catch (e) { say((done.length ? `Done so far: ${done.join(", ")}. ` : "") + e.message, true); }
+  finally {
+    busy = false;
+    const s = status;
+    await refresh().catch(() => {});
+    if (dev) say(s.text, s.bad);
   }
-  $("all").onclick = async () => send(await Promise.all(ALL.filter((n) => names.includes(n))
-    .map(async (n) => [await fetchPlate(n), n.replace(/\.plate$/, "").toUpperCase()])));
 }
+</script>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ the page */
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const pic = (name) => (META[name] ? `img/${name.toLowerCase()}.png` : "");
+const KEY = "umbra-plates";
+const keep = (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } })();
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ plan: planOwn ? plan : null, sel, genre: keep.genre, sound: keep.sound, over: keep.over })); } catch (e) { /* not kept */ } };
+let sel = keep.sel && typeof keep.sel === "string" ? keep.sel : "CORONA";
+let fkind = "all", ftheme = "all", asking = false;
+if (Array.isArray(keep.plan)) { plan = keep.plan.slice(0, 32).map((n) => (typeof n === "string" ? n : null)); fit(Math.max(16, plan.length)); planOwn = true; }
+
+UI.say = (t, bad) => { asking = false; const s = $("status"); s.textContent = t; s.className = bad ? "bad" : ""; };
+
+/* the filters */
+function chips(box, opts, get, set) {
+  for (const [v, label] of opts) {
+    const b = el("button", "", label);
+    b.onclick = () => { set(v); drawTiles(); };
+    b.dataset.v = v;
+    box.appendChild(b);
+  }
+  box.sync = () => box.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === get())));
+}
+chips($("fkind"), [["all", "All"], ["g", "Grounds"], ["v", "Veils"]], () => fkind, (v) => { fkind = v; });
+chips($("ftheme"), [["all", "All"], ["space", "Space"], ["light", "Light"], ["sea", "Sea"]], () => ftheme, (v) => { ftheme = v; });
+
+/* the browser */
+const shown = () => [...LIB.values()].filter((e) => !HIDE.includes(e.name) && (META[e.name] || e.own))
+  .sort((a, b) => (a.own - b.own) || a.name.localeCompare(b.name));
+function drawTiles() {
+  $("fkind").sync(); $("ftheme").sync();
+  const all = shown(), list = all.filter((e) => (fkind === "all" || e.kind === fkind) && (ftheme === "all" || e.tags.includes(ftheme)));
+  $("count").textContent = list.length === all.length ? `${all.length} PLATES` : `${list.length} OF ${all.length} PLATES`;
+  const box = $("tiles"); box.textContent = "";
+  for (const e of list) {
+    const k = plan.indexOf(e.name), t = el("div", "tile" + (e.name === sel ? " sel" : "") + (k >= 0 || e.builtin ? " in" : ""));
+    const b = el("button", "pick"), p = el("span", "pic"), nm = el("span", "nm");
+    if (pic(e.name)) p.style.backgroundImage = `url(${pic(e.name)})`;
+    nm.append(el("b", "", e.name), el("i", "", e.own ? "YOURS" : e.kind === "v" ? "VEIL" : "GROUND"));
+    b.append(p, nm);
+    b.setAttribute("aria-label", `${e.name}, a ${e.kind === "v" ? "veil" : "ground"}: play it`);
+    b.onclick = () => choose(e.name);
+    t.appendChild(b);
+    const a = el("button", "add", e.builtin ? "built in" : k >= 0 ? String(k + 1) : "+");
+    a.disabled = e.builtin || !e.p;
+    a.title = e.builtin ? "CORONA is part of the firmware: always there" : !e.p ? "No plate file published here" :
+              k >= 0 ? `In slot ${k + 1} of the loading bank: take it out` : "Add to the loading bank";
+    a.setAttribute("aria-label", a.title);
+    a.onclick = () => { if (k >= 0) planSet(k, null); else add(e.name); };
+    t.appendChild(a);
+    if (e.p) {
+      t.draggable = true;
+      t.ondragstart = (ev) => { ev.dataTransfer.setData("text/plain", "plate:" + e.name); ev.dataTransfer.effectAllowed = "copyMove"; };
+    }
+    box.appendChild(t);
+  }
+  if (!list.length) box.appendChild(el("p", "", "No plate is both of these.")).id = "none";
+}
+function add(name) {
+  const k = planAdd(name);
+  if (k === -1) say("The loading bank is full: take a plate out first.", true);
+  else if (k >= 0) say(`${name} is in slot ${k + 1} of the loading bank.`);
+}
+
+/* the dock: the FM-1's bank above, the loading bank below, slot over slot */
+function cell(n, name, cls) {
+  const c = el("div", "cell " + cls);
+  if (n) c.appendChild(el("span", "n", n));
+  if (name) { c.appendChild(el("span", "t", name)); if (pic(name)) c.style.backgroundImage = `url(${pic(name)})`; }
+  return c;
+}
+function drawDock() {
+  const n = plan.length, d = diff(), cols = n > 16 ? "wide" : "";
+  const bk = $("bank"), pl = $("plan");
+  bk.textContent = ""; pl.textContent = "";
+  bk.className = pl.className = "slots " + cols;
+  const cor = () => { const c = cell("", "CORONA", "fix"); c.title = "CORONA is part of the firmware: always there"; return c; };
+  bk.appendChild(cor()); pl.appendChild(cor());
+  for (let k = 0; k < n; k++) {
+    const h = have(k), c = cell(String(k + 1), dev ? (h ? h.name : "") : "", dev ? (h ? (h.st === 1 ? "full" : "full held") : "empty") : "empty fix");
+    c.title = !dev ? "Connect the FM-1 to see what it holds" : !h ? `Slot ${k + 1}: empty` : h.st === 1 ? `Slot ${k + 1}: ${h.name}, ${h.len} bytes` :
+      `Slot ${k + 1}: ${h.name}, held back. The FM-1 restarted after a crash or hang: switch it off and on to run it again, or take it out of the loading bank and load.`;
+    if (h) { c.tabIndex = 0; c.onclick = () => choose(h.name); }
+    bk.appendChild(c);
+    const w = plan[k], p = cell(String(k + 1), w || "", (w ? "full" : "empty") + (dev && d.at[k] !== "same" ? " diff" : ""));
+    p.tabIndex = 0;
+    p.setAttribute("role", "button");
+    p.setAttribute("aria-label", w ? `Loading bank slot ${k + 1}: ${w}` : `Loading bank slot ${k + 1}: empty`);
+    p.title = w ? `${w}${dev ? { same: ": as on the FM-1", write: ": will be written", stuck: ": no plate file here", erase: "" }[d.at[k]] : ""}` :
+      dev && d.at[k] === "erase" ? "Empty: the FM-1's plate here will be removed" : "Empty: drop a plate here";
+    p.onclick = () => { if (plan[k]) choose(plan[k]); else if (LIB.get(sel) && LIB.get(sel).p && !plan.includes(sel)) planSet(k, sel); };
+    p.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); p.onclick(); } else if ((ev.key === "Delete" || ev.key === "Backspace") && plan[k]) planSet(k, null); };
+    if (w) {
+      const x = el("button", "x", "×");
+      x.title = x.ariaLabel = `Take ${w} out of slot ${k + 1}`;
+      x.onclick = (ev) => { ev.stopPropagation(); planSet(k, null); };
+      p.appendChild(x);
+      if (movable(w)) { p.draggable = true; p.ondragstart = (ev) => { ev.dataTransfer.setData("text/plain", "slot:" + k); ev.dataTransfer.effectAllowed = "move"; }; }
+    }
+    p.ondragover = (ev) => { ev.preventDefault(); p.classList.add("over"); };
+    p.ondragleave = () => p.classList.remove("over");
+    p.ondrop = (ev) => {
+      ev.preventDefault(); p.classList.remove("over");
+      const s = ev.dataTransfer.getData("text/plain");
+      if (s.startsWith("plate:") && movable(s.slice(6))) planSet(k, s.slice(6));
+      else if (s.startsWith("slot:")) {                 /* (two slots change places) */
+        const from = +s.slice(5), a = plan[from], b = plan[k];
+        if (from === k || (b && !movable(b))) return;
+        plan[from] = b; plan[k] = a; planOwn = true; UI.draw();
+      }
+    };
+    pl.appendChild(p);
+  }
+  $("dev").textContent = dev ? `ON THE ${String(dev.name).toUpperCase()}` : "ON THE FM-1";
+  $("devinfo").textContent = dev ? dev.info : "Not connected.";
+  const used = plan.filter(Boolean).length, ch = d.write.length + d.erase.length;
+  $("planinfo").textContent = !used && !dev ? "Drop plates into the slots." :
+    `${used} of ${n} slots` + (dev ? (ch ? `, ${ch} to change.` : ", as on the FM-1.") : ".");
+  $("connect").hidden = !!dev;
+  $("copy").disabled = !dev || busy;
+  $("load").disabled = !dev || busy || !ch;
+  ["std", "clear"].forEach((i) => { $(i).disabled = busy; });
+}
+UI.draw = () => { drawTiles(); drawDock(); drawAdd(); save(); };
+
+/* loading asks first: it erases */
+$("load").onclick = () => {
+  const d = diff(), parts = [];
+  if (d.stuck.length) { load(); return; }
+  if (d.write.length) parts.push("write " + d.write.map((k) => `${plan[k]} into slot ${k + 1}` + (have(k) && have(k).name !== plan[k] ? ` (over ${have(k).name})` : "")).join(", "));
+  if (d.erase.length) parts.push("empty " + d.erase.map((k) => `slot ${k + 1} (${have(k).name})`).join(", "));
+  const s = $("status"); s.className = ""; s.textContent = `This will ${parts.join(", and ")}. ${d.same} slot${d.same === 1 ? " stays as it is" : "s stay as they are"}. `;
+  const yes = el("button", "go", "Load"), no = el("button", "", "Cancel");
+  yes.onclick = () => load(); no.onclick = () => say("");
+  s.append(yes, no); asking = true; yes.focus();
+};
 $("connect").onclick = connect;
-$("file").onchange = async (e) => { const f = e.target.files[0]; if (f) await send([[new Uint8Array(await f.arrayBuffer()), f.name]]); e.target.value = ""; };
-if (!navigator.requestMIDIAccess) say("This browser has no Web MIDI: use Chrome or Edge.", true);
-library();
+$("std").onclick = () => { planFrom(ALL.filter(movable)); planOwn = true; UI.draw(); say(ALL.every(movable) ? "The loading bank holds the sixteen plates an install brings." : "No plate files published here.", !ALL.every(movable)); };
+$("copy").onclick = () => { planOwn = false; plan = bank.map((b) => (b && b.st ? b.name : null)); UI.draw(); say("The loading bank is as the FM-1's bank."); };
+$("clear").onclick = () => { plan.fill(null); planOwn = true; UI.draw(); };
+$("file").onchange = async (ev) => {
+  const f = ev.target.files[0]; ev.target.value = "";
+  if (!f) return;
+  const e = addFile(new Uint8Array(await f.arrayBuffer()), f.name, true);
+  if (!e) { say(`${f.name} is not a plate file for the bank (an older or damaged file?)`, true); return; }
+  fkind = ftheme = "all"; choose(e.name); say(`${e.name} added from ${f.name}: it can go into the loading bank.`);
+};
+
+/* ------------------------------------------------------------------ the player */
+/* The firmware with every plate built in (plates.wasm), run by the emulator's worklet: TOTALITY alone on the screen, a song
+ * of the generator's playing for the plate to follow. vals[name][preset]: the controls as set here (never sent to the FM-1) */
+const vals = {};
+let pre = 0, node = null, ac = null, gain = null, pages = null, starting = false;
+const cur = { ground: null, veil: null };              /* (the pages lying there now) */
+const cv = $("cv"), cx = cv.getContext("2d"), img = cx.createImageData(240, 240);
+const send = (m) => { if (node) node.port.postMessage(m); };
+function vset(e, p) {
+  const v = (vals[e.name] ||= {});
+  return (v[p] ||= e.ctl.map((c, j) => (p && e.pre[p - 1] ? e.pre[p - 1].v[j] : c.def)));
+}
+const base = (e, p, j) => (p && e.pre[p - 1] ? e.pre[p - 1].v[j] : e.ctl[j].def);
+function drawScreen(fb) {
+  const d = img.data;
+  for (let i = 0; i < 240 * 240; i++) {
+    const v = fb[i], p = ((v >> 8) | (v << 8)) & 0xFFFF;          /* the panel's byte order -> RGB565 */
+    d[i * 4] = ((p >> 11) & 31) * 255 / 31; d[i * 4 + 1] = ((p >> 5) & 63) * 255 / 63; d[i * 4 + 2] = (p & 31) * 255 / 31; d[i * 4 + 3] = 255;
+  }
+  cx.putImageData(img, 0, 0);
+}
+function choose(name) {
+  if (!LIB.has(name)) return;
+  sel = name; pre = 0;
+  drawTiles(); drawPlayer(); show();
+}
+function drawAdd() {
+  const e = LIB.get(sel), b = $("padd");
+  if (!e) return;
+  const k = plan.indexOf(e.name);
+  b.textContent = e.builtin ? "Built in: always there" : k >= 0 ? `In slot ${k + 1}` : "Add to the bank";
+  b.disabled = e.builtin || !e.p || k >= 0;
+}
+function drawPlayer() {
+  const e = LIB.get(sel);
+  if (!e) return;
+  $("pname").textContent = e.name;
+  $("pkind").textContent = (e.kind === "v" ? "VEIL" : "GROUND") + (e.energy != null ? ` · ENERGY ${e.energy}` : "");
+  $("pdesc").textContent = (e.desc ? e.desc + ". " : "") + (e.kind === "v" ? "A veil: sparse light that lies over a ground." : "A ground: it fills the screen.");
+  $("screen").style.backgroundImage = pic(e.name) ? `url(${pic(e.name)})` : "";
+  const can = !pages || pages[e.name] != null;
+  cv.hidden = !node || !can;
+  $("start").hidden = !!node && can;
+  $("start").disabled = starting || (!!node && !can);
+  $("start").querySelector("span").textContent = starting ? "Starting…" : node && !can ? "No player for this plate" : "Play this plate";
+  $("pover").hidden = e.kind !== "v";
+  const ps = $("pres"); ps.textContent = "";
+  ["BASIC", ...e.pre.map((p) => p.name)].forEach((n, i) => {
+    const b = el("button", "", n);
+    b.setAttribute("aria-pressed", String(i === pre));
+    b.onclick = () => { pre = i; drawPlayer(); show(); };
+    ps.appendChild(b);
+  });
+  const box = $("params"), v = vset(e, pre); box.textContent = "";
+  e.ctl.forEach((c, j) => {
+    const r = el("div", "prm" + (v[j] !== base(e, pre, j) ? " set" : "")), top = el("div", "top");
+    const lab = el("label", "", c.name), s = el("input"), o = el("output", "", String(v[j]));
+    s.type = "range"; s.min = 0; s.max = 99; s.value = v[j]; s.id = "k" + j; lab.htmlFor = s.id;
+    s.oninput = () => {
+      v[j] = +s.value; o.textContent = s.value; r.classList.toggle("set", v[j] !== base(e, pre, j));
+      if (pages && pages[e.name] != null) send({ type: "umx", pl: pages[e.name], j, v: v[j] });
+    };
+    top.append(lab, s, o); r.appendChild(top);
+    if (c.what) r.appendChild(el("small", "", c.what));
+    box.appendChild(r);
+  });
+  if (!e.ctl.length) box.appendChild(el("p", "", "This plate declares no controls here."));
+  drawAdd();
+}
+$("defs").onclick = () => { const e = LIB.get(sel); if (!e) return; delete (vals[e.name] || {})[pre]; drawPlayer(); show(); };
+$("padd").onclick = () => add(sel);
+/* the plate chosen onto the player's screen: a ground alone; a veil on LAYER 1, over the ground chosen for it or over none */
+function show() {
+  save();
+  const e = LIB.get(sel);
+  if (!node || !pages || !e || pages[e.name] == null) return;
+  const pl = pages[e.name], lay = (p, w) => send({ type: "umb", i: 97, v: p | w << 8 });
+  const under = e.kind === "v" ? pages[$("over").value] ?? null : pl;
+  if (cur.veil != null && (e.kind !== "v" || cur.veil !== pl)) { lay(cur.veil, 0); cur.veil = null; }
+  if (under == null) { if (cur.ground != null) lay(cur.ground, 0); }
+  else if (cur.ground !== under) send({ type: "umb", i: 99, v: under });
+  cur.ground = under;
+  if (e.kind === "v" && cur.veil !== pl) { lay(pl, 2); cur.veil = pl; }
+  send({ type: "umb", i: 93, v: pl | pre << 8 });
+  vset(e, pre).forEach((v, j) => send({ type: "umx", pl, j, v }));
+}
+function song(fresh) {
+  if (fresh || keep.seed == null) keep.seed = Math.floor(Math.random() * 10000);
+  send({ type: "gen", genre: +$("genre").value || 0, seed: keep.seed, energy: 60, form: 0 });
+}
+async function start() {
+  if (node || starting) return;
+  starting = true; drawPlayer();
+  try {
+    ac = new AudioContext({ sampleRate: 44100, latencyHint: "interactive" });
+    const [wasm] = await Promise.all([
+      fetch("plates.wasm", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(`plates.wasm: ${r.status}`); return r.arrayBuffer(); }),
+      ac.audioWorklet.addModule("worklet.js")]);
+    const n = new AudioWorkletNode(ac, "felucca", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+    gain = ac.createGain(); gain.gain.value = keep.sound === false ? 0 : 1;
+    n.connect(gain).connect(ac.destination);
+    const info = await new Promise((res, rej) => {
+      n.port.onmessage = (ev) => {
+        const m = ev.data;
+        if (m.type === "ready") n.port.postMessage({ type: "umxinfo" });
+        else if (m.type === "umxinfo") res(m);
+        else if (m.type === "error") rej(new Error(m.message));
+        else if (m.type === "frame" && m.fb) drawScreen(m.fb);
+      };
+      n.port.postMessage({ type: "load", wasm, sectors: {}, master: 620, settle: 6600 }, [wasm]);   /* (settle: past the welcome) */
+    });
+    await ac.resume();
+    node = n; pages = {};
+    for (const p of info.pages) {
+      pages[p.name] = p.pl;
+      const h = p.head && head(p.head), e = LIB.get(p.name);   /* (CORONA has no file: its header from the firmware) */
+      if (h && e && !e.p && !e.own) { const was = e.ctl; Object.assign(e, { desc: h.desc || e.desc, pre: h.pre, energy: h.energy,
+        ctl: h.ctl.map((c) => ({ ...c, what: (was.find((w) => w.name === c.name) || {}).what || "" })) }); }
+    }
+    const g = $("genre"); g.textContent = "";
+    ["ANY KIND", ...info.genres].forEach((name, i) => { const o = el("option", "", name); o.value = i; g.appendChild(o); });
+    g.value = keep.genre < g.options.length ? keep.genre : 0;
+    $("pmusic").hidden = false;
+    send({ type: "visible", on: true, fps: 30 });
+    send({ type: "umb", i: 98, v: 0 });                /* TOTALITY, no word at its foot */
+    song(false);                                       /* (first: the generator lays plates of its own for a new song) */
+    for (const p of info.pages)                        /* (whatever lies there taken off, BODIES' figures too: the plate alone) */
+      if (p.head || p.name === "BODIES") send({ type: "umb", i: 97, v: p.pl });
+    starting = false; drawPlayer(); show();
+  } catch (err) {
+    starting = false; node = null;
+    if (ac) ac.close().catch(() => {});
+    drawPlayer();
+    say("The player could not start: " + (err && err.message || err) + ". The plates can still be chosen and loaded.", true);
+  }
+}
+$("start").onclick = start;
+$("genre").onchange = () => { keep.genre = +$("genre").value; song(true); save(); };
+$("song").onclick = () => song(true);
+$("sound").onclick = () => {
+  keep.sound = keep.sound === false; if (gain) gain.gain.value = keep.sound ? 1 : 0;
+  $("sound").textContent = keep.sound ? "Sound on" : "Sound off"; $("sound").setAttribute("aria-pressed", String(keep.sound)); save();
+};
+if (keep.sound === false) { $("sound").textContent = "Sound off"; $("sound").setAttribute("aria-pressed", "false"); }
+$("over").onchange = () => { keep.over = $("over").value; show(); };
+document.addEventListener("visibilitychange", () => send({ type: "visible", on: !document.hidden, fps: 30 }));
+
+if (!navigator.requestMIDIAccess) { $("connect").disabled = true; say("This browser has no Web MIDI, which reaching the FM-1 needs: use Chrome or Edge. The plates play here all the same.", true); }
+library().then(() => {
+  if (!LIB.has(sel)) sel = "CORONA";
+  const o = $("over"); o.textContent = "";
+  [["", "Nothing (black)"], ...shown().filter((e) => e.kind === "g" && !e.own).map((e) => [e.name, e.name])].forEach(([v, t]) => { const x = el("option", "", t); x.value = v; o.appendChild(x); });
+  o.value = [...o.options].some((x) => x.value === keep.over) ? keep.over : "";
+  UI.draw(); drawPlayer();
+});
 </script>
 </body>
 </html>

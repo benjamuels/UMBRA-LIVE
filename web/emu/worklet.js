@@ -57,6 +57,7 @@ if (typeof registerProcessor === "function") {
           ex.web_master(m.master ?? 700);
           if (ex.web_seed) ex.web_seed((Math.random() * 4294967296) >>> 0);   // (JIANT 0.4) this session's macros
           ex.web_boot();
+          for (let n = Math.round((m.settle || 0) * 44.1); n > 0; n -= 128) ex.web_render(128);   // (UMBRA LIVE) the plates page: past the welcome
           this.ex = ex;
           this.sentWrites = ex.web_flash_writes_count();
           this.port.postMessage({ type: "ready", rate: ex.web_sample_rate() });
@@ -73,6 +74,26 @@ if (typeof registerProcessor === "function") {
       else if (m.type === "umb" && ex.web_umb) ex.web_umb(m.i | 0, m.v | 0);   // (UMBRA LIVE) the PLATE and its settings
       else if (m.type === "umbget" && ex.web_umb_get)                  // (UMBRA LIVE) the projector's controls
         this.port.postMessage({ type: "umb", v: [99, 0, 1, 2].map((i) => ex.web_umb_get(i)) });
+      else if (m.type === "umx" && ex.web_umx) ex.web_umx(m.pl | 0, m.j | 0, m.v | 0);   // (UMBRA LIVE) the plates page's player: a page's element
+      else if (m.type === "umxget" && ex.web_umx_get)                 // .. a page's elements as set, its preset
+        this.port.postMessage({ type: "umx", pl: m.pl, v: [0, 1, 2, 3, 4, 5, 6, 7].map((j) => ex.web_umx_get(m.pl, j)), pre: ex.web_umx_get(m.pl, 100) });
+      else if (m.type === "umxinfo" && ex.web_umx_mod) {              // .. the pages there (number, name, a plate's header), the genres
+        const mem = new Uint8Array(ex.memory.buffer), str = (p) => { let s = ""; for (; p && mem[p]; p++) s += String.fromCharCode(mem[p]); return s; };
+        const pages = [];
+        for (let pl = 0; pl < ex.web_umb_get(90); pl++)
+          if (ex.web_umb_get(100 + pl)) { const h = ex.web_umx_mod(pl); pages.push({ pl, name: str(ex.web_umb_name(pl)), head: h ? mem.slice(h, h + 240) : null }); }
+        const genres = []; for (let i = 0; i < ex.web_gen_count(); i++) genres.push(str(ex.web_gen_name(i)));
+        this.port.postMessage({ type: "umxinfo", pages, genres });
+      } else if (m.type === "gen" && ex.web_gen) {                     // .. a song made and played (the generator's)
+        const lie = () => [ex.web_umb_get(99), ex.web_umb_get(80), ex.web_umb_get(83)];   // (the ground, LAYER 1, LAYER 3: 63 none)
+        const was = lie(), W = [1, 2, 4];
+        ex.web_gen(m.genre | 0, m.seed | 0, m.energy | 0, m.form | 0);
+        for (let r = 0; r < ex.web_umb_get(70); r++)                  // (the plates GENE gave its song: its rows' taken out, what
+          for (const tk of [0, 1]) ex.web_umb(94, (r << 24 | tk << 16 | 254) >>> 0);   //  it laid taken off, the page's own laid again)
+        lie().forEach((pl) => { if (pl !== 63) ex.web_umb(97, pl); });
+        was.forEach((pl, i) => { if (pl !== 63) ex.web_umb(97, pl | W[i] << 8); });
+        ex.web_play(1);
+      } else if (m.type === "play" && ex.web_play) ex.web_play(m.on ? 1 : 0);
       else if (m.type === "midi") ex.web_midi(m.data[0] | 0, m.data[1] | 0, m.data[2] | 0);
       else if (m.type === "visible") this.period = m.on ? 1 / (m.fps || 30) : 1 / 4;   // (the projector: 60)
     }

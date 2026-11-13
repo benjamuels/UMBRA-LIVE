@@ -544,6 +544,12 @@ EXPORT const char *web_umb_name(uint32_t pl)           /* .. page pl's name ("":
     umx_desc_t d;
     return umx_desc(pl, &d) ? d.name : "";
 }
+/* (UMBRA LIVE) the plates page's player (web/plates.html): any page's element j, wherever the page lies (web_umb's 10 + j
+ * is the ground's alone); read back: j < 8 the element as set, 100 the page's preset; a plate's module as the plate file
+ * holds it (umb_plate_t: 0 none), CORONA's too, which has no file */
+EXPORT void web_umx(uint32_t pl, uint32_t j, uint32_t v) { umx_put(pl, j, (int32_t)v); }
+EXPORT uint32_t web_umx_get(uint32_t pl, uint32_t j) { return j == 100u ? umx_pre(pl) : umx_raw(pl, j); }
+EXPORT const void *web_umx_mod(uint32_t pl) { return pl < UMB_NPLT && umb_has(pl) ? umb_mod(pl) : 0; }
 /* a channel message from Web MIDI, as a USB-MIDI packet arrives (usb.c midi_enqueue): 0 = the ring was full */
 EXPORT uint32_t web_midi(uint32_t status, uint32_t d1, uint32_t d2)
 {

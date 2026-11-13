@@ -122,6 +122,13 @@ def main(pkg, version, out, prev=None):
     for f in plates:
         shutil.copy(f, pl / f.name)
     (pl / "plates.json").write_text(json.dumps([f.name for f in plates]) + "\n", encoding="utf-8")
+    for f in sorted((HERE.parent / "docs" / "live").glob("plate-*.png")):   # each plate's picture (the page's browser)
+        (pl / "img").mkdir(exist_ok=True)
+        shutil.copy(f, pl / "img" / f.name[6:])
+    player = HERE.parent / "build" / "player" / "plates.wasm"   # the page's player (web/emu/build.sh): the firmware, every
+    if player.exists():                             # plate built in, and the emulator's worklet that runs it
+        shutil.copy(player, pl / "plates.wasm")
+        shutil.copy(HERE / "emu" / "worklet.js", pl / "worklet.js")
     if (HERE / "vel.html").exists():                # (V10.6z5) the velocity diagnostic's page
         (out / "webapp" / "vel").mkdir(parents=True, exist_ok=True)
         shutil.copy(HERE / "vel.html", out / "webapp" / "vel" / "index.html")

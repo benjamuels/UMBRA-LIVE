@@ -295,10 +295,28 @@ static uint8_t ups_gen;                                 /* the bank changed (umb
 #include "plates/marsh.c"
 #include "plates/pachinko.c"
 #include "plates/fluid.inc"                           /* the fluid grounds and the two veils made for them */
+#if UMB_RES_ALL                                         /* (the plates page's player, web/emu/build.sh plates.wasm: every
+                                                         * plate there is, the eleven no install brings after the sixteen) */
+#include "plates/saros.c"
+#include "plates/filament.c"
+#include "plates/wax.c"
+#include "plates/rivulet.c"
+#include "plates/blot.c"
+#include "plates/boats.c"
+#include "plates/fizz.c"
+#include "plates/bokeh.c"
+#include "plates/ridge.c"
+#include "plates/quill.c"
+#include "plates/murmur.c"
+#define UMB_RES_MORE , &umb_plate_saros, &umb_plate_filament, &umb_plate_wax, &umb_plate_rivulet, &umb_plate_blot, \
+                     &umb_plate_boats, &umb_plate_fizz, &umb_plate_bokeh, &umb_plate_ridge, &umb_plate_quill, &umb_plate_murmur
+#else
+#define UMB_RES_MORE
+#endif
 static const umb_plate_t *const UMB_RES[] = {&umb_plate_cinder, &umb_plate_granule, &umb_plate_tarn, &umb_plate_sepia,
                                              &umb_plate_gyre, &umb_plate_aurora, &umb_plate_fathom, &umb_plate_rapids,
                                              &umb_plate_beacon, &umb_plate_zodiac, &umb_plate_sonar, &umb_plate_moths,
-                                             &umb_plate_marsh, &umb_plate_pachinko, &umb_plate_koi, &umb_plate_medusa};
+                                             &umb_plate_marsh, &umb_plate_pachinko, &umb_plate_koi, &umb_plate_medusa UMB_RES_MORE};
 static const umb_plate_t *ups_plate(uint32_t i) { return i < sizeof UMB_RES / sizeof UMB_RES[0] ? UMB_RES[i] : 0; }
 #else
 static const umb_plate_t *ups_plate(uint32_t i);       /* umb_slot.c: slot i's plate file, if one is to run */
