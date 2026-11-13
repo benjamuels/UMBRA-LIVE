@@ -83,8 +83,8 @@ static void graph_lib(void)
  * wave, the song's rows, everything), at the right the scope's actions; under them a bar fills while OCT+ is held */
 static __attribute__((noinline)) void graph_lz_tools(void)
 {
-    static const char *const WHAT[6] = {"CLEAR SEQ", "INIT SOUND", "DELETE ROW", "CLEAR SONG", "NEW PROJECT", "CPU TEST"};
-    static const char *const ON[6] = {"STEPS + AUTO", "ENGINE DEFAULT", "", "ALL ROWS", "EVERYTHING", "HEAVY SONG"};
+    static const char *const WHAT[7] = {"CLEAR SEQ", "INIT SOUND", "DELETE ROW", "CLEAR SONG", "NEW PROJECT", "CPU TEST", "CLEAR PLATES"};
+    static const char *const ON[7] = {"STEPS + AUTO", "ENGINE DEFAULT", "", "ALL ROWS", "EVERYTHING", "HEAVY SONG", "THE SONG'S PICTURE"};
     uint32_t a = ui.act ? ui.act - 1u : 0u, sc = TL_SC[a], c, n = 0, h = graph_h(), i;
     int32_t hold = tl_t0 ? (int32_t)(fm1_ms - tl_t0) * 232 / (int32_t)TL_HOLD : 0;
     uint16_t col = !ui.act ? T_DIM : sc == 0u ? T_THEME : sc == 1u ? T_ACCENT : sc == 2u ? T_MID : T_TEXT;
@@ -101,7 +101,7 @@ static __attribute__((noinline)) void graph_lz_tools(void)
             cv_rect(10, 12 + (int32_t)i * 16, 64, 12, i < chain_config.count ? col : T_DIM);
     else
         cv_text_in(4, 38, 76, &AF_M, "ALL", col, T_SURF);
-    for (c = 0; c < 6u; c++) {                           /* the scope's actions */
+    for (c = 0; c < 7u; c++) {                           /* the scope's actions */
         int32_t y = 4 + (int32_t)n * 26;
         int sel = ui.act == c + 1u;
         uint16_t bg = sel ? T_TINT : T_SURF;

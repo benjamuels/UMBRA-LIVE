@@ -13,7 +13,7 @@
  *                     JIANT's beings), SCREEN (LIGHT SPEED REACT MOVE TRAVEL DISSLV) and EFFECTS. On the left the page's
  *                     name and under it its elements (KNOB 1), each with a bar: its value now, moving as its controls
  *                     move it. On the right the chosen row's controls (KNOB 2), as many as it takes:
- *                       the name's row   WHERE the page lies: OFF, GROUND, LAYER 1..3 (KNOB 4); NO ROOM under it: a
+ *                       the name's row   WHERE the page lies: OFF, GROUND, LAYER 1, LAYER 3 (KNOB 4); NO ROOM under it: a
  *                                        layer's plate waiting, its state not fitting beside the ground's
  *                       SET              the element's own value (KNOB 4)
  *                       NOTES            (an element the notes drive) the tracks whose notes drive it: KNOB 3 the track,
@@ -27,10 +27,12 @@
  *                     PRESETS (KNOB 3 on the name's row): the page's four presets, BASIC and three more (a plate's own,
  *                     from its file: umb_pre_t); what is set goes into the preset chosen.
  *                     Kept in LIVE VIZ CTRLS' own store (ui_umbra.c umc), one set for every song.
- *   PLATES            every plate, four a page, a line on each (umx_list): KNOB 1 or ALGORITHM the plate, KNOB 3 or
- *                     PRESETS its preset, KNOB 4 where it lies.
+ *   PLATES            every plate a box in a row, the chosen one's playing in the middle, its name, its line and its
+ *                     preset under it (umx_list): ALGORITHM the plate (the boxes slide), PRESETS its preset, KNOB 1..4
+ *                     the macros M1..M4, as in TOTALITY. No knob row there.
  *   SAVE > SONG > TIMELINE   two picture tracks, MAIN and OVER, a cell a row; a cell opened by OCT+ is LIVE VIZ CTRLS
- *                     for its plate (umv_*, at the end).
+ *                     for its plate, OCT+ again its transition (how it comes in and goes), OCT+ again keeps it all;
+ *                     OCT- a step back, nothing kept (umv_*, at the end).
  *   OCT+ on either    SETUP: a control made a question at a time, large, any knob the answer, OCT+ the next, OCT- back
  *                     (from the first: out).
  * Built for size, as the main loop is (tools/size_fns.py) */
@@ -42,6 +44,7 @@ static const uint8_t UMA_SR[MS_N] = {MS_OFF, MS_M1, MS_M1 + 1, MS_M1 + 2, MS_M1 
 static uint8_t uma_slot;                                /* LIVE AUDIO CTRLS: the selected track's slot chosen, 0..3 */
 static uint8_t umz;                                     /* SETUP: its question + 1 (0: the page) */
 static int16_t *uma_p(uint32_t s) { return &trk[s / 4u % NTRK].p[P_M1SRC + 3u * (s % 4u)]; }   /* SRC DST AMT */
+static int umk_preset(int32_t s);
 static uint32_t uma_cur(void) { return (uint32_t)song.sel % NTRK * 4u + uma_slot % 4u; }
 static uint32_t uma_rank(uint32_t s)                    /* slot s's source's place in UMA_SR */
 {
@@ -71,6 +74,8 @@ static uint8_t umx_pg = 0xFFu;                          /* the page chosen (a pl
 static uint8_t umx_el;                                  /* .. its row: 0 its name (where it lies), then its elements */
 static uint8_t umx_ct;                                  /* .. the row's control: SET, NOTES, its links, + ADD */
 static uint8_t umx_tr;                                  /* .. NOTES: the track under KNOB 3 */
+static uint8_t umx_sd;                                  /* PLATES: the boxes sliding (1 leftwards: the next plate's from the */
+static uint32_t umx_sms;                                /* right; 2 the other way), since when */
 /* once a frame (umb_clock): the sources now (umq_s), then SCREEN's and EFFECTS' elements as their links move them (umq_o) */
 static void umq_tick(void)
 {
@@ -123,7 +128,57 @@ static int umq_tap(uint32_t i)
 /* SAVE > SONG > TIMELINE's picture tracks (the user, 2026-11-13): past T6, ALGORITHM reaches MAIN and OVER, a cell a row
  * each: the plate that is the ground, and the one on LAYER 1, from that row on (umv_apply). KNOB 4 there turns the cell's
  * plate; OCT+ opens the cell: LIVE VIZ CTRLS for its plate and its preset, over the picture (ALGORITHM the plate, PRESETS
- * the preset, the knobs as on that page; OCT- back) */
+ * the preset, the knobs as on that page). OCT+ there: its transition (umv_ed 2), KNOB 1 how the plate comes IN, 2 how
+ * long, 3 how it goes OUT, 4 how long; OCT+ again: all of it kept. OCT- a step back with nothing kept (the user,
+ * 2026-11-13): from the transition its four as they were, from the cell the store as it was when the cell was opened
+ * (read again from flash: it was saved as the cell opened, and nothing is saved while one is open, umv_poll) */
+static uint8_t umv_trd, umv_bp;                         /* the transition being set; the ground's plate as the cell was opened */
+static const char *const UMV_TY[4] = {"DISSOLVE", "FADE", "BLOCKS", "CUT"};
+static const char *const UMV_LS[4] = {"0.5 S", "1 S", "2 S", "4 S"};
+/* a transition byte's field k as its place in the lists: 0 IN's kind (UMV_TY), 1 IN's length (UMV_LS), 2 OUT's kind,
+ * 3 OUT's length; and the field's two bits for a place (a new cell's 0: IN a DISSOLVE of 1 s, OUT a CUT) */
+static uint32_t umv_tf(uint32_t v, uint32_t k)
+{
+    v = v >> 2u * k & 3u;
+    return k == 2u ? (v + 3u) & 3u : (k & 1u) ? v ^ 1u : v;
+}
+static uint32_t umv_tb(uint32_t i, uint32_t k) { return k == 2u ? (i + 1u) & 3u : (k & 1u) ? i ^ 1u : i; }
+/* once a frame (umb_clock): the transitions now. A plate come in with its row (umv_st.t0, umv_poll) comes IN over its
+ * length; one the song's next row replaces (a cell there) goes OUT over the end of this row. FADE: the track's light;
+ * DISSOLVE: TOTALITY's gate (going: the track dark behind it); BLOCKS: MOSAIC, from or to its coarsest */
+BTAPP_FN static void umv_tick(void)                     /* (in the Bluetooth segment, as PLATES; no segment: every plate cut) */
+{
+    uint32_t tk, left = ~0u, b = beat_samples(), mb = 60000u / (uint32_t)clamp(song.g[G_BPM], 20, 400);
+    umv_mo = 0;
+    umv_gt = 256u;
+    uint32_t r = umv_st.row;                            /* (the row whose plates show) */
+    if (chain.running && !chain.hold && b > mb && r + 1u < chain.config.count)   /* ms to the row's end; past it, the next */
+        left = chain.row != r ? 0u : ((chain.remaining ? chain.remaining : 1u) * chain_bar() - chain.bar_pos) / (b / mb);   /* row's
+                                                         * plates not in yet: gone still */
+    for (tk = 0; tk < 2u; tk++) {
+        uint32_t v = umv_st.tr[tk], ty = umv_tf(v, 2u), ln = 500u << umv_tf(v, 3u), p = left, out = 1, lt = 256u;
+        if (left >= ln || !umv_cell(r + 1u, tk)->key) { /* (not going: coming in?) */
+            out = 0;
+            ty = umv_tf(v, 0u);
+            ln = 500u << umv_tf(v, 1u);
+            p = umv_st.t0[tk] ? fm1_ms - umv_st.t0[tk] : ln;
+            if (p >= ln)
+                umv_st.t0[tk] = 0;
+        }
+        if (p < ln && ty != 3u) {
+            p = p * 256u / ln;                          /* (how much of it shows, Q8) */
+            if (ty == 1u)
+                lt = p;
+            else if (ty == 2u)
+                umv_mo = (uint8_t)((256u - p) * 99u >> 8);
+            else {
+                umv_gt = (uint16_t)(out ? 256u - p : p);
+                lt = out ? 0u : 256u;
+            }
+        }
+        umv_lt[tk] = (uint16_t)lt;
+    }
+}
 static int umv_on(void) { return umv_ed && umv_tk && !ui.home && !ui.menu && !ui.confirm && SONG_TRK(cur_page()); }
 static umc_cell_t *umv_cc(void) { return umv_cell(ui.song_row, umv_tk - 1u); }
 /* the cursor's row shown (not while the song plays its own), the open cell's page LIVE VIZ CTRLS' */
@@ -132,7 +187,7 @@ static void umv_sync(void)
     uint32_t pl;
     if (!chain.running)
         umv_apply(ui.song_row);
-    if (umv_ed && umv_tk && (pl = umx_find(umv_cc()->key)) != umx_pg) {
+    if (umv_ed && umv_tk && (pl = umx_find(umv_cc()->key)) != umx_pg) {   /* (umv_ed: 1 the cell, 2 its transition) */
         umx_pg = (uint8_t)pl;
         umx_el = umx_ct = 0;
     }
@@ -196,11 +251,12 @@ static void umx_fmt(char *b, uint32_t pl, uint32_t j, uint32_t v)   /* page pl's
 }
 static const char *const UMX_WH[5] = {"OFF", "GROUND", "LAYER 1", "LAYER 2", "LAYER 3"};
 /* page pl can lie at w: nowhere (SCREEN and EFFECTS never: they are every plate's); the ground, a plate that fills its
- * strip; a layer, a figure or a plate that adds its light */
+ * strip; a layer, a figure or a plate that adds its light. LAYER 2 is not offered (the user, 2026-11-13: too hard to
+ * find, dropped for now; what lay there lies nowhere: umc_load) */
 static int umx_can(uint32_t pl, uint32_t w)
 {
     uint32_t m = pl < UMB_NPLT ? umb_mod(pl)->modes : UMB_MODE(UMB_DRAW_ADD);
-    return pl <= UMX_BEING && (!w || (m & UMB_MODE(w == 1u ? UMB_DRAW_REPLACE : UMB_DRAW_ADD)));
+    return pl <= UMX_BEING && w != 3u && (!w || (m & UMB_MODE(w == 1u ? UMB_DRAW_REPLACE : UMB_DRAW_ADD)));
 }
 /* ALGORITHM: the next page there is of the first lim, round. A plate lying nowhere becomes the ground: the plate
  * behind the page is the one the page is about (the user, 2026-11-13) */
@@ -274,7 +330,6 @@ static void umx_knob(uint32_t k, int32_t s)
 
 /* ------------------------------------------------------------------------------------------- the pages --- */
 static int umk_on(void) { return UMB_ON && !umt.on && home_bare() && ui.hset[0]; }   /* a LIVE CTRLS page or PLATES shown */
-static const char *const UMV_TN[2] = {"MAIN", "OVER"};
 /* LIVE AUDIO CTRLS' row i's words, a column each (slot i of the selected track): its number, the SOURCE, the DEST, the
  * AMOUNT; 1: it acts (else drawn dim) */
 static int umk_names(uint32_t i, char (*b)[12])
@@ -331,6 +386,8 @@ static void umk_algo(int32_t s)                         /* ALGORITHM: the track 
 {
     if (ui.hset[0] != 1u) {
         umx_algo(s, ui.hset[0] == 3u ? UMB_NPLT : UMX_N);
+        umx_sd = (uint8_t)(s > 0 ? 1u : 2u);            /* (PLATES: the boxes slide) */
+        umx_sms = fm1_ms;
         return;
     }
     track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, (int32_t)trk_live - 1));
@@ -340,12 +397,8 @@ static void umk_algo(int32_t s)                         /* ALGORITHM: the track 
 static void umk_knob(uint32_t k, int32_t s)
 {
     uint32_t au = ui.hset[0] == 1u;
-    if (ui.hset[0] == 3u) {                             /* PLATES: KNOB 1 the plate, 3 its preset, 4 where it lies */
-        umx_el = 0;
-        if (!k)
-            umx_algo(s, UMB_NPLT);
-        else
-            umx_knob(k, s);
+    if (ui.hset[0] == 3u) {                             /* PLATES: the macros M1..M4, as TOTALITY's */
+        macro_v[k & 3u] = (uint8_t)clamp(macro_v[k & 3u] + accel(EN_K1 + k, s, 127), 0, 127);
         return;
     }
     if (umz == 1u) {                                    /* (SETUP: any knob the answer; the first, ALGORITHM's) */
@@ -388,15 +441,40 @@ static void umz_input(uint32_t oct)
         umz--;
     ui.force = 1;
 }
-static void umk_cards(void)                             /* KNOB 1..4: the chosen row's columns */
+/* a cell's transition shown (in the Bluetooth segment, as PLATES: umv_input opens it only with the segment there). cards:
+ * KNOB 1..4's columns, IN, OUT, each its length; else over the picture: the cell, then IN and OUT, large */
+BTAPP_FN static void umv_trshow(int cards)
+{
+    char b[12];
+    uint32_t k;
+    for (k = 0; cards && k < 4u; k++)
+        text_column(k, (k & 1u) ? "LENGTH" : k ? "OUT" : "IN", ((k & 1u) ? UMV_LS : UMV_TY)[umv_tf(umv_trd, k)],
+                    (k & 1u) && umv_tf(umv_trd, k - 1u) == 3u ? T_DIM : VAL(k));
+    if (cards)
+        return;
+    umv_name(umv_cc(), b);
+    cv_text(8, 4, &AF_S, b, T_THEME);
+    cv_text(232 - text_w(&AF_S, "TRANSITION"), 4, &AF_S, "TRANSITION", T_MID);
+    for (k = 0; k < 4u; k += 2u) {
+        int32_t yy = 30 + (int32_t)k * 17;
+        const char *ln = UMV_LS[umv_tf(umv_trd, k + 1u)];
+        cv_text(8, yy + 4, &AF_S, k ? "OUT" : "IN", T_MID);
+        cv_text(50, yy, &AF_M, UMV_TY[umv_tf(umv_trd, k)], T_THEME);
+        if (umv_tf(umv_trd, k) != 3u)
+            cv_text(232 - text_w(&AF_M, ln), yy, &AF_M, ln, T_TEXT);
+    }
+}
+BTAPP_FN static void umk_cards(void)                             /* KNOB 1..4: the chosen row's columns */
 {
     static const char *const LB[3][4] = {{"SLOT", "SOURCE", "DEST", "AMOUNT"}, {"ELEMENT", "CONTROL", "SOURCE", "VALUE"},
                                          {"PAGE", "", "PRESET", "WHERE"}};
     char b[4][12];
     uint32_t k, au = umk_au(), nm;
     int on;
-    if (!umv_on() && ui.hset[0] == 3u)                  /* (PLATES: the plate's own row) */
-        umx_el = 0;
+    if (umv_on() && umv_ed == 2u) {                     /* (a cell's transition) */
+        umv_trshow(1);
+        return;
+    }
     nm = !au && !umx_el;
     if (umv_on() && umx_pg == UMB_NONE) {               /* (a cell with no plate: its word, nothing to turn) */
         umv_name(umv_cc(), b[0]);
@@ -488,46 +566,93 @@ static void umx_draw(int32_t x0, int32_t y, int32_t bot)
             umk_text(234 - text_w(&AF_S, b) - x0, yy, b, col);
         }
 }
-/* HOME > UMBRA > PLATES (the user, 2026-11-13: a plate browser, four at a time, with descriptions): every plate there is,
- * a row each: its name, where it lies, under them its own line (its file's, umb_plate_t.desc; an older file: its
- * elements). The chosen one (KNOB 1, ALGORITHM) plays behind the page as the ground unless it lies on a layer; it is
- * LIVE VIZ CTRLS' page too */
-static void umx_list(int32_t x0, int32_t y, int32_t bot)
+/* HOME > UMBRA > PLATES (the user, 2026-11-13: a plate browser with descriptions; then: no knob row, the plates boxes in
+ * a row, only the chosen one's playing, the boxes sliding as ALGORITHM turns): the chosen plate plays in the middle box
+ * (the picture behind the page, the rest of it blacked out), its neighbours' boxes at the screen's edges with their names;
+ * under the middle one its name, its own line (its file's, umb_plate_t.desc; an older file: none) and its preset;
+ * at the foot the four macros (KNOB 1..4) and its place among the plates. ALGORITHM: the boxes slide a place over 0.2 s,
+ * the new plate's box and its words coming in from the side. It is LIVE VIZ CTRLS' page too */
+/* a plate's still picture (umb_plate_t.splash, API 5) at x, y on the canvas; a plate with none (CORONA, an older file):
+ * a ring of light round a black disc */
+BTAPP_FN static void umx_splash(const umb_plate_t *p, int32_t x, int32_t y)
 {
+    const uint8_t *sp = p->api >= 5u ? p->splash : 0;
+    int32_t i, j;
+    y += cv_oy;
+    for (j = 0; j < (int32_t)UMB_SPL; j++)
+        for (i = 0; i < (int32_t)UMB_SPL; i++) {
+            uint32_t c;
+            if ((uint32_t)(x + i) >= cv_w || (uint32_t)(y + j) >= cv_h)
+                continue;
+            if (sp) {
+                c = (sp[32 + j * 32 + (i >> 1)] >> (i & 1 ? 0 : 4) & 15u) * 2u;
+                c = sp[c] | (uint32_t)sp[c + 1u] << 8;
+            } else {
+                c = (uint32_t)((i - 32) * (i - 32) + (j - 32) * (j - 32));
+                c = c < 144u ? 0u : 642816u / (c * c);  /* (31 at the limb, falling off fast) */
+                c = swap16((uint16_t)(c << 11 | c << 6 | c));
+            }
+            cv_px[(uint32_t)(y + j) * cv_w + (uint32_t)(x + i)] = (uint16_t)c;
+        }
+}
+#define UMX_BW 120                                      /* a box's width, and from one to the next */
+#define UMX_BP (UMX_BW + 8)
+BTAPP_FN static void umx_list(int32_t x0, int32_t y, int32_t bot)   /* (in the Bluetooth segment, as WELCOME's pages: the
+                                                                     * app slot is full; no segment: the plate alone) */
+{
+    uint8_t ls[UMB_NPLT];
     char b[48];
-    uint32_t pl, n = 0, at = 0, i = 0, k, cur = umx_cur();
-    int32_t rh = (bot - y - 10) / 4, yy;
+    uint32_t pl, n = 0, at = 0, k, cur = umx_cur(), el = fm1_ms - umx_sms;
+    int32_t bh = bot - y - 56, bx = 120 - UMX_BW / 2 - x0, i, x, m;
+    const umb_plate_t *p;
     if (cur >= UMB_NPLT)
         cur = umx_pg = (uint8_t)(umb_pl() != UMB_NONE ? umb_pl() : 4u);
     for (pl = 0; pl < UMB_NPLT; pl++)
         if (umb_has(pl)) {
             if (pl == cur)
                 at = n;
-            n++;
+            ls[n++] = (uint8_t)pl;
         }
-    for (pl = 0; pl < UMB_NPLT; pl++) {
-        const umb_plate_t *p;
-        if (!umb_has(pl) || i++ / 4u != at / 4u)
+    if (umx_sd && el < 200u) {                          /* sliding: the way still to go */
+        bx += (int32_t)(200u - el) * UMX_BP / 200 * (umx_sd == 1u ? 1 : -1);
+        ui.force = 1;
+    } else
+        umx_sd = 0;
+    cv_halo = 0;
+    cv_rect(-x0, y - 4, 240, 4, T_BG);                  /* all but the middle box: black */
+    cv_rect(-x0, y + bh, 240, bot - y - bh + 6, T_BG);
+    cv_rect(-x0, y, bx + x0 > 0 ? bx + x0 : 0, bh, T_BG);
+    cv_rect(bx + UMX_BW, y, 240, bh, T_BG);
+    for (i = -2; i <= 2; i++) {
+        x = bx + i * UMX_BP;
+        p = umb_mod(ls[(at + n + (uint32_t)(i + 2) - 2u) % n]);
+        if (!i) {
+            cv_frame(x - 1, y - 1, UMX_BW + 2, bh + 2, T_THEME);
             continue;
-        p = umb_mod(pl);
-        yy = y + (int32_t)((i - 1u) % 4u) * rh;
-        if (pl == cur)
-            cv_rect(2 - x0, yy + 2, 2, rh - 6, T_THEME);
-        umk_text(8 - x0, yy, p->name, pl == cur ? T_THEME : T_TEXT);
-        if ((k = umx_place(pl)) != 0u)
-            umk_text(234 - text_w(&AF_S, UMX_WH[k]) - x0, yy, UMX_WH[k], T_MID);
-        b[0] = 0;
-        if (p->api >= 4u)
-            str_cpy(b, p->desc, 40);
-        else
-            for (k = 0; k < p->nctl && str_len(b) < 36u; k++) {
-                str_cpy(b + str_len(b), p->ctl[k].name, 8);
-                str_cpy(b + str_len(b), " ", 2);
-            }
-        cv_text(8 - x0, yy + 15, &AF_X, b, pl == cur ? T_TEXT : T_MID);
+        }
+        if (i < 0)                                      /* (a neighbour: a smaller box against the middle one, its still */
+            x += UMX_BW - (int32_t)UMB_SPL;             /* picture in it, its name under it) */
+        m = y + (bh - (int32_t)UMB_SPL) / 2 - 6;
+        cv_frame(x - 1, m - 1, (int32_t)UMB_SPL + 2, (int32_t)UMB_SPL + 2, T_LINE);
+        umx_splash(p, x, m);
+        cv_text(i < 0 ? x + (int32_t)UMB_SPL - text_w(&AF_X, p->name) : x, m + (int32_t)UMB_SPL + 4, &AF_X, p->name, T_MID);
     }
-    fmt_frac(b, (int32_t)(at / 4u) + 1, (int32_t)((n + 3u) / 4u));
-    cv_text(232 - text_w(&AF_X, b) - x0, bot - 10, &AF_X, b, T_MID);
+    p = umb_mod(cur);
+    x = bx + UMX_BW / 2;
+    cv_text(x - text_w(&AF_M, p->name) / 2, y + bh + 5, &AF_M, p->name, T_THEME);
+    b[0] = 0;
+    if (p->api >= 4u)                                   /* (an older file: no line) */
+        str_cpy(b, p->desc, 40);
+    cv_text(x - text_w(&AF_X, b) / 2, y + bh + 24, &AF_X, b, T_TEXT);
+    umx_pre_name(cur, umx_pre(cur), b);
+    cv_text(x - text_w(&AF_X, b) / 2, y + bh + 35, &AF_X, b, T_MID);
+    for (k = 0; k < 4u; k++) {                          /* the macros: KNOB 1..4 */
+        m = 8 + (int32_t)k * 46 - x0;
+        cv_rect(m, bot - 4, 40, 1, T_LINE);
+        cv_rect(m, bot - 5, macro_v[k] * 40 / 127, 3, T_THEME);
+    }
+    fmt_frac(b, (int32_t)at + 1, (int32_t)n);
+    cv_text(232 - text_w(&AF_X, b) - x0, bot - 9, &AF_X, b, T_MID);
 }
 /* the page over the plate from canvas row y (h rows). LIVE AUDIO CTRLS: the selected track's four slots, then what each
  * macro moves (its routes on every track: "T2 CUT", as many as fit); LIVE VIZ CTRLS: umx_draw. SETUP: its question, large,
@@ -543,7 +668,8 @@ static void umk_draw(int32_t x0, int32_t y, int32_t h)
     int32_t bot = y + h;
     cv_halo = 1;
     if (ui.hset[0] == 3u) {
-        umx_list(x0, y, bot);
+        if (bt_hw_seg())
+            umx_list(x0, y, bot);
         cv_halo = ha;
         return;
     }
@@ -610,6 +736,8 @@ static int umv_algo(int32_t s)
 {
     if (ui.home || !SONG_TRK(cur_page()))
         return 0;
+    if (umv_on() && umv_ed == 2u)                       /* (its transition: no plate turned) */
+        return 1;
     if (umv_on())
         umv_turn(umv_cc(), umv_tk - 1u, s);
     else if (umv_tk)
@@ -629,14 +757,14 @@ static int umv_knob(uint32_t k, int32_t s)
     if (!umv_tk || !(umv_on() || k == 3u))
         return 0;
     c = umv_cc();
-    if (!umv_on())
+    if (umv_on() && umv_ed == 2u)                       /* its transition: KNOB k its field, a detent a place */
+        umv_trd = (uint8_t)((umv_trd & ~(3u << 2u * k)) | umv_tb((uint32_t)clamp((int32_t)umv_tf(umv_trd, k) + s, 0, 3), k) << 2u * k);
+    else if (!umv_on())
         umv_turn(c, umv_tk - 1u, s);
     else if (umx_pg != UMB_NONE && (umx_el || !k))
         umx_knob(k, s);
-    else if (umx_pg != UMB_NONE && k == 2u) {
-        c->pre = (uint8_t)clamp((int32_t)c->pre + s, 0, UMC_NPRE - 1);
-        umc_touch();
-    }
+    else if (k == 2u)
+        return umk_preset(s);
     umv_sync();
     return 1;
 }
@@ -644,7 +772,7 @@ static int umv_knob(uint32_t k, int32_t s)
 static int umk_preset(int32_t s)
 {
     if (umv_on()) {
-        if (umx_pg != UMB_NONE) {
+        if (umx_pg != UMB_NONE && umv_ed == 1u) {
             umv_cc()->pre = (uint8_t)clamp((int32_t)umv_cc()->pre + s, 0, UMC_NPRE - 1);
             umc_touch();
             umv_sync();
@@ -657,22 +785,120 @@ static int umk_preset(int32_t s)
     ui.force = 1;
     return 1;
 }
-/* each input pass, the octave keys' taps there: OCT+ on a picture track opens its cell, OCT- closes it. What is left of
- * the taps for the page (OCT+ ADD ROW, OCT- DELETE) */
+/* each input pass, the octave keys' taps there: OCT+ on a picture track opens its cell (the store saved first, so OCT-
+ * can bring it back; not while the sound plays: a save stops it), then its transition, then keeps it all; OCT- a step
+ * back, nothing kept; so does leaving the page or the song starting. What is left of the taps for the page (OCT+ ADD ROW,
+ * OCT- DELETE) */
+/* (the user, 2026-11-13) GENE's picture: a song made brings its own. Each row (a part: its tracks muted or not) reads as
+ * lively as the song's ENERGY en (0..100) by the tracks playing in it, half that with no drums; its MAIN plate the one
+ * there whose own liveliness (umb_plate_t.energy) is nearest, leaning a way of the song's own (sd: its dice); a lively
+ * row an OVER plate too, another one; a cell only where the plate changes, its preset the song's and the section's, its
+ * transition slow fades for a quiet row, blocks for a lively one. The drums' hits (track dr; none: the beat) push every
+ * plate's SPEED, and GLITCH and MOSAIC the livelier the song: in SCREEN's and EFFECTS' last links, GENE's own. No rows
+ * (a loop): one part, shown now */
+#define UMV_GL (UMC_NL - 3u)                            /* GENE's links: a record's last three */
+BTAPP_FN static void umv_gene(uint32_t en, uint32_t dr, uint32_t sd)
+{
+    uint32_t r, tk, k, n = chain_config.count, last[2] = {0, 0}, src = dr < NTRK ? UMQ_HIT + dr : UMQ_BEAT;
+    umc_rec_t *rc;
+    umc_cell_t *c = umv_cell(0, 0);
+    umv_req = 0;                                        /* (the new song's "its cells none", still waiting: these are they) */
+    memset(c, 0, sizeof umc.cell[0]);
+    for (r = 0; r < (n ? n : 1u); r++) {
+        const scene_t *sc = &song_idx.scene[song_cur][r];
+        uint32_t m = n ? (sc->mute & 15u) | (sc->on & 6u) << 3 : 0u, a = 1, e;
+        for (k = 0; k < trk_live; k++)
+            a += !((m >> k) & 1u);
+        e = en * a / (trk_live + 1u) >> (dr < NTRK && ((m >> dr) & 1u));
+        for (tk = 0; tk < 2u; tk++, c++) {
+            uint32_t key = UMC_OFF, bd = ~0u, pl;
+            int32_t want = (int32_t)e + (int32_t)((sd >> (8u * tk)) % 31u) - 15;
+            for (pl = 0; pl < UMB_NPLT && (!tk || e >= 50u); pl++) {
+                umx_desc_t ds;
+                int32_t d;
+                if (!umx_desc(pl, &ds) || !umx_can(pl, 1u + tk) || (tk && umx_key(ds.name) == last[0]))   /* (OVER: not MAIN's) */
+                    continue;
+                d = want - (umb_mod(pl)->api >= 5u ? (int32_t)umb_mod(pl)->energy : 50);
+                if (d < 0)
+                    d = -d;
+                if ((uint32_t)d < bd) {
+                    bd = (uint32_t)d;
+                    key = umx_key(ds.name);
+                }
+            }
+            if (key != last[tk]) {
+                c->key = (uint16_t)(last[tk] = key);
+                c->pre = (uint8_t)(((sd >> 4) ^ chain_config.row[r].slot) & 3u);
+                c->tr = (uint8_t)(e < 34u ? 233u : e > 60u ? 6u : 0u);   /* (umv_tb: FADE 4 S in, FADE 2 S out; BLOCKS 0.5 S in) */
+            }
+        }
+    }
+    rc = umc_rec(UMX_PN[2], 2u, 6u);                    /* (SCREEN's and EFFECTS' own records: BASIC's) */
+    rc->ls[UMV_GL] = (uint8_t)(src | 1u << 5);          /* SPEED */
+    rc->ld[UMV_GL] = (int8_t)(en / 3u);
+    rc = umc_rec(UMX_PN[3], 3u, 5u);
+    rc->ls[UMV_GL] = (uint8_t)(src | 2u << 5);          /* GLITCH */
+    rc->ld[UMV_GL] = (int8_t)(en > 45u ? (en - 35u) / 2u : 0u);
+    rc->ls[UMV_GL + 1u] = (uint8_t)(src | 1u << 5);     /* MOSAIC */
+    rc->ld[UMV_GL + 1u] = (int8_t)(en > 75u ? (en - 60u) / 3u : 0u);
+    umv_apply(0);
+    umc_gen++;
+    umc_touch();
+}
+/* SAVE > PROJECT > TOOLS' CLEAR PLATES: the song's picture gone: its rows' cells, the OVER plate, GENE's links */
+BTAPP_FN static void umv_clear(void)
+{
+    uint32_t i;
+    umc_load();
+    memset(umc.cell[song_cur % NSONG_USE], 0, sizeof umc.cell[0]);
+    for (i = 0; i < UMC_NREC; i++)
+        memset(umc.rec[i].ls + UMV_GL, 0, 3);
+    umc.lay[0] = 0;
+    umc_gen++;
+    umc_touch();
+    ui_message("PLATES CLEARED");
+}
+static void umv_undo(void)                              /* the cell closed, the store as it was when it was opened */
+{
+    umc.magic = 0;
+    umc_load();
+    umc_dirty = 0;
+    umb_plate = umv_bp;
+    umv_ed = 0;
+}
 static uint32_t umv_input(uint32_t oct)
 {
     if (ui.home || !SONG_TRK(cur_page()) || !umv_tk || chain_busy() || !chain_config.count) {
-        umv_ed = 0;
+        if (umv_ed)
+            umv_undo();
         return oct;
     }
     if (!oct || ui.menu || ui.confirm)
         return oct;
-    if (oct & 2u)
+    if (!(oct & 2u)) {
+        if (!umv_ed)
+            return oct;
+        if (umv_ed == 2u)
+            umv_ed = 1;
+        else
+            umv_undo();
+    } else if (!umv_ed) {
+        if (umc_dirty && (umc_dirty = (uint8_t)(umc_flash(&umc, sizeof umc, 1) != 0)) != 0) {
+            ui_message("STOP THE SOUND FIRST");
+            return 0;
+        }
+        umv_bp = umb_plate;
         umv_ed = 1;
-    else if (umv_ed)
+    } else if (umv_ed == 1u && bt_hw_seg()) {           /* (no segment: no transitions, kept at once) */
+        umv_trd = umv_cc()->tr;
+        umv_ed = 2;
+    } else {
+        if (umv_ed == 2u)
+            umv_cc()->tr = umv_trd;
+        umc_touch();
         umv_ed = 0;
-    else
-        return oct;
+        ui_message("CELL KEPT");
+    }
     umv_sync();
     return 0;
 }
@@ -717,13 +943,16 @@ static int umv_draw(void)
         return 0;
     umb_backdrop(0, (int32_t)graph_y());
     cv_halo = 1;
-    if (umx_pg == UMB_NONE) {
+    if (umv_ed == 2u)
+        umv_trshow(0);
+    else if (umx_pg == UMB_NONE) {
         umv_name(umv_cc(), b);
         cv_text(120 - text_w(&AF_M, b) / 2, 40, &AF_M, b, T_THEME);
         cv_text(120 - text_w(&AF_X, "ALGORITHM: A PLATE") / 2, 66, &AF_X, "ALGORITHM: A PLATE", T_MID);
     } else
         umx_draw(0, 4, (int32_t)graph_h() - 6);
     cv_text(8, (int32_t)graph_h() - 10, &AF_X, "Oct -  back", T_MID);
+    cv_text(232 - text_w(&AF_X, "keep  Oct +"), (int32_t)graph_h() - 10, &AF_X, umv_ed == 2u ? "keep  Oct +" : "next  Oct +", T_TEXT);
     cv_halo = ha;
     return 1;
 }

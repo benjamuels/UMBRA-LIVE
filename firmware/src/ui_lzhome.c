@@ -276,12 +276,18 @@ words:
         umw_draw(x0, LA_HOME_CARD_Y - b, (int32_t)foot_y() - b);
     } else if (umk_on() && words) {                     /* MACROS - AUDIO / VISUALS: the routes over the plate, under the */
         int32_t gy = hud ? (int32_t)graph_y() : 0;      /* tabs, down to the knobs or the footer (ui_umbra_mac.c) */
-        umk_draw(x0, gy + 4, (hud ? (int32_t)(card_y() > graph_y() ? card_y() : foot_y()) - gy : (int32_t)graph_h()) - 6);
+        int pl = ui.hset[0] == 3u;                      /* (PLATES: no knob row, its strip the page's too) */
+        if (hud && pl && card_y() < graph_y())
+            gy = (int32_t)card_y();
+        umk_draw(x0, gy + 4, (hud ? (int32_t)(card_y() > graph_y() && !pl ? card_y() : foot_y()) - gy : (int32_t)graph_h()) - 6);
     }
     cv_oy = 0;
 }
 static void graph_eco(void) { eco_draw(0, 0, 1); }
-static void eco_backdrop(int32_t x0, int32_t y0, int words) { eco_draw(x0, y0, words); }
+static void eco_backdrop(int32_t x0, int32_t y0, int words)   /* ((UMBRA LIVE) PLATES: the knob row's strip its page's too) */
+{
+    eco_draw(x0, y0, words || (umk_on() && ui.hset[0] == 3u && y0 == (int32_t)card_y()));
+}
 /* BEING: the track's being large, its HOME knobs as organs at the corners */
 static const int16_t ORG_X[4] = {30, 210, 30, 210}, ORG_Y[4] = {28, 28, 116, 116};
 static void organ(uint32_t k, int32_t cx, int32_t cy)

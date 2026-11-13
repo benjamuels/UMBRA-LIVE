@@ -829,7 +829,7 @@ static uint8_t ndg_step;                            /* (V10.25) SEQ > STRETCH's 
 static uint32_t tl_t0;                              /* (V10.24) TOOLS: OCT+ held since (0: not), its action and track */
 static uint8_t tl_kind, tl_trk;
 #define TL_HOLD 900u                                /* (ms: held this long, it is done; no dialog) */
-static const uint8_t TL_SC[6] = {0, 1, 2, 2, 3, 3};  /* (V10.24) TOOLS' actions' scopes: TRACK SOUND SONG SYSTEM */                            /* (V10.24) PRESETS: an UNDO mark taken at the browse's first turn */
+static const uint8_t TL_SC[7] = {0, 1, 2, 2, 3, 3, 2};   /* ((UMBRA LIVE) the seventh: CLEAR PLATES, the song's) */  /* (V10.24) TOOLS' actions' scopes: TRACK SOUND SONG SYSTEM */                            /* (V10.24) PRESETS: an UNDO mark taken at the browse's first turn */
 static void page_entered(void)
 {
     const page_t *pg = cur_page();
@@ -2085,7 +2085,7 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
     if (cur_page()->graph == GR_TRACKGEN) return "MAKE";
     if (cur_page()->graph == GR_TOOLS) {
         static const char *const actions[] = {"CLEAR", "INIT", "DELETE", "CLEAR", "INIT"};
-        return actions[c < 5u ? c : 4u];
+        return actions[c == 6u ? 0u : c < 5u ? c : 4u];
     }
     if (cur_page()->graph == GR_SONG)                   /* (0.8.5) SAVE's lens: OCT+ adds a row (PLAY plays); PARTS: */
         return SONG_PARTS(cur_page()) ? "LOOP" : SONG_CLIPS(cur_page()) ? "GO" : "ADD";   /* the part loops; CLIPS: the cell */

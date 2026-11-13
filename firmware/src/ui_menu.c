@@ -43,35 +43,32 @@ static void draw_about_qr(int32_t x, int32_t y)
 #ifndef UMBRA_NAME
 #define UMBRA_NAME "FIRST CONTACT"
 #endif
-/* (UMBRA LIVE) what UMBRA is, beside JIANT, as ABOUT_PROJECT's lines (on V10.7.6 in the Bluetooth segment as they are:
- * the app slot is full) */
+/* (UMBRA LIVE) what UMBRA is, beside JIANT, as ABOUT_PROJECT's lines (kept short: the segment is full);
+ * (2026-11-13) packed with JIANT's notices (tools/gen_about.py: about_notices.h), the text here for the generator alone */
+#ifdef ABOUT_NOTICE_TEXT
 static const char ABOUT_UMBRA[] BTAPP_RO =
-    "\001A live-visuals fork of JIANT FM for AV sets: all of JIANT's instrument (its sound engines, sequencer, effects, songs) "
-    "as it is, with generative visuals played by the notes in place of HOME's ecosystem.\0"
+    "\001A live-visuals fork of JIANT FM for AV sets: JIANT's whole instrument as it is, with generative visuals played by "
+    "the notes in place of HOME's ecosystem.\0"
     "\005ADDED\0"
     "\001HOME > WELCOME: this guide (MENU > SYSTEM > WELCOME brings it back).\0"
-    "\001HOME > UMBRA: LIVE AUDIO CTRLS (the macros M1..M4 sent to the sound), LIVE VIZ CTRLS (every plate's own elements: "
-    "each one's value, the tracks whose notes drive it, and as many links as it takes from KNOB 1..4, taps, the notes, the "
-    "LFOs, the steps, the level and the beat; ALGORITHM the plate, shown behind; PRESETS its four presets), PLATES (every "
-    "plate, four a page, with a line on each), BEING, ROUTES.\0"
-    "\001SAVE > SONG > TIMELINE: past the last track ALGORITHM reaches MAIN and OVER, a plate a row for the ground and for "
-    "LAYER 1 (KNOB 4), shown as the song plays. OCT+ opens the cell: its plate's elements and preset.\0"
-    "\001TOTALITY: HOME tapped on HOME, the picture over the whole screen. SELECT the ground's plate, KNOB 1..4 the macros, "
-    "FX tapped: the visual effects, SCL tapped: the layers hidden or back, SEQ tapped: the words. FX, SCL, LFO, EDIT, GLO "
-    "held: their keys as ever, the picture stays.\0"
-    "\001Plates: twelve. CORONA built in; CINDER, SAROS, FILAMENT, GRANULE, TARN and six in line art (BEACON, ZODIAC, SONAR, "
-    "MOTHS, MARSH, PACHINKO) come with the install, in a bank of 16 the plates page can add to.\0"
-    "\001Layers: up to three over the ground, set on each plate's page in LIVE VIZ CTRLS (WHERE). The line-art plates, SAROS "
-    "and FILAMENT lie on one; so do BODIES (the engines' figures) and BEINGS (JIANT's beings).\0"
+    "\001HOME > UMBRA: LIVE AUDIO CTRLS (M1..M4 to the sound), LIVE VIZ CTRLS (each plate's elements, the tracks that drive "
+    "them, their links and presets), PLATES (every plate, the chosen one playing), BEING, ROUTES.\0"
+    "\001SAVE > SONG > TIMELINE: MAIN and OVER past the last track, a plate a row. OCT+ opens the cell, again its "
+    "transition, a third keeps it; OCT- back.\0"
+    "\001GENE: a song brings its picture, a plate for each part, the drums on the effects. SAVE > PROJECT > TOOLS, KNOB 3: "
+    "CLEAR PLATES.\0"
+    "\001TOTALITY: HOME tapped on HOME. PRESETS the MAIN plate, SELECT the OVER plate, ALGORITHM the track, KNOB 1..4 the "
+    "macros; FX, SCL, SEQ tapped: effects, layers, words. FX held: REPEAT and STUTTER strobe, OCT+ and OCT- push the "
+    "picture.\0"
+    "\001Plates: twelve. CORONA built in; CINDER, SAROS, FILAMENT, GRANULE, TARN, BEACON, ZODIAC, SONAR, MOTHS, MARSH, "
+    "PACHINKO come with the install, in a bank of 16 the plates page can add to.\0"
     "\005LEFT OUT FOR THE ROOM\0"
-    "\001HOME's ecosystem and the engines' creatures, projects 5..8 (their flash is the plate bank), USB audio input, USB host, the serial "
-    "console.\0"
+    "\001HOME's ecosystem and creatures, projects 5..8 (now the plate bank), USB audio input, USB host, the serial console.\0"
     "\005PLATES PAGE, EMULATOR\0"
     "\003benjamuels.github.io/UMBRA-LIVE\0"
     "\001UMBRA's reports are its own: please never send them to JIANT's author.\0"
     "\005JIANT FM\0"
     "\001Everything else here is Juan Jiant's: his project, its credits and its licences follow.\0";
-#ifdef ABOUT_NOTICE_TEXT
 static const char ABOUT_PROJECT[] BTAPP_RO =
     "\002THE PROJECT\0"
     "\001Made in Argentina by Juan Jiant, visual artist and musician, a dad of two: an independent project, free for everyone.\0"
@@ -273,15 +270,7 @@ BTAPP_FN static int32_t about_load(int32_t y, int draw)
     }
     return y;
 }
-BTAPP_FN static int32_t umb_about(int32_t y, int draw)           /* (UMBRA LIVE) ABOUT_UMBRA's lines (menu_lines' kinds) */
-{
-    const char *s;
-    for (s = ABOUT_UMBRA; *s; s += str_len(s) + 1u) {
-        uint32_t k = (uint8_t)*s - 1u, c = k % 3u;
-        y = menu_text(s + 1, y + 4 * (int32_t)(k / 3u), c == 1u ? T_THEME : c == 2u ? T_MID : T_TEXT, draw);
-    }
-    return y;
-}
+static int32_t umb_about(int32_t y, int draw) { return menu_lines(ABOUT_UMBRA_PACK, y, draw); }   /* (UMBRA LIVE) ABOUT_UMBRA's lines */
 static int32_t menu_document(int32_t y, int draw)
 {
     if (draw) {                                         /* (UMBRA LIVE) the fork first: its release, the JIANT under it */
@@ -290,7 +279,7 @@ static int32_t menu_document(int32_t y, int draw)
         cv_text(6, y + 46, &AF_S, "Built on JIANT FM " FELUCCA_VERSION, T_TEXT);
         cv_text(6, y + 64, &AF_S, "Built " __DATE__, T_MID);
     }
-    y = (bt_hw_seg() ? umb_about(y + 86, draw) : y + 86) + 12;   /* (V10.7.6: in the segment, as THE PROJECT) */
+    y = umb_about(y + 86, draw) + 12;                   /* (in the segment, as THE PROJECT: menu_lines) */
     if (draw) {
         cv_text(6, y + 2, &AF_L, "JIANT FM", T_THEME);
         cv_text(6, y + 38, &AF_S, "Firmware for the MVAVE FM-1", T_TEXT);

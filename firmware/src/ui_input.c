@@ -1619,8 +1619,10 @@ static void edit_param(uint32_t slot, int32_t steps)
         if (slot == 0u && ui.act) {                      /* others the action (across the scopes) */
             sc = clamp(sc + (steps > 0 ? 1 : -1), 0, 3);
             for (a = 0; TL_SC[a] != sc; a++) {}
-        } else if (ui.act)
-            a = clamp(a + (steps > 0 ? 1 : -1), 0, 5);
+        } else if (slot == 2u)                           /* ((UMBRA LIVE) KNOB 3: CLEAR PLATES) */
+            a = 6;
+        else if (ui.act)
+            a = clamp(a + (steps > 0 ? 1 : -1), 0, 6);
         ui.act = (uint8_t)(a + 1);
         return;
     }
@@ -2676,10 +2678,15 @@ static void ui_input_frame(void)
             tl_t0 = 0;
         } else if ((int32_t)(fm1_ms - tl_t0) >= (int32_t)TL_HOLD) {
             uint8_t a = ui.act;
-            confirm_open(tl_kind, tl_trk);
-            ui.act = a;
             tl_t0 = 0;
-            oct |= 2u;                                  /* (the dialog's OK, below, this frame) */
+            if (a == 7u) {                              /* ((UMBRA LIVE) CLEAR PLATES: its own, no dialog's) */
+                if (bt_hw_seg())
+                    umv_clear();
+            } else {
+                confirm_open(tl_kind, tl_trk);
+                ui.act = a;
+                oct |= 2u;                              /* (the dialog's OK, below, this frame) */
+            }
         }
     }
     kx_frame();                                         /* (V10.6z4) the expression keys let go, recorded */
@@ -3137,11 +3144,17 @@ static void ui_input_frame(void)
     if (!lay && (s = panel_enc(EN_PRESET)) != 0) {
         if (gen_on())
             gen_knob(0, s);                             /* (GEN: its GENRE, the generator's preset) */
-        else if (!umk_preset(s))                        /* ((UMBRA LIVE) LIVE VIZ CTRLS, PLATES, a TIMELINE cell: the plate's) */
+        else if (UMB_ON && umt.on) {                    /* ((UMBRA LIVE) TOTALITY: the MAIN plate) */
+            if (bt_hw_seg())
+                umt_select(s, 0u);
+        }
+        else if (!umk_preset(s))                        /* (.. LIVE VIZ CTRLS, PLATES, a TIMELINE cell: the plate's) */
             presets_turn(s);
     }
     if (!lay && (s = panel_enc(EN_ALGO)) != 0) {   /* ALGORITHM: the selected track, on every page. (0.6.55) Only
                                                     * the tracks that play: TRACKS 4 stops at T4 (T5 / T6 asleep) */
+        if (UMB_ON)
+            umt.tms = fm1_ms;                       /* ((UMBRA LIVE) TOTALITY: the track's number shown again) */
         if (umk_on())                               /* (UMBRA LIVE) MACROS - AUDIO / VISUALS: the route */
             umk_algo(s);
         else if (umv_algo(s))                       /* (.. TIMELINE: past T6 its picture tracks) */
@@ -3157,8 +3170,10 @@ static void ui_input_frame(void)
     } else if ((s = panel_enc(EN_SELECT)) != 0 && !lay && !ui.menu) {   /* (0.9.2, rule 1) SELECT alone: the section's
                                                         * chain, a page a detent (HOME's: WELCOME, MACROS - AUDIO, MACROS - VISUALS, BEING, ROUTES, GEN 1..3) */
         uint64_t cph = cp_held();
-        if (UMB_ON && umt.on)                           /* (UMBRA LIVE) TOTALITY: the plates */
-            umt_select(s);
+        if (UMB_ON && umt.on) {                         /* (UMBRA LIVE) TOTALITY: the OVER plate */
+            if (bt_hw_seg())
+                umt_select(s, 1u);
+        }
         else if (cph)                                   /* (seq2h) step keys held: COPY them (the range between) */
             cp_copy(cph);
         else

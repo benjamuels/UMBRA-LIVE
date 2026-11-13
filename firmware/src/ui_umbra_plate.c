@@ -8,14 +8,16 @@
 static void umv_poll(void)
 {
     if (umv_req) {                                      /* (the song: a row gone in, its plates; a new one, its cells none) */
-        uint32_t q = umv_req, g = umb_pick();
+        uint32_t q = umv_req, g;
         umv_req = 0;
         if (q == 0xFFu)
             umv_rows(CHAIN_ROWS, 0);
         else {
             umv_apply(q - 1u);
-            if (umt.on && umb_pick() != g)
-                umt.fms = fm1_ms | 1u;                  /* (TOTALITY: the new ground dissolves in) */
+            umv_st.row = (uint8_t)(q - 1u);
+            for (g = 0; g < 2u; g++)                    /* (a cell of the row's own: its plate comes in as it says) */
+                if (umv_cell(q - 1u, g)->key)
+                    umv_st.t0[g] = fm1_ms | 1u;
         }
     }
     if (fm1_ms - umv_ms <= 1500u)
@@ -24,7 +26,7 @@ static void umv_poll(void)
         umv_dirty = 0;
         settings_save();
     }
-    if (umc_dirty) {
+    if (umc_dirty && !umv_ed) {                         /* (a cell open: nothing kept until OCT+ says so) */
         umc_dirty = (uint8_t)(umc_flash(&umc, sizeof umc, 1) != 0);       /* (the transport running, or it failed: again in 1.5 s) */
         umv_ms = fm1_ms;
     }

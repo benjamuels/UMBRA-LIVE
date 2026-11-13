@@ -108,6 +108,20 @@ static int32_t ump_co_on(const umb_lctx_t *cx, uint32_t j, const umb_note_t *nt,
 {
     return (cx->et[j] ? cx->et[j] >> nt->track & 1u : (uint32_t)own) ? ((int32_t)nt->vel * 2 + 1) * cx->k[j] / 50 : 0;
 }
+/* a drum's lane's shape (KICK SNARE CLAP HATCL HATOP TOM RIM BELL): an arch's kind 0..3 (wide, spike, twin, loop), or
+ * 4 + a glint's 0..3 (one, a ray, a pair, a star); an arch's half width and height (quarters of its own), a glint's count,
+ * its steps out (Q8 px) and round (1024 a turn), its start above the limb (Q8 px) */
+static const uint8_t UMR_LK[8] = {0, 1, 2, 4, 5, 3, 6, 7}, UMR_PW[4] = {13, 2, 13, 5}, UMR_PH[4] = {4, 9, 3, 2};
+static const uint16_t UMR_BG[4][4] = {{1, 0, 0, 154}, {3, 1024, 0, 154}, {2, 0, 14, 154}, {1, 0, 0, 3584}};
+static __attribute__((noinline)) void ump_co_bead(ump_co_t *s, int32_t v, uint32_t tn, uint32_t k)   /* a glint more, kind k */
+{
+    uint32_t i = s->nbd++ % 10u;
+    s->ba[i] = (uint16_t)(umb_rnd() & 1023u);
+    s->bv[i] = (uint8_t)(v > 255 ? 255 : v);
+    s->bt[i] = umb_now;
+    s->bc[i] = (uint8_t)tn;
+    s->bk[i] = (uint8_t)k;
+}
 static void ump_co_note(void *st, const umb_lctx_t *cx, const umb_api_t *ap, const umb_note_t *nt)
 {
     ump_co_t *s = st;
@@ -116,25 +130,32 @@ static void ump_co_note(void *st, const umb_lctx_t *cx, const umb_api_t *ap, con
     (void)ap;
     if (!nt->vel)
         return;
-    if ((v = ump_co_on(cx, 4u, nt, drum && !lane)) != 0 && s->P <= 128 + (v >> 1)) {   /* PULSE: the chromosphere flares */
+    /* (the user, 2026-11-13) a drum only ever the arches, a shape its lane's: KICK a wide arch, SNARE a spike, CLAP twin
+     * arches, TOM a loop lifting off; the hats and the small ones glints: HATCL one on the limb, HATOP a ray of three, RIM
+     * a pair, BELL a star above it. Other notes: PULSE the low ones (the chromosphere flares), BEADS the high ones, PROM
+     * a track chosen for it, STREAM all */
+    if ((v = ump_co_on(cx, 5u, nt, (int)drum)) != 0) {
+        uint32_t k = drum ? UMR_LK[lane & 7u] : 0u;
+        if (k & 4u)                                     /* (a glint) */
+            ump_co_bead(s, v, tn, k & 3u);
+        else {
+            i = s->np++ % 4u;
+            s->pa_[i] = (uint16_t)(umb_rnd() & 1023u);
+            s->ph[i] = (uint8_t)(10 + 12 * v / 256);
+            s->pt[i] = umb_now;
+            s->pc[i] = (uint8_t)tn;
+            s->pk[i] = (uint8_t)k;
+        }
+    }
+    if (drum)
+        return;
+    if ((v = ump_co_on(cx, 4u, nt, n < 48u)) != 0 && s->P <= 128 + (v >> 1)) {   /* PULSE: the chromosphere flares */
         s->P = (uint16_t)(128 + (v >> 1));
         s->Pt = (uint8_t)tn;
     }
-    if ((v = ump_co_on(cx, 5u, nt, drum && lane - 1u < 2u)) != 0) {   /* PROM: a prominence */
-        i = s->np++ % 4u;
-        s->pa_[i] = (uint16_t)(umb_rnd() & 1023u);
-        s->ph[i] = (uint8_t)(6 + 7 * v / 256);
-        s->pt[i] = umb_now;
-        s->pc[i] = (uint8_t)tn;
-    }
-    if ((v = ump_co_on(cx, 6u, nt, drum && lane >= 3u)) != 0) {   /* BEADS: a bead */
-        i = s->nbd++ % 10u;
-        s->ba[i] = (uint16_t)(umb_rnd() & 1023u);
-        s->bv[i] = (uint8_t)(v > 255 ? 255 : v);
-        s->bt[i] = umb_now;
-        s->bc[i] = (uint8_t)tn;
-    }
-    if (!(v = ump_co_on(cx, 3u, nt, !drum)))            /* STREAM */
+    if ((v = ump_co_on(cx, 6u, nt, n >= 76u)) != 0)     /* BEADS: a bead */
+        ump_co_bead(s, v, tn, 0u);
+    if (!(v = ump_co_on(cx, 3u, nt, 1)))                /* STREAM */
         return;
     a0 = (int32_t)ump_fifth(c, n) * 128 / 12 + 96 + (nt->mo[0] >> 1);   /* (the root at the top; NOTE MOVEMENT round) */
     sg = 16 + (((256 - ump_pk(n)) * 40) >> 8);          /* (its width: 1 .. 3.5 streamers, Q4) */
@@ -237,27 +258,36 @@ static void ump_co_draw(int32_t x0, int32_t y0)
             pk = k;
         }
     }
-    for (i = 0; i < 4; i++) {                           /* the prominences: an arch on the limb, 1.4 s, 8 steps */
-        uint32_t age = umb_now - s->pt[i];
+    for (i = 0; i < 4; i++) {                           /* the arches: on the limb, 1.4 s, 8 steps; each its kind's shape */
+        uint32_t age = umb_now - s->pt[i], kd = s->pk[i] & 3u;
         int32_t fq = s->ph[i] ? ump_fade(age, 1400u, 8u) : 0, rise = age >= 250u ? 256 : (int32_t)(age * 256u / 250u),
-                dl = s->ph[i] * 10 / 3;
+                dl = s->ph[i] * UMR_PW[kd] >> 2, hh = s->ph[i] * UMR_PH[kd] * rise >> 2,
+                lift = kd == 3u ? s->ph[i] * rise * 3 >> 1 : 0;
         const uint8_t *pc = s->pc[i] ? UMP_WARM[s->pc[i] >> 7] : UMB_EVC[6];   /* (rose; tracks 3 and 4 theirs) */
         if (!fq)
             continue;
         for (u = 0; u <= 50; u++) {
             uint32_t an = (uint32_t)(s->pa_[i] + dl * (2 * u - 50) / 50) << 22;
-            int32_t ro = UMR_RM * 256 + 128 + ((s->ph[i] * rise * (sine_i((uint32_t)u * 42949673u) >> 7)) >> 8),
+            int32_t f = kd == 1u ? (50 - (u > 25 ? 2 * u - 50 : 50 - 2 * u)) * 5 : sine_i((uint32_t)u * (kd == 2u ? 85899346u : 42949673u)) >> 7,
+                    d = (hh * (f < 0 ? -f : f)) >> 8, ro = UMR_RM * 256 + 128 + lift + d,
                     co = sine_i(an + 0x40000000u), si = sine_i(an), X = 120 * 256 + ((ro * co) >> 15), Y = 120 * 256 + ((ro * si) >> 15);
             umm_splat(X, Y, (fq * 128) >> 8, pc);
-            umm_splat(X - (co >> 7), Y - (si >> 7), (fq * 77) >> 8, pc);
+            if (kd == 3u)                               /* (the loop's lower side; the others: a line two thick) */
+                d *= 2;
+            else
+                d = 256;
+            umm_splat(X - ((d * co) >> 15), Y - ((d * si) >> 15), (fq * 77) >> 8, pc);
         }
     }
-    for (i = 0; i < 10; i++) {                          /* the beads: a glint on the limb, 0.3 s */
-        int32_t fq = s->bv[i] ? ump_fade(umb_now - s->bt[i], 300u, 8u) : 0, ro = UMR_RM * 256 + 154;
-        uint32_t an = (uint32_t)s->ba[i] << 22;
+    for (i = 0; i < 10; i++) {                          /* the glints: on the limb or above it, 0.3 s */
+        const uint16_t *g = UMR_BG[s->bk[i] & 3u];
+        int32_t fq = s->bv[i] ? ump_fade(umb_now - s->bt[i], 300u, 8u) : 0, ro = UMR_RM * 256 + g[3];
         if (fq)
-            ump_glint(120 * 256 + ((ro * sine_i(an + 0x40000000u)) >> 15), 120 * 256 + ((ro * sine_i(an)) >> 15),
-                      (fq * (128 + (s->bv[i] >> 1)) * 410) >> 16, s->bc[i] ? UMP_WARM[s->bc[i] >> 7] : UMP_WT);
+            for (u = 0; u < (int32_t)g[0]; u++) {
+                uint32_t an = (uint32_t)(s->ba[i] + g[2] * u) << 22;
+                ump_glint(120 * 256 + (((ro + g[1] * u) * sine_i(an + 0x40000000u)) >> 15), 120 * 256 + (((ro + g[1] * u) * sine_i(an)) >> 15),
+                          (fq * (128 + (s->bv[i] >> 1)) * 410) >> 16, s->bc[i] ? UMP_WARM[s->bc[i] >> 7] : UMP_WT);
+            }
     }
 }
 
@@ -288,19 +318,21 @@ static const umb_plate_t umb_plate_corona = {
     {{"REACH", 50}, {"FADE", 45}, {"SIZE", 50}, {"STREAM", 50}, {"PULSE", 50}, {"PROM", 50}, {"BEADS", 50}, {"HALO", 50}},
     ump_co_start, ump_co_note, ump_co_frame, ump_co_strip,
     {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, 0},
-    "The eclipse, streamers fed by notes", 3u, {0, 0, 0},
+    "The eclipse: streamers, drums as arches", 3u, {0, 0, 0},
     {{"BREATH", {0, 71, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 20, 50}},
      {"DIAMOND", {0, 0, 36, 31, 0, 91, 96, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 7u), UMB_LINK(UMB_SRC_HIT(0), 0u)}, {99, 99, 60, 40}},
-     {"ANNULAR", {26, 0, 81, 71, 0, 0, 0, 91}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 50, 30}}}};
+     {"ANNULAR", {26, 0, 81, 71, 0, 0, 0, 91}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 50, 30}}},
+    80u, {0, 0, 0}, 0};
 
 /* ------------------------------------------------------------------------------------------------ WELCOME --- */
 /* (UMBRA LIVE) the power-on screen, UMW_T ms (ui_draw.c draw_splash, splash_write: main.c boot_splash, web/emu): an
  * eclipse reaching totality, on CORONA's corona. Out of the black a pale sun, the moon already on it from the lower left,
  * slowing as it covers it; its last light a bead on the upper right that flares (the diamond ring) with the chromosphere;
  * the corona unfurling round the black disc, turning slowly to a stop; the name rising out of the dark under it, then the
- * line under that; by 3.55 s all still, held so 2 s; and in the last 0.45 s all sinks to black. ms: from its start (past
+ * line under that; by 3.55 s all still, held so 1 s; and in the last 0.45 s all sinks to black. ms: from its start (past
  * UMW_T: nothing drawn). It borrows CORONA's state (the ground after it starts afresh) */
-#define UMW_T 6000u                                     /* (3.55 s of the eclipse, 2 s still, 0.45 s to black) */
+#define UMW_T 5000u                                     /* (3.55 s of the eclipse, 1 s still, 0.45 s to black: the user,
+                                                         * 2026-11-13, a second shorter) */
 #define UMW_DY 24                                       /* (the eclipse 24 px above the screen's centre, CORONA's) */
 static __attribute__((noinline)) int32_t umw_rp(int32_t t, int32_t t0, int32_t d)   /* 0..256 from t0 over d ms */
 {

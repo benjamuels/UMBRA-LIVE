@@ -2871,6 +2871,8 @@ static void gen_make(void)
     }
     gen_parts();
     gs.song = 0;
+    if (UMB_ON && bt_hw_seg())                          /* ((UMBRA LIVE) its picture: a plate a part, the drums on the effects) */
+        umv_gene(gs.energy, gs.act[RL_DRUM] ? gs.trk_of[RL_DRUM] : NTRK, gq);
 }
 /* the piece made from the settings (UNDO brings back what was there); the message */
 static void gen_go(void)

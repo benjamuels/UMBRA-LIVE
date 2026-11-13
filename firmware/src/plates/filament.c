@@ -218,6 +218,7 @@ static void plf_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     }
 }
 
+#include "splash/filament.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_filament = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plf_t), PLF_NAME,
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 6u, {0, 0, 0},
@@ -227,4 +228,5 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_filament = {
     "A taut string a track, plucked, bowed", 3u, {0, 0, 0},
     {{"HARP", {0, 86, 0, 86, 21, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), 0}, {99, 99, 50, 0}},
      {"BOWED", {26, 61, 0, 16, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u), UMB_LINK(UMB_SRC_LFO(0), 2u)}, {99, 99, 60, 30}},
-     {"SNAP", {91, 21, 0, 100, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 0u), UMB_LINK(UMB_SRC_BEAT, 2u)}, {99, 99, 50, 30}}}};
+     {"SNAP", {91, 21, 0, 100, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 0u), UMB_LINK(UMB_SRC_BEAT, 2u)}, {99, 99, 50, 30}}},
+    48u, {0, 0, 0}, SPL_FILAMENT};

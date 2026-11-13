@@ -211,6 +211,7 @@ static void plg_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     }
 }
 
+#include "splash/granule.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_granule = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plg_t), "GRANULE",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 6u, {0, 0, 0},
@@ -220,4 +221,5 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_granule = {
     "The sun's surface, a cell lit a note", 3u, {0, 0, 0},
     {{"SIMMER", {16, 81, 36, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 0u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 25, 40}},
      {"FLARES", {61, 0, 0, 31, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_BEAT, 0u)}, {99, 99, 50, 30}},
-     {"PULSE", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 2u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 70, 40}}}};
+     {"PULSE", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 2u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 70, 40}}},
+    72u, {0, 0, 0}, SPL_GRANULE};

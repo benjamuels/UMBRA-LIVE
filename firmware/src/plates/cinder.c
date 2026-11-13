@@ -174,6 +174,7 @@ static void plc_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     }
 }
 
+#include "splash/cinder.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_cinder = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plc_t), "CINDER",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 6u, {0, 0, 0},
@@ -183,4 +184,5 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_cinder = {
     "Cold embers under a crust of cracks", 3u, {0, 0, 0},
     {{"PULSE", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 60, 50}},
      {"SMOLDER", {21, 76, 31, 0, 0, 21, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 40, 0}},
-     {"FLARE", {71, 31, 0, 81, 0, 91, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 5u), UMB_LINK(UMB_SRC_BEAT, 0u)}, {99, 99, 60, 25}}}};
+     {"FLARE", {71, 31, 0, 81, 0, 91, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 5u), UMB_LINK(UMB_SRC_BEAT, 0u)}, {99, 99, 60, 25}}},
+    62u, {0, 0, 0}, SPL_CINDER};

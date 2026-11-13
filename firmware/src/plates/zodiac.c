@@ -92,6 +92,7 @@ static void plz_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     }
 }
 
+#include "splash/zodiac.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_zodiac = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plz_t), "ZODIAC",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 6u, {0, 0, 0},
@@ -101,4 +102,5 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_zodiac = {
     "Six constellations, a sign a track", 3u, {0, 0, 0},
     {{"WHEEL", {76, 0, 0, 0, 0, 81, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), 0}, {99, 99, 50, 0}},
      {"CHART", {6, 0, 76, 36, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 3u), 0}, {99, 99, 50, 0}},
-     {"TWINKLE", {0, 26, 0, 96, 11, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_LFO(0), 5u)}, {99, 99, 20, 30}}}};
+     {"TWINKLE", {0, 26, 0, 96, 11, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_LFO(0), 5u)}, {99, 99, 20, 30}}},
+    32u, {0, 0, 0}, SPL_ZODIAC};

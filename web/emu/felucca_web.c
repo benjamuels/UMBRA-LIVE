@@ -523,6 +523,13 @@ EXPORT uint32_t web_umb_get(uint32_t i)                /* (UMBRA LIVE) 99: the g
 {
     umx_desc_t d;
     uint32_t pl = umb_pl();
+    if (i >= 0x1000u) {                                 /* (0x1000 | row << 1 | track: the song's cell: its page << 16 (254: as
+                                                         * before, 255: off) | its preset << 8 | its transition) */
+        const umc_cell_t *c = umv_cell((i & 0xFFFu) >> 1, i & 1u);
+        return (c->key == UMC_OFF ? 255u : c->key ? umx_find(c->key) : 254u) << 16 | (uint32_t)c->pre << 8 | c->tr;
+    }
+    if (i >= 70u && i <= 73u)                           /* (70: the song's rows; 71..73: GENE's links' depths: SPEED GLITCH MOSAIC) */
+        return i == 70u ? chain_config.count : (uint32_t)(uint8_t)umx_rec(i == 71u ? UMX_SCREEN : UMX_FX)->ld[UMV_GL + (i == 73u)];
     if (i == 80u || i == 81u)                           /* (80: LAYER 1's page (63: none); 81: the ground's preset) */
         return i == 80u ? (umx_layers(), umx_lp[0]) : pl != UMB_NONE ? umx_pre(pl) : 0u;
     return i == 99u ? pl : i == 90u ? UMX_N : i >= 100u ? (uint32_t)umx_desc(i - 100u, &d) : i == 2u ? umg_raw(G_LIGHT)

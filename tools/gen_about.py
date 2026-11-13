@@ -9,7 +9,7 @@ import sys
 def notices(path):
     source = Path(path).read_text()
     out = []
-    for name in ("PROJECT", "CREDITS"):
+    for name in ("PROJECT", "CREDITS", "UMBRA"):
         body = re.search(r"ABOUT_"+name+r"\[\] BTAPP_RO =(.*?);\n", source, re.S).group(1)
         body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
         text = "".join(ast.literal_eval(s) for s in re.findall(r'"(?:[^"\\]|\\.)*"', body))
@@ -53,7 +53,7 @@ def main(out, source):
              f"static const uint8_t ABOUT_PAIRS[{len(pairs)}][2] BTAPP_RO = {{"]
     lines += [f"    {{{a},{b}}}," for a,b in pairs]
     lines.append("};")
-    for name, row in zip(("PROJECT", "CREDITS"), rows):
+    for name, row in zip(("PROJECT", "CREDITS", "UMBRA"), rows):
         data = [len(row)&255, len(row)>>8]+row
         lines += [f"static const uint8_t ABOUT_{name}_PACK[{len(data)}] BTAPP_RO = {{",
                   ",".join(map(str,data)), "};"]

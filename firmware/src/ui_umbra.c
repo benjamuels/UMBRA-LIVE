@@ -61,6 +61,14 @@ _Static_assert(UMQ_NS <= 32, "a link's source: 5 bits");
 _Static_assert(UMQ_M1 == UMB_SRC_KNOB(0) && UMQ_HIT == UMB_SRC_HIT(0) && UMQ_LFO == UMB_SRC_LFO(0) && UMQ_STEP == UMB_SRC_STEP(0) &&
                UMQ_LEVEL == UMB_SRC_LEVEL && UMQ_BEAT == UMB_SRC_BEAT, "the plate API's sources");
 static int16_t umq_s[UMQ_NS] __attribute__((section(".pool")));
+/* (SAVE > SONG > TIMELINE's transitions, ui_umbra_mac.c umv_tick, once a frame while the song plays) each picture
+ * track's light now (Q8: FADE; 0 MAIN, 1 OVER), DISSOLVE's gate (256: none), BLOCKS as MOSAIC's (0: none); and what
+ * they come from: the transition (umc_cell_t.tr) of the cell in effect on each track, when its plate came in (0: long ago) */
+static uint16_t umv_lt[2] = {256u, 256u}, umv_gt = 256u;
+static uint8_t umv_mo;
+static struct { uint8_t tr[2], row; uint32_t t0[2]; } umv_st;   /* (row: the song's row they were laid for) */
+BTAPP_FN static void umv_tick(void);
+static const char *const UMV_TN[2] = {"MAIN", "OVER"};   /* the picture tracks */
 /* NOTE MOVEMENT (SCREEN's MOVE): where a track's notes land on a plate moves along a path of the track's
  * own (a Lissajous figure, its ratios and its start the track's), an offset each plate adds to the note's own place (umn_at;
  * across the plate either way, folded back at its edges: a track's notes keep their shape among themselves).
@@ -87,6 +95,8 @@ static void umb_clock(void)
         return;
     umb_cf = ui.frame + 1u;
     umq_tick();                                         /* (the routes first: SPEED may be routed) */
+    if (bt_hw_seg())
+        umv_tick();
     v = umq_o[G_SPEED];
     q = v <= 50u ? v * 256u / 50u : 256u + (v - 50u) * 768u / 49u;
     umb_cr = fm1_ms;
@@ -162,6 +172,7 @@ typedef struct {
     uint16_t pa_[4], ba[10];                            /* the prominences (the snare) and the beads (the hats): where (1024
                                                          * a turn) .. */
     uint8_t ph[4], bv[10], np, nbd;                     /* .. how high, how hard */
+    uint8_t pk[4], bk[10];                              /* .. their shape (a drum's lane's: UMR_PK, UMR_BK) */
     uint32_t pt[4], bt[10];                             /* .. when */
 } ump_co_t;
 typedef struct {
@@ -364,7 +375,8 @@ typedef struct {
 typedef struct {                                        /* a cell of SAVE > SONG > TIMELINE's two picture tracks */
     uint16_t key;                                       /* the page shown from this row on (its name's key; 0: as before it,
                                                          * UMC_OFF: none) */
-    uint8_t pre, rsv;                                   /* .. its preset */
+    uint8_t pre, tr;                                    /* .. its preset; how it comes and goes (umv_tf: 0 comes in a
+                                                         * DISSOLVE of 1 s, goes in a CUT) */
 } umc_cell_t;
 typedef struct {
     uint32_t magic;
@@ -436,6 +448,7 @@ static void umc_load(void)                             /* the store read, once (
     if (umc_flash(&umc, sizeof umc, 0) || umc.magic != UMC_MAGIC)
         memset(&umc, 0, sizeof umc);
     umc.magic = UMC_MAGIC;
+    umc.lay[1] = 0;                                     /* (LAYER 2: dropped for now) */
     umc_gen++;
 }
 /* the record of the page called name (kind: 0 a plate, its first nctl elements KNOB 1..3's; 1 BODIES / BEINGS; 2 SCREEN;
@@ -627,6 +640,7 @@ static void umv_apply(uint32_t r)
             c = 0;
         if (!c)
             continue;
+        umv_st.tr[tk] = c->tr;
         if (c->key == UMC_OFF) {
             if (tk && umc.lay[0]) {
                 umc.lay[0] = 0;
@@ -814,7 +828,7 @@ static void umb_scene(int32_t x0, int32_t y0, int32_t la)
     int32_t lq = umb_prep();
     if (umb_ok(p, UMB_DRAW_REPLACE, UMB_BLK)) {
         g = (p->state + 3u) & ~3u;
-        umb_lay_draw(0u, p, &umb, x0, y0, UMB_DRAW_REPLACE, lq);
+        umb_lay_draw(0u, p, &umb, x0, y0, UMB_DRAW_REPLACE, (lq * umv_lt[0]) >> 8);
     } else {
         memset(cv_px, 0, cv_w * cv_h * sizeof *cv_px);
         umb_lay[0].pp = 0;
@@ -827,7 +841,7 @@ static void umb_scene(int32_t x0, int32_t y0, int32_t la)
         }
         top -= (p->state + 3u) & ~3u;
         if (la)
-            umb_lay_draw(1u + i, p, (uint8_t *)&umb + top, x0, y0, UMB_DRAW_ADD, (lq * la) >> 8);
+            umb_lay_draw(1u + i, p, (uint8_t *)&umb + top, x0, y0, UMB_DRAW_ADD, (((lq * la) >> 8) * (i ? 256 : umv_lt[1])) >> 8);
     }
 }
 static void umb_backdrop(int32_t x0, int32_t y0) { umb_scene(x0, y0, 256); }   /* (HOME's pages: the layers whole) */

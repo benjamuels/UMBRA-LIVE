@@ -18,11 +18,16 @@
 #define UMB_PLATE_H
 #include <stdint.h>
 
-#define UMB_API 4u                                      /* (2: the context's tracks' offsets and roots, the
+#define UMB_API 5u                                      /* (2: the context's tracks' offsets and roots, the
                                                          * services' tables: what the field plates read; 3: the
                                                          * controls are elements: the tracks chosen for each, the level
                                                          * and the beat in the context, UMB_EL_* in the header; 4: the
-                                                         * plate's own line of description and its presets in the header) */
+                                                         * plate's own line of description and its presets in the header;
+                                                         * 5: how lively it reads and its still picture in the header) */
+#define UMB_SPL 64u                                     /* (API 5) a plate's still picture: UMB_SPL px square; 16 colours as
+                                                         * the panel takes them (RGB565, the high byte first), then its
+                                                         * rows, a nibble a pixel (the left one the byte's high) */
+#define UMB_SPL_BYTES (32u + UMB_SPL * UMB_SPL / 2u)
 #define UMB_PLATE_MAGIC 0x544C5055u                     /* "UPLT", first in a plate's header */
 #define UMB_NTRK 6u                                     /* tracks (a note's track is 0 .. UMB_NTRK - 1) */
 #define UMB_NCTL 8u                                     /* controls a plate may declare: its elements, as LIVE VIZ CTRLS
@@ -140,6 +145,10 @@ typedef struct umb_plate_s {                            /* (not umb_plate: ui_um
     char desc[40];                                      /* what it is, a line for the PLATES page, 0-ended */
     uint8_t npre, rsv4[3];                              /* its presets (pre[0 .. npre - 1]) */
     umb_pre_t pre[UMB_NPRE];
+    /* (API 5: read only where api >= 5) */
+    uint8_t energy, rsv5[3];                            /* how lively it reads, 0 still .. 99 (GENE: a part's plate the one
+                                                         * nearest the part's own) */
+    const uint8_t *splash;                              /* its still picture, UMB_SPL_BYTES (PLATES' side boxes; 0: none) */
 } umb_plate_t;
 
 #endif
