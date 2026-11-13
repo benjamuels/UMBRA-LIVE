@@ -83,9 +83,12 @@ static void ota_commit(const uint8_t *parm) { (void)parm; }
 #include "../firmware/src/ota.c"
 
 static int ldr_fread(uint32_t off, void *p, uint32_t n) { memcpy(p, nor + off, n); return 0; }
+/* (UMBRA LIVE) the device's own window (loader.c's FL_RANGE_OK): what it refuses fails here as it fails there */
+#include "../firmware/loader/ldr_window.h"
 static uint32_t pl_hi;                              /* (UMBRA LIVE) the package's plate bank ends here (0: none) */
 static int ldr_erase(uint32_t off)
 {
+    if (!LDR_WINDOW_OK(off, 0x1000u)) return -1;     /* (fm1_flash.h: refused, nothing erased) */
     if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu) ||
         (off >= 0x97000u && off < 0xE0000u && !(off >= 0xB8000u && off < pl_hi))) bad_range++;
     if (off < 0x4000u) { printf("ERASE IN THE HEAD %#x\n", off); exit(1); }
@@ -97,6 +100,7 @@ static int ldr_prog(uint32_t off, const void *p, uint32_t n)
 {
     const uint8_t *s = p;
     uint32_t i;
+    if (!LDR_WINDOW_OK(off, n)) return -1;           /* (fm1_flash.h: refused, nothing written) */
     if ((off < 0x4000u || off + n > 0x93000u) &&
         !(off >= 0xE8000u && off + n <= 0xE8F00u) &&            /* (V10.10: the stock VM sector put back but its record) */
         !(off >= 0xB8000u && off + n <= pl_hi) &&               /* ((UMBRA LIVE) the plate bank's first slots) */

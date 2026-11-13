@@ -16,9 +16,11 @@
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
 #include "fm1_time.h"
 #include "fm1_sys.h"
-/* the loader may write the app area and erase update records; never the head, nor Felucca's store
- * [0x97000, 0xE0000) (user data, never a record: ldr_core.c) */
-#define FL_RANGE_OK(off, n) (FL_IN(off, n, 0x4000u, 0x97000u) || FL_IN(off, n, 0xE0000u, 0xFC000u))
+/* the loader may write the app area, erase update records and ((UMBRA LIVE) write the plate bank; never the head,
+ * nor the rest of Felucca's store [0x97000, 0xE0000) (user data, never a record: ldr_core.c): ldr_window.h, the
+ * same window the host test checks */
+#include "ldr_window.h"
+#define FL_RANGE_OK(off, n) LDR_WINDOW_OK(off, n)
 #include "fm1_flash.h"
 #include "../src/libc.c"
 #include "../src/usb.c"
