@@ -396,6 +396,14 @@ typedef struct {
     uint8_t cur;                                        /* (the page's own record) the preset chosen, 0 .. UMC_NPRE - 1 */
     uint8_t pre;                                        /* the preset this record is (0: the page's own, BASIC) */
 } umc_rec_t;
+/* (2026-11-14, plate API 6: the user, "all the new elements and their attributes editable and controllable in LIVE VIZ
+ * CTRLS") a record's more, in umc.x beside umc.rec (a store from before: all 0, every one its default): its plate's other
+ * elements. A page's element j: 0 .. 7 its eight, 8 + e * 3 + k its other element e's parameter k */
+#define UMC_NX (UMB_NXE * UMB_NXP)
+typedef struct {
+    uint8_t v[UMC_NX];                                  /* each one's value + 1 (0: its default) */
+    uint8_t lh[UMC_NL / 4u];                            /* each link's element's high bits, 2 a link (umc_lj) */
+} umc_x_t;
 typedef struct {                                        /* a cell of SAVE > SONG > TIMELINE's two picture tracks */
     uint16_t key;                                       /* the page shown from this row on (its name's key; 0: as before it,
                                                          * UMC_OFF: none) */
@@ -408,8 +416,27 @@ typedef struct {
     uint16_t rsv;
     umc_rec_t rec[UMC_NREC];
     umc_cell_t cell[NSONG_USE][CHAIN_ROWS][2];          /* each song's rows: MAIN (the ground), OVER (LAYER 1) */
+    umc_x_t x[UMC_NREC];                                /* (API 6) each record's more (last: an older store reads short) */
 } umc_t;
 static umc_t umc __attribute__((section(".pool")));
+static umc_rec_t umc_tmp;                               /* (umc_pre) */
+static umc_x_t umc_tmpx;
+static umc_x_t *umc_x(const umc_rec_t *r) { return r == &umc_tmp ? &umc_tmpx : &umc.x[r - umc.rec]; }
+static uint8_t *umc_vp(const umc_rec_t *r, uint32_t j) /* element j's value + 1 */
+{
+    return j < UMB_NCTL ? (uint8_t *)&r->v[j] : &umc_x(r)->v[j - UMB_NCTL];
+}
+static uint32_t umc_lj(const umc_rec_t *r, uint32_t i) /* link i's element */
+{
+    return (uint32_t)(r->ls[i] >> 5) | (umc_x(r)->lh[i >> 2] >> 2u * (i & 3u) & 3u) << 3;
+}
+static void umc_lset(umc_rec_t *r, uint32_t i, uint32_t s, uint32_t j)   /* link i: source s (0: none), element j */
+{
+    umc_x_t *x = umc_x(r);
+    uint8_t *h = &x->lh[i >> 2];
+    r->ls[i] = (uint8_t)(s ? s | (j & 7u) << 5 : 0u);
+    *h = (uint8_t)((*h & ~(3u << 2u * (i & 3u))) | (j >> 3) << 2u * (i & 3u));
+}
 static int umc_flash(void *p, uint32_t n, int save);    /* (project.c, after storage.c) the store read (0) or written (1,
                                                          * only with the transport stopped): 0 done */
 static uint8_t umc_gen;                                 /* the layers changed */
@@ -431,6 +458,8 @@ typedef struct {
     const umb_ctl_t *ctl;                               /* its elements .. */
     const uint8_t *el;                                  /* .. each one's UMB_EL_* (0: none has any) */
     uint32_t nctl;
+    const umb_plate_t *p;                               /* (API 6) its plate (0: none, or older): its other elements .. */
+    uint32_t nx;                                        /* .. their parameters, all told (LIVE VIZ CTRLS' rows past the eight) */
 } umx_desc_t;
 /* page pl: what it is. 0: not there (a plate not loaded) */
 static int umx_desc(uint32_t pl, umx_desc_t *d)
@@ -438,6 +467,8 @@ static int umx_desc(uint32_t pl, umx_desc_t *d)
     const umb_plate_t *p;
     uint32_t k;
     d->el = 0;
+    d->p = 0;
+    d->nx = 0;
     if (pl >= UMX_N)
         return 0;
     if (pl >= UMX_BODY) {
@@ -457,10 +488,49 @@ static int umx_desc(uint32_t pl, umx_desc_t *d)
     d->nctl = p->nctl;
     if (p->api >= 3u)
         d->el = p->el;
+    if (p->api >= 6u) {
+        d->p = p;
+        for (k = 0; k < p->nxe && k < UMB_NXE; k++)
+            d->nx += p->xel[k].np > UMB_NXP ? UMB_NXP : p->xel[k].np;
+    }
     return 1;
 }
-static uint32_t umx_max(uint32_t pl, uint32_t j)       /* page pl's element j's most (MOVE's and MIRROR's four, a track) */
+/* page d's element j (umc_x_t), 0: not there */
+static const umb_ctl_t *umx_c(const umx_desc_t *d, uint32_t j)
 {
+    const umb_xel_t *x;
+    if (j < UMB_NCTL)
+        return j < d->nctl ? &d->ctl[j] : 0;
+    j -= UMB_NCTL;
+    if (!d->p || j / UMB_NXP >= d->p->nxe || j >= UMC_NX)
+        return 0;
+    x = &d->p->xel[j / UMB_NXP];
+    return j % UMB_NXP < x->np ? &x->p[j % UMB_NXP] : 0;
+}
+static int umx_tog(const umx_desc_t *d, uint32_t j)    /* .. an on/off toggle */
+{
+    return j >= UMB_NCTL && d->p && d->p->xel[(j - UMB_NCTL) / UMB_NXP].tog >> (j - UMB_NCTL) % UMB_NXP & 1u;
+}
+static const char *umx_en(const umx_desc_t *d, uint32_t j)   /* .. its name (a toggle: its element's) */
+{
+    return umx_tog(d, j) ? d->p->xel[(j - UMB_NCTL) / UMB_NXP].name : umx_c(d, j)->name;
+}
+static uint32_t umx_jat(const umx_desc_t *d, uint32_t i)   /* LIVE VIZ CTRLS' row i (1 ..): its element */
+{
+    uint32_t j;
+    if (i <= d->nctl)
+        return i - 1u;
+    for (j = UMB_NCTL, i -= d->nctl; j < UMB_NCTL + UMC_NX - 1u; j++)
+        if (umx_c(d, j) && !--i)
+            break;
+    return j;
+}
+static uint32_t umx_max(uint32_t pl, uint32_t j)       /* page pl's element j's most (MOVE's and MIRROR's four, a track; a
+                                                         * toggle 1) */
+{
+    umx_desc_t d;
+    if (j >= UMB_NCTL)
+        return umx_desc(pl, &d) && umx_tog(&d, j) ? 1u : 99u;
     return (pl == UMX_SCREEN && j == G_MOVE) || (pl == UMX_FX && !j) || pl == UMX_BTN ? 3u : pl == UMX_BODY && j == 2u ? NTRK : 99u;
 }
 static uint32_t umx_key(const char *n)                 /* a name's key (never 0) */
@@ -510,6 +580,7 @@ static umc_rec_t *umc_rec(const char *name, uint32_t kind, uint32_t nctl)
     }
     r = &umc.rec[f];                                    /* (a free one; all taken: the last one's place) */
     memset(r, 0, sizeof *r);
+    memset(&umc.x[f], 0, sizeof umc.x[f]);
     r->key = (uint16_t)k;
     for (i = 0; i < 3u; i++)
         if (kind == 3u || (!kind && i < nctl)) {
@@ -526,7 +597,6 @@ static umc_rec_t *umc_rec(const char *name, uint32_t kind, uint32_t nctl)
  * changed yet has no record: it is made up as it comes (a plate's own preset from its file; another: BASIC as it is now)
  * in one place (umc_tmp: good until the next asked for); w: to be written, so it takes a free record (none left: what is
  * written does not stay) */
-static umc_rec_t umc_tmp;
 static umc_rec_t *umc_pre(umc_rec_t *b, const umb_plate_t *p, int w)
 {
     uint32_t pre = b->cur, i;
@@ -542,12 +612,14 @@ static umc_rec_t *umc_pre(umc_rec_t *b, const umb_plate_t *p, int w)
             break;
         }
     *r = *b;
+    *umc_x(r) = *umc_x(b);
     r->pre = (uint8_t)pre;
     r->cur = 0;
     if (p && p->api >= 4u && pre <= p->npre && pre <= UMB_NPRE) {
         const umb_pre_t *f = &p->pre[pre - 1u];
         memset(r->t, 0, sizeof r->t + sizeof r->ls + sizeof r->ld);
         memcpy(r->v, f->v, sizeof r->v);
+        memset(umc_x(r)->lh, 0, sizeof umc_x(r)->lh);  /* (its links the file's: the eight's) */
         for (i = 0; i < 4u; i++)
             if ((f->ls[i] & 31u) < UMQ_NS) {
                 r->ls[i] = f->ls[i];
@@ -567,7 +639,7 @@ static umc_rec_t *umx_recf(uint32_t pl, int w)         /* page pl's record now, 
 /* record r's element j as set (its default def) */
 static uint32_t umc_raw(const umc_rec_t *r, uint32_t j, uint32_t def, uint32_t max)
 {
-    uint32_t v = r->v[j] ? r->v[j] - 1u : def;
+    uint32_t v = *umc_vp(r, j) ? *umc_vp(r, j) - 1u : def;
     return v > max ? max : v;
 }
 /* .. now: moved by its links, each its depth of the range (0 .. max) with its source at full */
@@ -576,14 +648,15 @@ static __attribute__((noinline)) uint32_t umc_ev(const umc_rec_t *r, uint32_t j,
     int32_t a = (int32_t)umc_raw(r, j, def, max) * 25344;   /* (x 256 x 99) */
     uint32_t i;
     for (i = 0; i < UMC_NL; i++)
-        if ((uint32_t)(r->ls[i] >> 5) == j && (r->ls[i] & 31u))
+        if ((r->ls[i] & 31u) && umc_lj(r, i) == j)
             a += r->ld[i] * umq_s[r->ls[i] & 31u] * (int32_t)max;
     return (uint32_t)umb_clamp((a + 12672) / 25344, 0, (int32_t)max);
 }
 static uint32_t umx_raw(uint32_t pl, uint32_t j)       /* page pl's element j as set */
 {
     umx_desc_t d;
-    return umx_desc(pl, &d) && j < d.nctl ? umc_raw(umx_rec(pl), j, d.ctl[j].def, umx_max(pl, j)) : 0u;
+    const umb_ctl_t *c;
+    return umx_desc(pl, &d) && (c = umx_c(&d, j)) ? umc_raw(umx_rec(pl), j, c->def, umx_max(pl, j)) : 0u;
 }
 static void umc_touch(void)                            /* the store changed: saved once the knobs rest */
 {
@@ -593,9 +666,9 @@ static void umc_touch(void)                            /* the store changed: sav
 static void umx_put(uint32_t pl, uint32_t j, int32_t v)
 {
     umx_desc_t d;
-    if (!umx_desc(pl, &d) || j >= d.nctl)
+    if (!umx_desc(pl, &d) || !umx_c(&d, j))
         return;
-    umx_recf(pl, 1)->v[j] = (uint8_t)(1 + umb_clamp(v, 0, (int32_t)umx_max(pl, j)));
+    *umc_vp(umx_recf(pl, 1), j) = (uint8_t)(1 + umb_clamp(v, 0, (int32_t)umx_max(pl, j)));
     umc_touch();
 }
 #define umg_raw(g) umx_raw(UMX_SCREEN + ((g) >> 3), (g) & 7u)   /* SCREEN's and EFFECTS' own (G_*), as set */
@@ -783,48 +856,6 @@ static int umb_ok(const umb_plate_t *p, uint32_t mode, uint32_t room)
 #define UMB_THS 54                                      /* a TIMELINE preview's side (umb_thumb) */
 static uint16_t umb_tl[2 * UMB_THS] __attribute__((section(".pool")));   /* .. a row of the screen for it */
 static uint8_t umb_th;                                  /* .. being drawn: the strip is that row, not the canvas */
-/* (API 6) the other elements' parameters as the plates page's player set them,
- * plate by plate (web_umx_x); a plate never set: its defaults */
-#if UMB_RES_ALL                                         /* (the web player only: the FM-1 has no control for them yet,
-                                                         * so there its plates draw them as their defaults) */
-#define UMB_NXS 40u
-static struct {
-    const umb_plate_t *p;
-    uint8_t v[UMB_NXE][UMB_NXP];
-} umb_xs[UMB_NXS];
-static void umb_xput(const umb_plate_t *p, uint32_t j, uint32_t v)   /* plate p's new parameter j (element j / 3's j % 3) */
-{
-    uint32_t i, e = j / UMB_NXP, k = j % UMB_NXP;
-    if (!p || p->api < 6u || e >= p->nxe || k >= p->xel[e].np)
-        return;
-    for (i = 0; i < UMB_NXS && umb_xs[i].p && umb_xs[i].p != p; i++)
-        ;
-    if (i == UMB_NXS)
-        return;
-    if (!umb_xs[i].p) {                                 /* (first set: its defaults, then this one) */
-        uint32_t a, b;
-        umb_xs[i].p = p;
-        for (a = 0; a < UMB_NXE; a++)
-            for (b = 0; b < UMB_NXP; b++)
-                umb_xs[i].v[a][b] = a < p->nxe && b < p->xel[a].np ? p->xel[a].p[b].def : 0u;
-    }
-    umb_xs[i].v[e][k] = (uint8_t)(p->xel[e].tog >> k & 1u ? v != 0u : v > 99u ? 99u : v);
-}
-#endif
-static void umb_xget(const umb_plate_t *p, uint8_t (*xk)[UMB_NXP])
-{
-    uint32_t a, b;
-#if UMB_RES_ALL
-    for (a = 0; a < UMB_NXS && umb_xs[a].p; a++)
-        if (umb_xs[a].p == p) {
-            memcpy(xk, umb_xs[a].v, sizeof umb_xs[a].v);
-            return;
-        }
-#endif
-    for (a = 0; a < UMB_NXE; a++)
-        for (b = 0; b < UMB_NXP; b++)
-            xk[a][b] = p->api >= 6u && a < p->nxe && b < p->xel[a].np ? p->xel[a].p[b].def : 0u;
-}
 /* layer li's plate p, its state at st, over the canvas as the screen's x0, y0 .., in draw mode mode, its light lq (Q8) */
 static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0, int32_t y0, uint32_t mode, int32_t lq)
 {
@@ -846,7 +877,11 @@ static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0
     c.level = (uint8_t)(umq_s[UMQ_LEVEL] > 255 ? 255 : umq_s[UMQ_LEVEL]);
     c.beat = (uint8_t)(umq_s[UMQ_BEAT] > 255 ? 255 : umq_s[UMQ_BEAT]);
     c.rsv = c.rsv2[0] = c.rsv2[1] = c.rsv3[0] = c.rsv3[1] = c.rsv4[0] = c.rsv4[1] = c.rsv4[2] = 0;
-    umb_xget(p, c.xk);                                  /* (API 6: the other elements) */
+    for (j = 0; j < UMC_NX; j++) {                      /* (API 6) its other elements, as LIVE VIZ CTRLS sets them */
+        const umb_xel_t *x = &p->xel[j / UMB_NXP];
+        c.xk[j / UMB_NXP][j % UMB_NXP] = (uint8_t)(p->api >= 6u && j / UMB_NXP < p->nxe && j % UMB_NXP < x->np ?
+            umc_ev(r, UMB_NCTL + j, x->p[j % UMB_NXP].def, x->tog >> j % UMB_NXP & 1u ? 1u : 99u) : 0u);
+    }
     umb_lay_tracks(&c);
     if (p != L->pp || st != L->st || L->gen != ups_gen) {   /* another plate in its place, its state moved, or the bank
                                                          * changed under it: it starts afresh, the notes from now */

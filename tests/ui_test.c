@@ -2926,7 +2926,7 @@ static int test_menu_tabs(void)
     memset(&favorites.factory[6][24], 0, 8);
     bt_up = 0;
     ok = MI_TAB[MI_BT] == MTAB_SYSTEM && MI_BT < MI_VALUES && str_eq(MI_NAME[MI_BT], "BLUETOOTH") && menu_get(MI_BT) == 0u &&
-         str_eq(menu_vname(MI_BT, 0), "OFF") && menu_n(MI_BT) == 3u;
+         str_eq(menu_vname(MI_BT, 0), "OFF") && menu_n(MI_BT) == 2u;   /* ((UMBRA LIVE) AIR cut) */
     song.playing = 1;
     menu_put(MI_BT, 1u);
     ok &= menu_get(MI_BT) == 0u && msg_is("STOP FIRST");
@@ -2934,8 +2934,8 @@ static int test_menu_tabs(void)
     menu_put(MI_BT, 1u);
     ok &= menu_get(MI_BT) == 1u && favorites.factory[6][24] == BT_MARK && (favorites.factory[6][25] & 1u) &&
           str_eq(menu_vname(MI_BT, 1), "NO SEG") && bt_crumb == 0u;
-    menu_put(MI_BT, 2u);                            /* (V10.35) AIR: its own bit, ON kept with it */
-    ok &= menu_get(MI_BT) == 2u && (favorites.factory[6][25] & 3u) == 3u;
+    favorites.factory[6][25] |= 2u;                 /* ((UMBRA LIVE, 2026-11-14) AIR cut: an AIR kept from before is ON */
+    ok &= menu_get(MI_BT) == 1u;
     menu_put(MI_BT, 1u);
     ok &= menu_get(MI_BT) == 1u && (favorites.factory[6][25] & 3u) == 1u;
     menu_put(MI_BT, 0u);
@@ -2954,7 +2954,7 @@ static int test_menu_tabs(void)
     memset(&favorites.factory[6][24], 0, 8);
     bt_up = 0;
     bad += check("V10.12 MENU > SYSTEM > BLUETOOTH: OFF by default, STOP FIRST while playing, ON saved with its mark (NO SEG "
-                 "without the segment), V10.35 AIR its own bit, OFF; the boot guard after a reset in the start or a crash while it ran", ok);
+                 "without the segment), AIR from before ON (AIR cut), OFF; the boot guard after a reset in the start or a crash while it ran", ok);
 
     /* (V10.36) LFO WAVE DRIFT: a smooth wander (no step bigger than a sine's at that rate), it moves over cycles and
      * stays in range; a pad with BREATHE (ANALOG DARK PAD) loads the LFO DRIFT on its filter, 16 bars; S&H unchanged */

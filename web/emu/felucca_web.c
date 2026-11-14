@@ -506,7 +506,7 @@ EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA LIVE) 99: the g
         else
             for (k = 0; k < UMC_NL; k++)
                 if (!(r->ls[k] & 31u)) {
-                    r->ls[k] = (uint8_t)((v >> 8 & 31u) | j << 5);
+                    umc_lset(r, k, v >> 8 & 31u, j);
                     r->ld[k] = (int8_t)((int32_t)(v & 255u) - 128);
                     break;
                 }
@@ -552,23 +552,8 @@ EXPORT uint32_t web_umx_get(uint32_t pl, uint32_t j) { return j == 100u ? umx_pr
 EXPORT const void *web_umx_mod(uint32_t pl) { return pl < UMB_NPLT && umb_has(pl) ? umb_mod(pl) : 0; }
 /* (API 6) the plates page's player: plate pl's new element parameter j (element j / 3, its parameter j % 3)
  * set; read back; where the new elements lie in umb_plate_t, and each one's size (the page reads them from the module) */
-EXPORT void web_umx_x(uint32_t pl, uint32_t j, uint32_t v)
-{
-#if UMB_RES_ALL
-    umb_xput(web_umx_mod(pl), j, v);
-#else
-    (void)pl, (void)j, (void)v;
-#endif
-}
-EXPORT uint32_t web_umx_xget(uint32_t pl, uint32_t j)
-{
-    const umb_plate_t *p = web_umx_mod(pl);
-    uint8_t xk[UMB_NXE][UMB_NXP];
-    if (!p || j >= UMB_NXE * UMB_NXP)
-        return 0;
-    umb_xget(p, xk);
-    return xk[j / UMB_NXP][j % UMB_NXP];
-}
+EXPORT void web_umx_x(uint32_t pl, uint32_t j, uint32_t v) { umx_put(pl, UMB_NCTL + j, (int32_t)v); }   /* (LIVE VIZ CTRLS' record) */
+EXPORT uint32_t web_umx_xget(uint32_t pl, uint32_t j) { return umx_raw(pl, UMB_NCTL + j); }
 EXPORT uint32_t web_umx_xoff(uint32_t i)
 {
     return i == 0u ? (uint32_t)__builtin_offsetof(umb_plate_t, nxe) : i == 1u ? (uint32_t)sizeof(umb_xel_t)

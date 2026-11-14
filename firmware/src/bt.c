@@ -61,7 +61,8 @@ BTAPP_FN void bt_midi_rx(uint32_t pkt)
 #endif
 /* 0 OFF, 1 ON, (V10.35) 2 AIR: [25] bit 0 the radio on, bit 1 AIR (the scanner: no MIDI, every advertisement heard
  * around feeds PROX) */
-static uint32_t bt_get(void) { return BT_ROW[0] == BT_MARK && (BT_ROW[1] & 1u) ? 1u + (BT_ROW[1] >> 1 & 1u) : 0u; }
+static uint32_t bt_get(void) { return BT_ROW[0] == BT_MARK && (BT_ROW[1] & 1u) ? 1u : 0u; }   /* ((UMBRA LIVE, 2026-11-14) AIR
+                                                         * cut: a setting of AIR is ON) */
 static void bt_set(uint32_t on)
 {
     uint8_t *r = BT_ROW;

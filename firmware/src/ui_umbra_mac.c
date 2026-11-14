@@ -265,7 +265,7 @@ static uint32_t umx_cur(void)                           /* the page chosen (at f
 }
 /* the chosen element j's control row ct: 0 SET, 1 NOTES (notes: it has one), 2 a link (*li: which), 3 + ADD (*li: a free
  * link), 4: past its last */
-#define UMX_NT(d, j) ((d).el ? (int)((d).el[j] & (UMB_EL_NOTES | 0x80u)) : 0)   /* (umx_row's notes) */
+#define UMX_NT(d, j) ((d).el && (j) < UMB_NCTL ? (int)((d).el[j] & (UMB_EL_NOTES | 0x80u)) : 0)   /* (umx_row's notes) */
 static uint32_t umx_row(const umc_rec_t *r, uint32_t j, int notes, uint32_t ct, uint32_t *li)
 {
     uint32_t i;
@@ -276,7 +276,7 @@ static uint32_t umx_row(const umc_rec_t *r, uint32_t j, int notes, uint32_t ct, 
     if (notes && !--ct)
         return 1;
     for (i = 0; i < UMC_NL; i++)
-        if ((r->ls[i] & 31u) && (uint32_t)(r->ls[i] >> 5) == j && !--ct) {
+        if ((r->ls[i] & 31u) && umc_lj(r, i) == j && !--ct) {
             *li = i;
             return 2;
         }
@@ -305,7 +305,9 @@ static void umx_src(char *b, uint32_t s)                /* a source's name (12 b
 }
 static void umx_fmt(char *b, uint32_t pl, uint32_t j, uint32_t v)   /* page pl's element j's value v, as words */
 {
-    if (umx_max(pl, j) == 3u)
+    if (umx_max(pl, j) == 1u)                           /* (an other element's toggle) */
+        str_cpy(b, v ? "ON" : "OFF", 12);
+    else if (umx_max(pl, j) == 3u)
         str_cpy(b, (pl == UMX_SCREEN ? UMN_MV : pl == UMX_BTN ? UMX_BF : UMT_MIRN)[v & 3u], 12);
     else if (umx_max(pl, j) == NTRK) {
         str_cpy(b, "SEL", 12);
@@ -345,7 +347,8 @@ static void umx_algo(int32_t s, uint32_t lim)
         umx_place_set(pl, pl == UMX_BODY ? 4u : umx_veil(pl) ? 2u : 1u);
 }
 /* KNOB k turned s: 1 the row, 2 its control, 3 the track or the source, 4 the value */
-static void umx_knob(uint32_t k, int32_t s)
+BTAPP_FN static void umx_knob(uint32_t k, int32_t s)   /* (in the Bluetooth segment, 2026-11-14: the app slot is full;
+                                                         * no segment: nothing to turn) */
 {
     umx_desc_t d;
     uint32_t pl = umx_cur(), j, li = 0, row, w;
@@ -354,16 +357,24 @@ static void umx_knob(uint32_t k, int32_t s)
     if (!umx_desc(pl, &d))
         return;
     if (k == 0u) {
-        umx_el = (uint8_t)clamp((int32_t)umx_el + s, 0, (int32_t)d.nctl);
+        umx_el = (uint8_t)clamp((int32_t)umx_el + s, 0, (int32_t)(d.nctl + d.nx));
         umx_ct = 0;
         return;
     }
-    if (!umx_el) {                                      /* the name's row: its preset */
+    if (!umx_el) {                                      /* the name's row: DICE (KNOB 2), its preset */
         if (k == 2u)
             umx_pre_set(pl, (uint32_t)clamp((int32_t)umx_pre(pl) + s, 0, UMC_NPRE - 1));
+        else if (k == 1u && d.nx) {                     /* (the user, 2026-11-14: the other elements randomized: each turn
+                                                         * a new throw, in the preset chosen; a toggle on or off) */
+            r = umx_recf(pl, 1);
+            for (j = UMB_NCTL; j < UMB_NCTL + UMC_NX; j++)
+                if (umx_c(&d, j))
+                    *umc_vp(r, j) = (uint8_t)(1u + umb_rnd() % (umx_max(pl, j) + 1u));
+            umc_touch();
+        }
         return;
     }
-    j = umx_el - 1u;
+    j = umx_jat(&d, umx_el);
     r = umx_recf(pl, k >= 2u);                          /* (a preset not changed yet: its own record now) */
     notes = UMX_NT(d, j);
     row = umx_row(r, j, notes, umx_ct, &li);
@@ -386,7 +397,7 @@ static void umx_knob(uint32_t k, int32_t s)
         w = (uint32_t)clamp((int32_t)(r->ls[li] & 31u) + s, 0, UMQ_NS - 1);
         if (row == 3u)
             r->ld[li] = 50;
-        r->ls[li] = (uint8_t)(w ? w | j << 5 : 0u);
+        umc_lset(r, li, w, j);
         for (umx_ct = (uint8_t)(1u + (uint32_t)notes), row = 0; w && umx_ct < 2u + UMC_NL; umx_ct++)   /* (its row now; gone: */
             if (umx_row(r, j, notes, umx_ct, &row) == 2u && row == li)                          /* the row after SET, NOTES) */
                 break;
@@ -411,18 +422,21 @@ static int umk_names(uint32_t i, char (*b)[12])
 }
 /* LIVE VIZ CTRLS' chosen row and control as words: the row (the page's name, an element), the control, the track or the
  * source, the value. 1: KNOB 3 has something to turn there */
-static int umx_names(char (*b)[12])
+BTAPP_FN static int umx_names(char (*b)[12])           /* (the segment's: umk_cards calls it) */
 {
     umx_desc_t d;
-    uint32_t pl = umx_cur(), j = umx_el - 1u, li = 0, row;
+    uint32_t pl = umx_cur(), j, li = 0, row;
     const umc_rec_t *r;
     b[1][0] = b[2][0] = b[3][0] = 0;
     if (!umx_desc(pl, &d)) {
         b[0][0] = 0;
         return 0;
     }
-    str_cpy(b[0], umx_el ? d.ctl[j].name : d.name, 12);
+    j = umx_jat(&d, umx_el);
+    str_cpy(b[0], umx_el ? umx_en(&d, j) : d.name, 12);
     if (!umx_el) {
+        if (d.nx)
+            str_cpy(b[1], "TURN", 12);
         umx_pre_name(pl, umx_pre(pl), b[2]);
         if (b[2][2])                                    /* (the column: its name alone) */
             str_cpy(b[2], b[2] + 3, 9);
@@ -467,7 +481,7 @@ static void umk_knob(uint32_t k, int32_t s)
     }
     if (ui.hset[0] == 1u)
         uma_knob(k, s);
-    else
+    else if (bt_hw_seg())
         umx_knob(k, s);
 }
 /* each input pass, after the octave keys' taps (the user, 2026-11-13: no SETUP): OCT+ a new control, OCT- the chosen one
@@ -501,7 +515,7 @@ static void umk_oct(uint32_t oct)
             return;
         if (!umx_el)
             umx_el = 1;
-        j = umx_el - 1u;
+        j = umx_jat(&d, umx_el);
         n = (uint32_t)UMX_NT(d, j);
         r = umx_recf(umx_pg, 1);
         if (oct & 2u) {
@@ -511,7 +525,7 @@ static void umk_oct(uint32_t oct)
             if (umx_row(r, j, (int)n, umx_ct, &li) != 3u)
                 m = "NO FREE LINK";
             else {
-                r->ls[li] = (uint8_t)(UMQ_M1 | j << 5);
+                umc_lset(r, li, UMQ_M1, j);
                 r->ld[li] = 50;
                 for (umx_ct = (uint8_t)(1u + n); !(umx_row(r, j, (int)n, umx_ct, &k) == 2u && k == li); umx_ct++) {}   /* (chosen) */
                 m = "LINK ADDED";
@@ -555,7 +569,7 @@ BTAPP_FN static void umv_trshow(int cards)
 BTAPP_FN static void umk_cards(void)                             /* KNOB 1..4: the chosen row's columns */
 {
     static const char *const LB[3][4] = {{"SLOT", "SOURCE", "DEST", "AMOUNT"}, {"ELEMENT", "CONTROL", "SOURCE", "VALUE"},
-                                         {"PAGE", "", "PRESET", "KIND"}};
+                                         {"PAGE", "DICE", "PRESET", "KIND"}};
     char b[4][12];
     uint32_t k, au = umk_au(), nm;
     int on;
@@ -579,7 +593,7 @@ static void umk_text(int32_t x, int32_t y, const char *s, uint16_t c) { cv_text(
 /* LIVE VIZ CTRLS over the plate from canvas row y to bot. On the left the page's name and its elements (the chosen row in
  * the theme's colour), a bar beside each: its value now of its range, a tick where it is set. On the right the chosen
  * row's controls: where the page lies, or the element's SET, NOTES (the tracks on: their numbers), links and + ADD */
-static void umx_draw(int32_t x0, int32_t y, int32_t bot)
+BTAPP_FN static void umx_draw(int32_t x0, int32_t y, int32_t bot)   /* (the segment's; none: the plate alone) */
 {
     umx_desc_t d;
     char b[12], t[8];
@@ -589,24 +603,28 @@ static void umx_draw(int32_t x0, int32_t y, int32_t bot)
     if (!umx_desc(pl, &d))
         return;
     r = umx_rec(pl);
-    for (i = umx_el >= rows ? umx_el - rows + 1u : 0u, k = i + rows, yy = y; i <= d.nctl && i < k; i++, yy += UMK_RH) {
+    for (i = umx_el >= rows ? umx_el - rows + 1u : 0u, k = i + rows, yy = y; i <= d.nctl + d.nx && i < k; i++, yy += UMK_RH) {
         uint16_t col = i == umx_el ? T_THEME : T_TEXT;
+        uint32_t e = umx_jat(&d, i);
         if (!i) {                                       /* (its name, ruled off from its elements) */
             umk_text(6 - x0, yy, d.name, col);
             cv_rect(6 - x0, yy + 14, 102, 1, T_LINE);
             continue;
         }
-        umk_text(6 - x0, yy, d.ctl[i - 1u].name, col);
+        if (e == UMB_NCTL || (e > UMB_NCTL && umx_tog(&d, e)))   /* (the other elements: a rule over the first, each
+                                                                  * toggle's name in full, its parameters set in) */
+            cv_rect(6 - x0, yy, 102, 1, T_LINE);
+        umk_text((e >= UMB_NCTL && !umx_tog(&d, e) ? 14 : 6) - x0, yy, umx_en(&d, e), col);
         {                                               /* its bar: 40 px its range */
-            uint32_t m = umx_max(pl, i - 1u), v = umc_ev(r, i - 1u, d.ctl[i - 1u].def, m) * 40u / m,
-                     sv = umc_raw(r, i - 1u, d.ctl[i - 1u].def, m) * 39u / m;
+            uint32_t m = umx_max(pl, e), v = umc_ev(r, e, umx_c(&d, e)->def, m) * 40u / m,
+                     sv = umc_raw(r, e, umx_c(&d, e)->def, m) * 39u / m;
             cv_rect(68 - x0, yy + 7, 40, 1, T_LINE);
             cv_rect(68 - x0, yy + 6, (int32_t)v, 3, col);
             cv_rect(68 + (int32_t)sv - x0, yy + 4, 1, 7, T_TEXT);
             for (m = 0, v = 0; m < UMC_NL && v < 3u; m++)   /* a dot a link (three at most), a longer one its tracks chosen */
-                if ((r->ls[m] & 31u) && (uint32_t)(r->ls[m] >> 5) == i - 1u)
+                if ((r->ls[m] & 31u) && umc_lj(r, m) == e)
                     cv_rect(111 + (int32_t)v++ * 3 - x0, yy + 6, 2, 2, T_MID);
-            if (r->t[i - 1u])
+            if (e < UMB_NCTL && r->t[e])
                 cv_rect(111 - x0, yy + 10, 8, 1, T_MID);
         }
     }
@@ -625,7 +643,7 @@ static void umx_draw(int32_t x0, int32_t y, int32_t bot)
     } else
         for (i = umx_ct >= rows ? umx_ct - rows + 1u : 0u, k = i + rows, yy = y; i < k; i++, yy += UMK_RH) {
             uint16_t col = i == umx_ct ? T_THEME : T_TEXT;
-            uint32_t j = umx_el - 1u;
+            uint32_t j = umx_jat(&d, umx_el);
             row = umx_row(r, j, UMX_NT(d, j), i, &li);
             if (row == 4u)
                 break;
@@ -762,7 +780,7 @@ static void umk_draw(int32_t x0, int32_t y, int32_t h)
         cv_halo = ha;
         return;
     }
-    if (!au)
+    if (!au && bt_hw_seg())
         umx_draw(x0, y, bot);
     for (i = 0; au && i < 4u; i++, y += UMK_RH) {
         uint16_t col = umk_names(i, b) ? T_TEXT : T_DIM;
@@ -826,8 +844,10 @@ static int umv_knob(uint32_t k, int32_t s)
         umv_trd = (uint8_t)((umv_trd & ~(3u << 2u * k)) | umv_tb((uint32_t)clamp((int32_t)umv_tf(umv_trd, k) + s, 0, 3), k) << 2u * k);
     else if (!umv_on())
         umv_turn(c, umv_tk - 1u, s);
-    else if (umx_pg != UMB_NONE && (umx_el || !k))
-        umx_knob(k, s);
+    else if (umx_pg != UMB_NONE && (umx_el || !k)) {
+        if (bt_hw_seg())
+            umx_knob(k, s);
+    }
     else if (k == 2u)
         return umk_preset(s);
     umv_sync();
@@ -1014,7 +1034,7 @@ static int umv_draw(void)
         umv_name(umv_cc(), b);
         cv_text(120 - text_w(&AF_M, b) / 2, 40, &AF_M, b, T_THEME);
         cv_text(120 - text_w(&AF_X, "ALGORITHM: A PLATE") / 2, 66, &AF_X, "ALGORITHM: A PLATE", T_MID);
-    } else
+    } else if (bt_hw_seg())
         umx_draw(0, 4, (int32_t)graph_h() - 6);
     cv_text(8, (int32_t)graph_h() - 10, &AF_X, "Oct -  back", T_MID);
     cv_text(232 - text_w(&AF_X, "keep  Oct +"), (int32_t)graph_h() - 10, &AF_X, umv_ed == 2u ? "keep  Oct +" : "next  Oct +", T_TEXT);

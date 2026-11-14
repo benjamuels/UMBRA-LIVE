@@ -205,7 +205,7 @@ static const menu_flag_t *menu_flag(uint32_t row)
 static uint32_t menu_n(uint32_t row)
 {
     const vel_row_t *vr = vel_row(row);
-    return row == MI_COLOR ? NPALETTES : row == MI_SKIN ? SKIN_N : row == MI_LOWCUT || (row >= MI_CLICK && row <= MI_COUNTIN) || row == MI_LOAD || row == MI_BT ? 3u :
+    return row == MI_COLOR ? NPALETTES : row == MI_SKIN ? SKIN_N : row == MI_LOWCUT || (row >= MI_CLICK && row <= MI_COUNTIN) || row == MI_LOAD ? 3u : row == MI_BT ? 2u :
            row == MI_HOLD || row == MI_MIDIOUT || row == MI_LEARN ? 4u : vr ? vr->n : row == MI_OCTBEND ? 8u : row == MI_MIDIMAP ? MLM_N : row == MI_USB ? 6u : row == MI_SERIAL ? (FELUCCA_USB_IN ? 5u + FELUCCA_USB_HOST : 3u) : row == MI_LEDS ? LEDS_COUNT : row == MI_SCROFF ? NELEM(SCROFF_N) : 2u;
 }
 static uint32_t menu_get(uint32_t row)
@@ -336,7 +336,7 @@ static void menu_put(uint32_t row, uint32_t v)
     case MI_LEARN: ml_set(v); break;                   /* (p1: armed, or cleared, at the MENU's close; not saved) */
     case MI_CPU: cpu_put(0, v & 1u); break;            /* (p1: at the next power-on, main.c) */
     case MI_CLOCK: cpu_put(1, v & 1u); break;          /* (0.9.9-stab: at the next power-on, main.c cpu_clock) */
-    case MI_BT: bt_put(v % 3u); break;                 /* (V10.12: at once, bt.c; V10.35 2 AIR) */
+    case MI_BT: bt_put(v % 2u); break;                 /* (V10.12: at once, bt.c; V10.35 2 AIR) */
     }
 }
 /* the menu's step, any of KNOB 1..4 or OCT+ (s > 0) / OCT- (s < 0): the next / previous value, stopping at the ends;

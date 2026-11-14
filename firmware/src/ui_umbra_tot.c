@@ -197,11 +197,11 @@ static void umt_mlist(uint32_t k)
             continue;
         const umc_rec_t *r = umx_rec(pl);
         for (j = 0; j < UMC_NL && umt_ml.n < UMT_NML; j++)
-            if ((r->ls[j] & 31u) == UMQ_M1 + k && (uint32_t)(r->ls[j] >> 5) < d.nctl) {
+            if ((r->ls[j] & 31u) == UMQ_M1 + k && umx_c(&d, umc_lj(r, j))) {
                 b = umt_ml.ln[umt_ml.n++];
                 str_cpy(b, d.name, 10);
                 str_cpy(b + str_len(b), " ", 2);
-                str_cpy(b + str_len(b), d.ctl[r->ls[j] >> 5].name, 7);
+                str_cpy(b + str_len(b), umx_en(&d, umc_lj(r, j)), 7);
             }
     }
     for (t = 0; t < trk_live * 4u && umt_ml.n < UMT_NML; t++) {

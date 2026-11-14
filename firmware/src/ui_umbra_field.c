@@ -294,9 +294,8 @@ static void ump_co_draw(int32_t x0, int32_t y0)
 /* (API 6) CORONA's new elements, light over the eclipse:
  *   COMET    a comet crosses the sky above the eclipse, its tail streaming behind it; its head flares on the beat
  *   PLANETS  tiny planets all round the frame, each coming and going on its own (never all lit), twinkling with the mix */
-#if UMB_RES_ALL                                         /* (the web player only, as the FM-1 cannot turn them on yet) */
 static const uint8_t UMR_PLC[5][3] = {{255, 248, 230}, {255, 206, 120}, {230, 150, 110}, {200, 230, 255}, {255, 236, 180}};
-static void ump_co_xdraw(const umb_lctx_t *cx)
+BTAPP_FN static void ump_co_xdraw(const umb_lctx_t *cx)   /* (in the Bluetooth segment: the app slot is full) */
 {
     int32_t i;
     if (cx->xk[0][0]) {                                 /* COMET: across in 24 s .. 4 s (SPEED), TAIL 6 .. 40 points */
@@ -341,7 +340,6 @@ static void ump_co_xdraw(const umb_lctx_t *cx)
         }
     }
 }
-#endif
 
 /* ---------------------------------------------------------------------------------------------------------- */
 /* CORONA as a plate (umb_plate.h), built in: its state the block's start (umb.co: the welcome borrows it) */
@@ -363,12 +361,14 @@ static void ump_co_strip(void *st, const umb_lctx_t *cx, const umb_api_t *ap, co
     umm_w = (uint32_t)sp->w;
     umm_h = (uint32_t)sp->h;
     ump_co_draw(sp->x0, sp->y0);
-#if UMB_RES_ALL
-    ump_co_xdraw(cx);                                   /* (NEW, API 6) */
-#else
-    (void)cx;
-#endif
+    if (bt_hw_seg())
+        ump_co_xdraw(cx);                               /* (API 6) */
 }
+#if UMB_RES_ALL
+#define UMR_W(s) s
+#else
+#define UMR_W(s) 0
+#endif
 static const umb_plate_t umb_plate_corona = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(ump_co_t), "CORONA",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 8u, {0, 0, 0},
@@ -380,19 +380,14 @@ static const umb_plate_t umb_plate_corona = {
      {"DIAMOND", {0, 0, 36, 31, 0, 91, 96, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 7u), UMB_LINK(UMB_SRC_HIT(0), 0u)}, {99, 99, 60, 40}},
      {"ANNULAR", {26, 0, 81, 71, 0, 0, 0, 91}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 50, 30}}},
     80u, {0, 0, 0}, 0,
-#if UMB_RES_ALL
-    /* (API 6) its other elements (the web player only) */
+    /* (API 6) its other elements (their sentences the plates page's alone: UMB_RES_ALL) */
     2u, {0, 0, 0},
     {{"COMET", 3u, 1u, {0, 0}, {{"ON", 0}, {"SPEED", 40}, {"TAIL", 50}},
-      "A comet crosses the sky above the eclipse, its head flaring on every beat",
-      {"Comet on or off", "How fast it crosses (24 s to 4 s)", "How long its tail streams"}},
+      UMR_W("A comet crosses the sky above the eclipse, its head flaring on every beat"),
+      {UMR_W("Comet on or off"), UMR_W("How fast it crosses (24 s to 4 s)"), UMR_W("How long its tail streams")}},
      {"PLANETS", 3u, 1u, {0, 0}, {{"ON", 0}, {"COUNT", 60}, {"SHINE", 50}},
-      "Tiny planets all round the frame, each fading in and out on its own, so never all lit at once",
-      {"Planets on or off", "How many planets (4 to 28)", "How bright they shine"}}}
-#else
-    0u, {0, 0, 0}, {{""}}
-#endif
-};
+      UMR_W("Tiny planets all round the frame, each fading in and out on its own, so never all lit at once"),
+      {UMR_W("Planets on or off"), UMR_W("How many planets (4 to 28)"), UMR_W("How bright they shine")}}}};
 
 /* ------------------------------------------------------------------------------------------------ WELCOME --- */
 /* (UMBRA LIVE) the power-on screen, UMW_T ms (ui_draw.c draw_splash, splash_write: main.c boot_splash, web/emu): an

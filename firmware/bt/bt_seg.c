@@ -39,10 +39,8 @@
 #define BLE_DIAG 0                             /* (no counters, no console: as Melodee) */
 #define FELUCCA_BLE_BOND 1                     /* (V10.32) Just Works pairing with bonding, LL encryption: a central that asks
                                                 * to pair (Windows, some Macs and Androids) pairs, no PIN */
-#define FELUCCA_BLE_CENTRAL 3                  /* (V10.35) AIR: the scanner alone (no connecting out): every advertisement's
-                                                * RSSI to PROX (bs_rssi), nothing listed */
-#define BLE_SCAN_RING 1u                       /* (the list unused: AIR reads bs_rssi) */
-#define BLE_SCAN_ACTIVE 0                      /* (listens only: nothing sent) */
+/* (UMBRA LIVE, 2026-11-14: AIR, the scanner, cut (FELUCCA_BLE_CENTRAL 3, BLE_SCAN_*): its room the app's cold code's, the
+ * plates' other elements in LIVE VIZ CTRLS. PROX keeps a central's link) */
 #define BLE_LTK_DERIVE 1                       /* .. the bond's key made again from EDIV / Rand (ble_smp.c ble_smp_ltk_of):
                                                 * nothing kept, every bonded central back after a power-off */
 #include "fm1_cc.h"
@@ -68,8 +66,10 @@ static void bs_rssi(const volatile uint16_t *r, uint32_t b)
 #define BLE_HW_RX_RSSI(r, b) bs_rssi(r, b)
 /* (SWARM) every advertisement heard while AIR scans, to the app's INPUT engine (src/eng_input.c bt_air_tap, the RX
  * interrupt: a copy into a table, no more): its PDU, its RSSI word as PROX reads it, its channel */
+#if defined(FELUCCA_BLE_CENTRAL)
 void bt_air_tap(const uint8_t *p, uint32_t n, uint32_t w, uint32_t ch);
 #define BLE_HW_ADV_TAP(p, n, r, b, ch) bt_air_tap(p, n, (r)[2u + ((b) & 1u)], ch)
+#endif
 #include "ble/ble_stack.c"
 
 /* the segment's header, first in it (app.ld .bt_head): magic, payload length, CRC-32 of the payload (zlib), filled by
@@ -160,7 +160,9 @@ void bt_seg_enable(int on)
     fm1_ble_step(on ? FM1_BLE_STEP_ENABLE : FM1_BLE_STEP_SET_OFF);
     if (on != 1)
         ble_enable(0);                         /* (V10.35) off, or AIR: the advertising / the scan stops first */
+#if defined(FELUCCA_BLE_CENTRAL)
     ble_ll_scan(on == 2);                      /* AIR (2): the scanner, nothing advertised */
+#endif
     ble_enable(on != 0);
     if (on != 1)
         bs_linked = bt_oq.on = 0;
@@ -169,7 +171,10 @@ void bt_seg_enable(int on)
 
 uint32_t bt_seg_status(void)
 {
-    return (uint32_t)ble_connected() | (uint32_t)ble_midi_ready() << 1 | (uint32_t)ble_ll_scanning() << 2 |
+    return (uint32_t)ble_connected() | (uint32_t)ble_midi_ready() << 1 |
+#if defined(FELUCCA_BLE_CENTRAL)
+           (uint32_t)ble_ll_scanning() << 2 |
+#endif
            (uint32_t)bs_conns << 8;
 }
 

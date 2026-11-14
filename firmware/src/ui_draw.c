@@ -1460,7 +1460,8 @@ static void draw_columns(void)
     if (SONG_TRK(cur_page())) {                        /* (V10.6o) TIMELINE: ROW, SECT, BARS, the ALGORITHM track's VAR */
         uint32_t row = ui.song_row < chain_config.count ? ui.song_row : chain_config.count - 1u, v;
         if (umv_on()) {                                 /* ((UMBRA LIVE) a picture cell open: LIVE VIZ CTRLS' columns) */
-            umk_cards();
+            if (bt_hw_seg())
+                umk_cards();
             return;
         }
         if (!chain_config.count) {
