@@ -119,7 +119,7 @@ jobs:
       - name: the front page and the emulator under emu/
         run: |
           mkdir -p build/pages/emu
-          for f in index.html worklet.js stems.js fm1backup.js felucca.wasm plates.wasm fonts; do
+          for f in index.html worklet.js stems.js fm1backup.js felucca.wasm fonts; do
             if [ -e "build/emu/$f" ]; then mv "build/emu/$f" build/pages/emu/; fi
           done
           cp -r build/emu/. build/pages/

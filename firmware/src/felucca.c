@@ -88,8 +88,6 @@ static void vel_note_on(uint32_t k);     /* (V10.6z6) a key's press: its velocit
 
 /* ----------------------------------------------------- base, display --- */
 #include "libc.c"
-#define UMB_PJ 1                 /* (UMBRA LIVE) the projector's stream: what TOTALITY's plates are handed, over USB MIDI to the
-                                  * projector page (ui_umbra_pj.c, PJ_WATCH in editor_plate.c; plans/umbra-projector-sync.md) */
 #define UMB_MIRROR 0             /* (UMBRA LIVE) the screen on a computer, over USB MIDI (umb_mirror.c). Out since 2026-11-09
                                   * (the user: too slow on the FM-1 for the plates, set aside; its ~4.3 KB of flash and ~4.7 KB
                                   * of RAM and pool to HOME > UMBRA's MACROS pages). 1 builds it again, as it was */

@@ -104,26 +104,12 @@ footer small { font-size: 11px; opacity: .8; }
         gap: 8px 18px; align-items: center; background: linear-gradient(transparent, rgba(0, 0, 0, .88) 45%);
         transition: opacity .5s; }
 #pbar[hidden] { display: none; }
-#pbar .grp { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#pbar .grp { display: flex; gap: 6px; align-items: center; }
 #pbar label { display: flex; gap: 6px; align-items: center; color: #8aa1b1; }
 #pbar input[type=range] { width: 110px; accent-color: #8fd9c9; }
 #pled { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #1f2a3d; transition: background .25s; }
-/* FOLLOW (the FM-1 sends what its plates are handed): the page's own plate and settings are not used */
-#proj.follow .own { display: none; }
-#pfol { color: #8fd9c9; letter-spacing: .08em; }
-#pfol .warn { color: #e0b36a; }
 #pled.hit { background: #8fd9c9; transition: none; }
-/* the picture's menu (PIXELS / CLEAN / SOFT, GLOW): at the right edge while the mouse moves, gone 5 s after it stops */
-#pside { position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column;
-         gap: 6px; padding: 18px 16px 18px 40px; background: linear-gradient(90deg, transparent, rgba(0, 0, 0, .88) 40%);
-         transition: opacity .5s; }
-#pside[hidden] { display: none; }
-#pside .h { color: #56748a; letter-spacing: .18em; margin-bottom: 2px; }
-#pside button { display: grid; text-align: left; min-width: 13em; }
-#pside small { color: #56748a; font-size: 11px; }
-#pside button.on small { color: #8aa1b1; }
-#pside hr { width: 100%; border: 0; border-top: 1px solid #1f2a3d; margin: 4px 0; }
-#proj.idle #pbar, #proj.idle #pside { opacity: 0; pointer-events: none; }
+#proj.idle #pbar { opacity: 0; pointer-events: none; }
 #proj.idle { cursor: none; }
 </style>
 </head>
@@ -174,35 +160,25 @@ footer small { font-size: 11px; opacity: .8; }
   <canvas id="pcanvas" width="960" height="960" role="img" aria-label="The plate"></canvas>
   <div id="pstart">
     <h1>UMBRA LIVE · PROJECTOR</h1>
-    <div>TOTALITY as large as this window. With Umbra Live firmware that sends the projector's stream, this page follows the
-      FM-1: the same plates on every layer, the macros, the effects, the fades, drawn exactly as the FM-1 draws them.</div>
+    <div>The plate as large as this window, played by the notes your FM-1 plays: the computer draws it, at its own pace.</div>
     <ol>
-      <li>Connect the FM-1 by USB. Use Chrome or Edge: Safari has no Web MIDI.</li>
-      <li>Start, and let the browser use your MIDI devices, system exclusive messages included.</li>
+      <li>On the FM-1: MENU &gt; CONTROL &gt; MIDI OUT: <b>ALL</b> (every note, each track on its channel).</li>
+      <li>Connect it by USB. Use Chrome or Edge: Safari has no Web MIDI.</li>
+      <li>Start, and let the browser use your MIDI devices.</li>
     </ol>
-    <p>Silent: this page only draws. With older firmware it plays a plate picked here with the FM-1's notes instead (MENU
-      &gt; CONTROL &gt; MIDI OUT: ALL).</p>
+    <p>Silent: this page only draws. The plate and its settings are picked here (the FM-1's own aren't sent).</p>
     <button id="pgo" type="button">Start</button>
     <p id="pstat" hidden></p>
   </div>
   <div id="pbar" hidden>
-    <span id="pfol" hidden></span>
-    <div class="grp own" id="pplates"></div>
-    <label class="own"><span id="pn0">A</span> <input type="range" id="ps0" min="0" max="99"></label>
-    <label class="own"><span id="pn1">B</span> <input type="range" id="ps1" min="0" max="99"></label>
-    <label class="own">LIGHT <input type="range" id="ps2" min="0" max="99"></label>
-    <label class="own">VEIL <select id="pveil"></select></label>
+    <div class="grp" id="pplates"></div>
+    <label><span id="pn0">A</span> <input type="range" id="ps0" min="0" max="99"></label>
+    <label><span id="pn1">B</span> <input type="range" id="ps1" min="0" max="99"></label>
+    <label>LIGHT <input type="range" id="ps2" min="0" max="99"></label>
+    <div class="grp"><button type="button" id="psoft">SOFT</button><button type="button" id="pglow">GLOW</button></div>
     <label><span id="pled"></span> MIDI <select id="pmidi"></select></label>
     <span id="pmsg"></span>
     <div class="grp" style="margin-left:auto"><button type="button" id="pfull">FULL SCREEN</button><a href="./" style="color:#56748a">emulator</a></div>
-  </div>
-  <div id="pside" hidden role="group" aria-label="Picture">
-    <div class="h">PICTURE</div>
-    <button type="button" data-look="pixels">PIXELS <small>sharp squares, the panel's own pixels</small></button>
-    <button type="button" data-look="clean">CLEAN <small>diagonals smoothed, edges still crisp</small></button>
-    <button type="button" data-look="soft">SOFT <small>smoothed, as before</small></button>
-    <hr>
-    <button type="button" id="pglow">GLOW <small>a halo round the light</small></button>
   </div>
 </div>
 
@@ -613,145 +589,28 @@ async function midiOn() {
 }
 
 // ------------------------------------------------------------------ (UMBRA LIVE) the projector (?projector)
-// TOTALITY drawn as large as the window, by the build with every plate there is (plates.wasm), so whatever plate the FM-1's
-// bank holds, this page has it. Following the FM-1 (FOLLOW, below) it draws what the FM-1 draws; with older firmware it
-// plays a ground, and a veil over it, picked here, with the notes the FM-1 sends (MENU > CONTROL > MIDI OUT: ALL, each
-// track on its channel; MIDI IN's CH1-6 here gives each its track).
-// The emulator page's own PLATE row (under the page, a classic script) keeps the emulator's grounds:
+// TOTALITY drawn as large as the window: the emulator runs silent and plays the notes the FM-1 sends (MENU >
+// CONTROL > MIDI OUT: ALL, each track on its channel; MIDI IN's CH1-6 here gives each its track), so the plates see what
+// the FM-1 plays. The FM-1's screen at 240 x 240 is drawn up (SOFT: smoothed; GLOW: a blurred copy added over it).
 const PLATES = ["CINDER", "GRANULE", "CORONA", "TARN", "SEPIA", "GYRE", "AURORA", "FATHOM", "RAPIDS"];   // (the grounds: a veil lies only on a layer)
 const PNUM = [0, 3, 4, 5, 9, 10, 11, 12, 13];   // (each one's number: the six known, then the bank's slots 3..7, ui_umbra.c)
-window.umbPlates = { PLATES, PNUM };
+const PSET = [["RISE", "COOL"], ["BOIL", "FADE"], ["REACH", "FADE"], ["DRAG", "BEND"],
+              ["FLOW", "FADE"], ["SPIN", "PULL"], ["DRIFT", "FADE"], ["SWELL", "CALM"], ["SPEED", "FADE"]];   // (each plate's first two elements)
+const PDEF = [[45, 50], [35, 45], [50, 45], [55, 50], [50, 45], [60, 40], [50, 50], [50, 40], [50, 50]];   // (their defaults; LIGHT 99)
 const PKEY = "umbra-projector";
 const pv = (() => { try { return JSON.parse(localStorage.getItem(PKEY)) || {}; } catch { return {}; } })();
-if (pv.v !== 2) {                                   // (kept before: a ground by its place among nine, SOFT and GLOW on)
-  const s = {};
-  if (Array.isArray(pv.s)) pv.s.forEach((ab, i) => { if (PLATES[i]) s[PLATES[i]] = ab; });
-  Object.assign(pv, { v: 2, ground: PLATES[pv.plate] || "CINDER", veil: "", s, look: "pixels", glow: false });
-  delete pv.plate; delete pv.soft;
-}
-pv.s ??= {}; pv.light ??= 99; pv.midi ??= "auto"; pv.look ??= "pixels";
+pv.plate ??= 0; pv.s ??= PDEF.map((d) => d.slice()); while (pv.s.length < PDEF.length) pv.s.push(PDEF[pv.s.length].slice()); pv.light ??= 99; pv.soft ??= true; pv.glow ??= true; pv.midi ??= "auto";
 const pkeep = () => { try { localStorage.setItem(PKEY, JSON.stringify(pv)); } catch { /* not kept */ } };
 const $ = (id) => document.getElementById(id);
-let pcanvas = $("pcanvas");
-const pgo = $("pgo"), pbar = $("pbar");
-const pstat = (t) => { $("pstat").textContent = t; $("pstat").hidden = !t; };
-// The picture: the FM-1's 240 x 240 screen drawn up to the window's square, on the GPU (WebGL2; without it, the canvas's
-// own scaling). First the dither taken out: the plates dither 2 x 2 to reach colours the panel's 16 bits lack, invisible on
-// its small screen, a checker when drawn up; each pixel is averaged with those of its 3 x 3 neighbours (weights 1 2 1, which
-// hold the dither's four phases equally) that lie within about two of the panel's steps of it, so edges stay where they
-// are. Then drawn up to the whole multiple of 240 at or past the square: PIXELS each pixel a square; CLEAN each pixel's
-// corner cut where an edge runs diagonally past it (xBR level 1, after Hyllian's: the pixels along the diagonal agree better
-// than those across it); SOFT smoothed. Last that drawn to the square (a step down of less than half: every square the same
-// size, its edges smoothed by a pixel), GLOW (a blurred copy, made small on the CPU) added.
+const pcanvas = $("pcanvas"), pctx = pcanvas.getContext("2d"), pgo = $("pgo"), pbar = $("pbar");
+const psrc = document.createElement("canvas");      // (SOFT: the plates' 2 x 2 dither, invisible on the FM-1, smoothed
+psrc.width = psrc.height = 240;                        //  away before drawing up, else it shows as stripes)
+const psrcx = psrc.getContext("2d");
+psrcx.filter = "blur(0.7px)";
 const pglowc = document.createElement("canvas");
 pglowc.width = pglowc.height = 120;
 const pglowx = pglowc.getContext("2d");
-const psrc = document.createElement("canvas");      // (SOFT without the GPU: the dither smoothed away before drawing up)
-psrc.width = psrc.height = 240;
-const psrcx = psrc.getContext("2d");
-psrcx.filter = "blur(0.7px)";
-const GLV = `#version 300 es
-out vec2 uv;
-void main() { vec2 p = vec2(gl_VertexID & 1, gl_VertexID >> 1) * 2.0; uv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
-const GLH = `#version 300 es
-precision highp float;
-uniform sampler2D img;
-in vec2 uv;
-out vec4 o;
-vec3 at(ivec2 p) { return texelFetch(img, clamp(p, ivec2(0), ivec2(239)), 0).rgb; }
-`;
-const GL_DEDITHER = GLH + `void main() {
-  ivec2 c = ivec2(gl_FragCoord.xy);
-  vec3 e = at(c), s = vec3(0.0);
-  float w = 0.0;
-  for (int j = -1; j <= 1; j++)
-    for (int i = -1; i <= 1; i++) {
-      vec3 n = at(c + ivec2(i, j)), d = abs(n - e);
-      float k = float((2 - abs(i)) * (2 - abs(j)));
-      if (max(d.r, max(d.g, d.b)) < 0.075) { s += n * k; w += k; }
-    }
-  o = vec4(s / w, 1.0);
-}`;
-const GL_UP = GLH + `uniform int look;
-uniform float k;
-float df(vec3 a, vec3 b) {
-  vec3 d = a - b;
-  return abs(dot(d, vec3(0.299, 0.587, 0.114))) + 2.0 * abs(dot(d, vec3(-0.169, -0.331, 0.5))) + 2.0 * abs(dot(d, vec3(0.5, -0.419, -0.081)));
-}
-void main() {
-  vec2 p = gl_FragCoord.xy / k;
-  if (look == 2) { o = vec4(texture(img, p / 240.0).rgb, 1.0); return; }
-  ivec2 c = ivec2(floor(p));
-  vec3 E = at(c);
-  o = vec4(E, 1.0);
-  if (look == 0) return;
-  vec2 fp = fract(p), f = abs(fp - 0.5) + 0.5;
-  ivec2 dx = ivec2(fp.x < 0.5 ? -1 : 1, 0), dy = ivec2(0, fp.y < 0.5 ? -1 : 1);
-  vec3 F = at(c + dx), H = at(c + dy), I = at(c + dx + dy), B = at(c - dy), D = at(c - dx), C = at(c + dx - dy),
-       G = at(c - dx + dy), F4 = at(c + 2 * dx), I4 = at(c + 2 * dx + dy), H5 = at(c + 2 * dy), I5 = at(c + dx + 2 * dy);
-  float along = df(E, C) + df(E, G) + df(I, F4) + df(I, H5) + 4.0 * df(H, F);
-  float across = df(H, D) + df(H, I5) + df(F, I4) + df(F, B) + 4.0 * df(E, I);
-  float eF = df(E, F), eH = df(E, H), w = 0.7 / k;
-  if (along < across && eF > 0.04 && eH > 0.04)
-    o.rgb = mix(E, eF <= eH ? F : H, smoothstep(1.5 - w, 1.5 + w, f.x + f.y));
-}`;
-const GL_OUT = `#version 300 es
-precision highp float;
-uniform sampler2D img, glow;
-uniform float g;
-in vec2 uv;
-out vec4 o;
-void main() {
-  vec2 t = vec2(uv.x, 1.0 - uv.y);
-  vec3 c = texture(img, t).rgb;
-  if (g > 0.0) c += g * texture(glow, t).rgb;
-  o = vec4(min(c, vec3(1.0)), 1.0);
-}`;
-let gl = null, pg = null, pctx = null;
-function glInit() {
-  gl = pcanvas.getContext("webgl2", { alpha: false, antialias: false, depth: false, premultipliedAlpha: false });
-  if (!gl) return false;
-  const prog = (fs) => {
-    const p = gl.createProgram();
-    for (const [type, src] of [[gl.VERTEX_SHADER, GLV], [gl.FRAGMENT_SHADER, fs]]) {
-      const sh = gl.createShader(type);
-      gl.shaderSource(sh, src);
-      gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
-      gl.attachShader(p, sh);
-    }
-    gl.linkProgram(p);
-    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
-    return p;
-  };
-  const tex = (n, filter) => {
-    const t = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, n, n, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    return t;
-  };
-  const fbo = (t) => { const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0); return f; };
-  try {
-    pg = { dedither: prog(GL_DEDITHER), up: prog(GL_UP), out: prog(GL_OUT), src: tex(240, gl.NEAREST), glow: tex(120, gl.LINEAR),
-           ded: tex(240, gl.LINEAR), big: null, bigF: null, k: 0, tex, fbo };
-    pg.dedF = fbo(pg.ded);
-    pg.uLook = gl.getUniformLocation(pg.up, "look");
-    pg.uK = gl.getUniformLocation(pg.up, "k");
-    pg.uG = gl.getUniformLocation(pg.out, "g");
-    gl.bindVertexArray(gl.createVertexArray());
-    for (const p of [pg.dedither, pg.up, pg.out]) { gl.useProgram(p); gl.uniform1i(gl.getUniformLocation(p, "img"), 0); }
-    gl.uniform1i(gl.getUniformLocation(pg.out, "glow"), 1);
-    return true;
-  } catch (err) {
-    console.warn("projector: WebGL2 refused the shaders, the browser's own scaling instead:", err);
-    pg = null;
-    return false;
-  }
-}
+const pstat = (t) => { $("pstat").textContent = t; $("pstat").hidden = !t; };
 function projSize() {
   const n = Math.max(240, Math.round(Math.min(innerWidth, innerHeight) * (devicePixelRatio || 1)));
   if (pcanvas.width !== n) pcanvas.width = pcanvas.height = n;
@@ -759,59 +618,19 @@ function projSize() {
 }
 function projDraw() {
   const n = pcanvas.width;
+  pctx.globalCompositeOperation = "source-over";
+  pctx.globalAlpha = 1;
+  pctx.imageSmoothingEnabled = pv.soft;
+  pctx.imageSmoothingQuality = "high";
+  if (pv.soft) {
+    psrcx.clearRect(0, 0, 240, 240);
+    psrcx.drawImage(canvas, 0, 0);
+  }
+  pctx.drawImage(pv.soft ? psrc : canvas, 0, 0, n, n);
   if (pv.glow) {                                     // (blurred small, then drawn up: cheap at any size)
     pglowx.filter = "blur(3px)";
     pglowx.clearRect(0, 0, 120, 120);
     pglowx.drawImage(canvas, 0, 0, 120, 120);
-  }
-  if (pg && gl && !gl.isContextLost()) {
-    const k = Math.ceil(n / 240);
-    if (pg.k !== k) {                                 // (the whole multiple at or past the square)
-      if (pg.big) { gl.deleteTexture(pg.big); gl.deleteFramebuffer(pg.bigF); }
-      pg.big = pg.tex(240 * k, gl.LINEAR);
-      pg.bigF = pg.fbo(pg.big);
-      pg.k = k;
-    }
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, pg.src);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 240, 240, gl.RGBA, gl.UNSIGNED_BYTE, img.data);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, pg.dedF);
-    gl.viewport(0, 0, 240, 240);
-    gl.useProgram(pg.dedither);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.bindTexture(gl.TEXTURE_2D, pg.ded);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, pg.bigF);
-    gl.viewport(0, 0, 240 * k, 240 * k);
-    gl.useProgram(pg.up);
-    gl.uniform1i(pg.uLook, pv.look === "clean" ? 1 : pv.look === "soft" ? 2 : 0);
-    gl.uniform1f(pg.uK, k);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.bindTexture(gl.TEXTURE_2D, pg.big);
-    if (pv.glow) {
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, pg.glow);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, pglowc);
-      gl.activeTexture(gl.TEXTURE0);
-    }
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, n, n);
-    gl.useProgram(pg.out);
-    gl.uniform1f(pg.uG, pv.glow ? 0.7 : 0);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    return;
-  }
-  if (!pctx) return;
-  const soft = pv.look === "soft";
-  pctx.globalCompositeOperation = "source-over";
-  pctx.globalAlpha = 1;
-  pctx.imageSmoothingEnabled = soft;
-  pctx.imageSmoothingQuality = "high";
-  if (soft) {
-    psrcx.clearRect(0, 0, 240, 240);
-    psrcx.drawImage(canvas, 0, 0);
-  }
-  pctx.drawImage(soft ? psrc : canvas, 0, 0, n, n);
-  if (pv.glow) {
     pctx.globalCompositeOperation = "lighter";
     pctx.globalAlpha = 0.7;
     pctx.imageSmoothingEnabled = true;
@@ -820,96 +639,41 @@ function projDraw() {
     pctx.globalAlpha = 1;
   }
 }
-if (PROJ && glInit()) {
-  pcanvas.addEventListener("webglcontextlost", (e) => e.preventDefault());
-  pcanvas.addEventListener("webglcontextrestored", () => { glInit(); projDraw(); });
-} else if (PROJ) {                                   // (no WebGL2, or its shaders refused: the canvas's own scaling, on a
-  if (gl) { const c = pcanvas.cloneNode(); pcanvas.replaceWith(c); pcanvas = c; gl = null; }   // canvas of its own)
-  pctx = pcanvas.getContext("2d");
-}
-// The plates: read from the build's own (worklet umxinfo: each plate's header), grounds and veils, each with its first two
-// elements' names and defaults
-let pgrounds = [], pveils = [], pveilOn = "";
-const pcstr = (b, o, n) => { let t = ""; for (let i = 0; i < n && b[o + i]; i++) t += String.fromCharCode(b[o + i]); return t; };
-function projPages(pages) {
-  pgrounds = []; pveils = [];
-  for (const p of pages) {
-    const b = p.head;
-    if (!b || pcstr(b, 0, 4) !== "UPLT") continue;
-    const ctl = [0, 1].map((i) => i < b[20] ? [pcstr(b, 24 + 8 * i, 7), b[31 + 8 * i]] : ["", 50]);
-    (b[18] === 2 ? pveils : pgrounds).push({ name: p.name, pl: p.pl, ctl });
-  }
-  const box = $("pplates"), sel = $("pveil");
-  box.innerHTML = sel.innerHTML = "";
-  pgrounds.forEach((g) => {
+function projControls() {
+  const box = $("pplates");
+  PLATES.forEach((name, i) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = g.name;
-    b.onclick = () => projGround(g.name);
+    b.textContent = name;
+    b.onclick = () => projPlate(i);
     box.appendChild(b);
   });
-  for (const v of [{ name: "" }, ...pveils]) {
-    const o = document.createElement("option");
-    o.value = v.name;
-    o.textContent = v.name || "none";
-    sel.appendChild(o);
-  }
-  for (const g of pgrounds) {                         // (each ground's two elements as kept here)
-    const ab = pv.s[g.name];
-    if (ab) ab.forEach((v, j) => send({ type: "umx", pl: g.pl, j, v }));
-  }
-  send({ type: "umb", i: 2, v: pv.light });
-  projGround(pv.ground);
-  projVeil(pv.veil);
-}
-const pground = () => pgrounds.find((g) => g.name === pv.ground) || pgrounds[0];
-function projControls() {
   [0, 1, 2].forEach((j) => {
     $("ps" + j).oninput = (e) => {
-      const v = +e.target.value, g = pground();
-      if (j === 2) { pv.light = v; send({ type: "umb", i: 2, v }); }
-      else if (g) { (pv.s[g.name] ??= g.ctl.map((c) => c[1]))[j] = v; send({ type: "umx", pl: g.pl, j, v }); }
+      const v = +e.target.value;
+      if (j < 2) pv.s[pv.plate][j] = v; else pv.light = v;
+      send({ type: "umb", i: j, v });
       pkeep();
     };
   });
-  $("pveil").onchange = (e) => projVeil(e.target.value);
-  const look = () => {
-    for (const b of $("pside").querySelectorAll("[data-look]")) { const on = b.dataset.look === pv.look; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); }
-    $("pglow").classList.toggle("on", pv.glow);
-    $("pglow").setAttribute("aria-pressed", pv.glow);
-    projDraw();
-    pkeep();
-  };
-  for (const b of $("pside").querySelectorAll("[data-look]")) b.onclick = () => { pv.look = b.dataset.look; look(); };
+  const look = () => { $("psoft").classList.toggle("on", pv.soft); $("pglow").classList.toggle("on", pv.glow); projDraw(); pkeep(); };
+  $("psoft").onclick = () => { pv.soft = !pv.soft; look(); };
   $("pglow").onclick = () => { pv.glow = !pv.glow; look(); };
   look();
   $("pfull").onclick = projFull;
   $("pmidi").onchange = (e) => { pv.midi = e.target.value; pkeep(); projBind(); };
-}
-function projShow() {                               // (the ground's name lit, its two elements' names and values; the veil)
-  const g = pground();
-  [...$("pplates").children].forEach((b) => b.classList.toggle("on", !!g && b.textContent === g.name));
-  [0, 1].forEach((j) => {
-    $("pn" + j).textContent = g ? g.ctl[j][0] || "-" : "-";
-    $("ps" + j).value = g ? (pv.s[g.name] || [])[j] ?? g.ctl[j][1] : 50;
-  });
-  $("ps2").value = pv.light;
-  $("pveil").value = pveilOn;
-}
-function projGround(name) {
-  pv.ground = name;
-  const g = pground();
-  if (!g) return;
-  pv.ground = g.name;
-  send({ type: "umb", i: 99, v: g.pl });
   projShow();
-  pkeep();
 }
-function projVeil(name) {                            // (a veil on LAYER 1, over the ground; "": none)
-  const was = pveils.find((v) => v.name === pveilOn), now = pveils.find((v) => v.name === name);
-  if (was && was !== now) send({ type: "umb", i: 97, v: was.pl });
-  if (now && was !== now) send({ type: "umb", i: 97, v: now.pl | 2 << 8 });
-  pveilOn = pv.veil = now ? now.name : "";
+function projShow() {                               // (the plate's name on its button, its settings' names and values)
+  [...$("pplates").children].forEach((b, i) => b.classList.toggle("on", i === pv.plate));
+  [0, 1].forEach((j) => { $("pn" + j).textContent = PSET[pv.plate][j]; $("ps" + j).value = pv.s[pv.plate][j]; });
+  $("ps2").value = pv.light;
+}
+function projPlate(i) {
+  pv.plate = i;
+  send({ type: "umb", i: 99, v: PNUM[i] });
+  send({ type: "umb", i: 0, v: pv.s[i][0] });
+  send({ type: "umb", i: 1, v: pv.s[i][1] });
   projShow();
   pkeep();
 }
@@ -919,61 +683,8 @@ function projFull() {
   else (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)?.call(document.documentElement);
 }
 let pmidi = null, pnotes = 0, pledT = 0;
-// FOLLOW: Umbra Live firmware sends what TOTALITY's plates are handed each frame (SysEx 102, firmware/src/ui_umbra_pj.c) while
-// it is asked (PJ_WATCH, 101, each second: 3 s without, it stops); the emulator here runs the same plates on it and draws
-// TOTALITY as the FM-1 drew it (web_pj_rx: nothing of its own). No answer: the page's own plate and the notes, as ever
-const PJH = [0xF0, 0x7D, 0x46, 0x4C];
-let pfollow = false, pjOuts = [], pjQ = [], pjQt = 0, pjAns = 0, pjTimer = 0, pjPrev = null, pjAsked = 0;
-function pjAsk(bits) { for (const o of pjOuts) { try { o.send([...PJH, 101, bits, 0xF7]); } catch { /* gone */ } } }
-function pjFlush() {                                  // (the messages come one by one: handed over together)
-  pjQt = 0;
-  const n = pjQ.reduce((a, b) => a + b.length, 0), buf = new Uint8Array(n);
-  let o = 0;
-  for (const b of pjQ) { buf.set(b, o); o += b.length; }
-  pjQ = [];
-  send({ type: "pj", data: buf });
-}
-function pjIn(d) {                                    // a SysEx from the FM-1: PJ_WATCH's answer, or the stream
-  if (d.length < 7 || d[1] !== 0x7D || d[2] !== 0x46 || d[3] !== 0x4C) return;
-  if (d[4] === 101) {
-    pjAns = performance.now();
-    if (d[5] & 1 && !pfollow) projFollow(true);
-  } else if (d[4] === 102 && pfollow) {
-    pjQ.push(d);
-    if (!pjQt) pjQt = setTimeout(pjFlush, 0);
-  }
-}
-function projFollow(on) {
-  pfollow = on;
-  pjPrev = null;
-  send({ type: "pjrx", on });
-  $("proj").classList.toggle("follow", on);
-  $("pfol").hidden = !on;
-  if (on) { $("pfol").textContent = "FOLLOWING THE FM-1"; pjAsk(3); }   // (everything again: this page knows nothing yet)
-  else projGround(pv.ground);                         // (its own ground again; its veil lay on meanwhile)
-}
-function pjTick() {                                   // each second: asked again; the FM-1 gone: the page's own plate
-  if (!pjOuts.length) return;
-  pjAsk(pfollow ? 1 : 3);
-  if (pfollow && performance.now() - pjAns > 3500) projFollow(false);
-  if (pfollow) send({ type: "pjstat" });
-}
-function pjShow(m) {                                  // how it goes: the plates, the frames a second, EXACT (the CRCs)
-  const st = m.st, now = performance.now(), p = pjPrev;
-  pjPrev = { st, t: now };
-  if (!pfollow || !p) return;
-  const fps = Math.round((st[7] - p.st[7]) * 1000 / (now - p.t)), bad = st[3] - p.st[3], ok = st[2] - p.st[2];
-  if (st[4] !== p.st[4] && now - pjAsked > 1000) { pjAsked = now; pjAsk(3); }   // (a message lost: everything again)
-  const names = m.names.filter((n) => n).join(" + ") || "nothing";
-  const state = st[10] ? "CATCHING UP" : !ok && !bad ? "" : bad ? "DRIFTING" : "EXACT";
-  const unknown = m.names.includes("?");
-  $("pfol").innerHTML = `FOLLOWING THE FM-1 · ${names} · ${fps ? fps + " fps" : "not in TOTALITY"}${state ? " · " + state : ""}` +
-    (unknown ? ' · <span class="warn">a plate this page does not have</span>' : "");
-}
 function projNote(e) {
   const d = e.data, st = d[0] & 0xF0;
-  if (d[0] === 0xF0) return pjIn(d);
-  if (pfollow) return;                                // (following: the plates take their notes from the stream)
   if ((st !== 0x90 && st !== 0x80) || d.length < 3) return;      // (notes only: the plates want nothing else)
   send({ type: "midi", data: [d[0], d[1], d[2]] });
   if (st === 0x90 && d[2]) {
@@ -993,31 +704,30 @@ function projBind() {
   for (const i of ins) opt(i.id, i.name);
   sel.value = [...sel.options].some((o) => o.value === pv.midi) ? pv.midi : "auto";
   let n = 0;
-  const heard = [];
   for (const i of ins) {
     const on = sel.value === "all" || (sel.value === "auto" ? !fm || i === fm : i.id === sel.value);
     i.onmidimessage = on ? projNote : null;
     n += on;
-    if (on) heard.push(i.name);
   }
-  pjOuts = [...pmidi.outputs.values()].filter((o) => heard.includes(o.name));   // (PJ_WATCH: to the inputs' own devices)
   $("pmsg").textContent = !ins.length ? "no MIDI input: connect the FM-1" :
     !fm && sel.value === "auto" ? "no FM-1 found: listening to every input" : "";
 }
 async function projOn() {
   $("pstart").hidden = true;
-  pbar.hidden = $("pside").hidden = false;
+  pbar.hidden = false;
   send({ type: "umb", i: 98, v: 0 });               // TOTALITY
-  send({ type: "umxinfo" });                         // (the build's plates: projPages lays the ground and veil kept here)
+  pv.s.forEach(([a, b], i) => {                      // (each plate's settings, then the plate)
+    send({ type: "umb", i: 99, v: PNUM[i] });
+    send({ type: "umb", i: 0, v: a });
+    send({ type: "umb", i: 1, v: b });
+  });
+  send({ type: "umb", i: 2, v: pv.light });
+  projPlate(pv.plate);
   if (!navigator.requestMIDIAccess) { $("pmsg").textContent = "this browser has no Web MIDI: use Chrome or Edge"; return; }
   try {
-    try { pmidi = await navigator.requestMIDIAccess({ sysex: true }); }        // (FOLLOW: the FM-1's stream is SysEx)
-    catch { pmidi = await navigator.requestMIDIAccess(); $("pmsg").textContent = "no system exclusive messages: the page's own plate only"; }
+    pmidi = await navigator.requestMIDIAccess();
     pmidi.onstatechange = projBind;
     projBind();
-    clearInterval(pjTimer);
-    pjTimer = setInterval(pjTick, 1000);
-    pjTick();
   } catch {
     $("pmsg").textContent = "MIDI not allowed: allow it in the site settings, then reload";
   }
@@ -1028,13 +738,13 @@ if (PROJ) {
   addEventListener("resize", projSize);
   pgo.addEventListener("click", () => { pgo.disabled = true; pstat(""); switchOn(); });
   let idle = 0;
-  const wake = () => { $("proj").classList.remove("idle"); clearTimeout(idle); idle = setTimeout(() => { if (!pbar.hidden) $("proj").classList.add("idle"); }, 5000); };   // (5 s still: gone)
+  const wake = () => { $("proj").classList.remove("idle"); clearTimeout(idle); idle = setTimeout(() => { if (!pbar.hidden) $("proj").classList.add("idle"); }, 2500); };
   addEventListener("pointermove", wake);
   addEventListener("pointerdown", wake);
   addEventListener("keydown", (e) => {
     if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT" && e.target.type !== "range") return;
     if (e.key === "f" || e.key === "F") projFull();
-    else if (e.key >= "1" && e.key <= "9" && !pbar.hidden && !pfollow && pgrounds[+e.key - 1]) projGround(pgrounds[+e.key - 1].name);
+    else if (e.key >= "1" && e.key <= "6" && !pbar.hidden) projPlate(+e.key - 1);
     else return;
     e.preventDefault();
   });
@@ -1049,9 +759,8 @@ async function switchOn() {
   go.textContent = "Starting…";
   try {
     const ac = new AudioContext({ sampleRate: 44100, latencyHint: "interactive" });
-    const get = (f) => fetch(f, { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(`${f}: ${r.status}`); return r.arrayBuffer(); });
     const [wasm] = await Promise.all([
-      PROJ ? get("plates.wasm").catch(() => get("felucca.wasm")) : get("felucca.wasm"),   // (the projector: every plate there is)
+      fetch("felucca.wasm", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(`felucca.wasm: ${r.status}`); return r.arrayBuffer(); }),
       ac.audioWorklet.addModule("worklet.js?v=" + Date.now())]);
     node = new AudioWorkletNode(ac, "felucca", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
     if (PROJ) {                                          // (the projector: silent, the device still running)
@@ -1073,11 +782,8 @@ async function switchOn() {
             console.warn("JIANT: this browser does not keep the saves; they last until the page closes.");
           }
         } else if (m.type === "umb") projState(m.v);
-        else if (m.type === "umxinfo" && PROJ) projPages(m.pages);
-        else if (m.type === "pjstat") pjShow(m);
       };
-      node.port.postMessage({ type: "load", wasm, sectors: PROJ ? {} : loadFlash(), master: masterValue,
-                              settle: PROJ ? 6600 : 0 }, [wasm]);   // (the projector: past the power-on welcome)
+      node.port.postMessage({ type: "load", wasm, sectors: PROJ ? {} : loadFlash(), master: masterValue }, [wasm]);
     });
     await ac.resume();
     document.getElementById("start").hidden = true;
@@ -1106,12 +812,12 @@ document.addEventListener("visibilitychange", () => send({ type: "visible", on: 
   <div style="color:#56748a;margin-top:6px">Plates are grounds (CINDER, GRANULE, CORONA, TARN, SEPIA, GYRE, AURORA, FATHOM, RAPIDS), which lie only on MAIN, or VEILS (BEACON, ZODIAC, SONAR, MOTHS, MARSH, PACHINKO, KOI, MEDUSA, and BODIES, UMBRA's figures), which lie only on OVER and LAYER 3. A ground of OFF is black, so veils can stand alone. A veil that does not fit in memory beside a large ground waits until it does.</div>
   <div style="color:#56748a;margin-top:6px">TOTALITY: HOME on HOME (or PLAY on SAVE › TIMELINE / ARRANGE). PRESETS the ground (the old one fades out, the new one in), SELECT the OVER veil; while the song plays, a plate or layer changed here takes the picture over (GLO lit: the rows let it be), and GLO tapped hands it back at the next row; KNOB 1–4 the macros M1–M4, sent on as the CTRLS pages say; FX tapped: KNOB 1–4 MIRROR MOSAIC GLITCH SOLAR; SEL, ENV, ARP tapped: LAYER 3, OVER, MAIN hidden or back (half a second's fade; LAYER 3 empty: BODIES laid on it); held with ALGORITHM turned: the next plate on that layer; LFO tapped the strobe, EDIT the blocks (LIVE VIZ CTRLS › BUTTONS reassigns all five); HOME back.</div>
   <div style="color:#56748a;margin-top:6px">SCREEN's elements: MOVE where a track's notes land: STATIC (by pitch, as ever), MOVE (a step along the track's own path each note), DRIFT (a step as long as the time since its last note), RANDOM; TRAVEL how far; SPEED; REACT; DISSLV (how long TOTALITY's fade between grounds takes).</div>
-  <div style="color:#56748a;margin-top:6px">Projector: <a href="?projector" style="color:#8fd9c9">TOTALITY as large as a window</a>, following the FM-1 over USB (older firmware: a plate played by its notes, MIDI OUT: ALL).</div>
+  <div style="color:#56748a;margin-top:6px">Projector: <a href="?projector" style="color:#8fd9c9">the plate as large as a window</a>, played by the FM-1's notes over USB (MIDI OUT: ALL).</div>
 </section>
-<script type="module">
-(() => {                                                    /* (a module: run after the page's, whose PLATES it reads) */
+<script>
+(() => {
   const pbox = document.getElementById("umb-p");
-  const { PLATES, PNUM: NUM } = window.umbPlates;           /* (each plate's number: ui_umbra.c) */
+  const NUM = PNUM;                                         /* (each plate's number: ui_umbra.c) */
   pbox.style.flexWrap = "wrap";
   PLATES.forEach((name, k0) => {
     const b = document.createElement("button"), v = NUM[k0];

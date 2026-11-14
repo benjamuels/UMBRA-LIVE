@@ -114,15 +114,6 @@ if (typeof registerProcessor === "function") {
         ex.web_play(1);
       } else if (m.type === "play" && ex.web_play) ex.web_play(m.on ? 1 : 0);
       else if (m.type === "midi") ex.web_midi(m.data[0] | 0, m.data[1] | 0, m.data[2] | 0);
-      else if (m.type === "pj" && ex.web_pj_feed) {                     // (UMBRA LIVE) the projector: the FM-1's stream (SysEx 102),
-        const n = Math.min(m.data.length, ex.web_pj_in_max());          //  its plates run here on it, TOTALITY drawn as the FM-1 drew it
-        new Uint8Array(ex.memory.buffer, ex.web_pj_in(), n).set(m.data.subarray(0, n));
-        ex.web_pj_feed(n);
-      } else if (m.type === "pjrx" && ex.web_pj_rx) ex.web_pj_rx(m.on ? 1 : 0);   // .. following it (nothing of the emulator's own drawn)
-      else if (m.type === "pjstat" && ex.web_pj_stat) {                 // .. how it goes, and what lies on each layer
-        const mem = new Uint8Array(ex.memory.buffer), str = (p) => { let s = ""; for (; p && mem[p]; p++) s += String.fromCharCode(mem[p]); return s; };
-        this.port.postMessage({ type: "pjstat", st: Array.from({ length: 11 }, (_, i) => ex.web_pj_stat(i)), names: [0, 1, 2, 3].map((i) => str(ex.web_pj_lname(i))) });
-      }
       else if (m.type === "visible") this.period = m.on ? 1 / (m.fps || 30) : 1 / 4;   // (the projector: 60)
     }
 

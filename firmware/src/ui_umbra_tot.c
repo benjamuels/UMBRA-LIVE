@@ -263,17 +263,12 @@ static void umt_glitch_tick(void)
  * (umv_mo) is MOSAIC's. FX + a REPEAT or STUTTER key held (perform.c, pfx.c): a strobe at its rate, the first half of each
  * repeat the whole picture washed in a colour (half its full light: the plate shows through), the next repeat the next
  * colour */
-static const uint16_t UMT_SC[6] = {0x7800u, 0x7BE0u, 0x03E0u, 0x03EFu, 0x400Fu, 0x780Fu};   /* the strobe's colours */
-static uint32_t umt_strobe(void)                        /* the strobe now: 0 none (or its dark half), else 1 + its colour */
-{
-    uint32_t pf = perf_held | perf_latched, sb = beat_samples(), sc = song.playing ? ms_clock : fm1_ms * 44u;
-    sb /= pf & PF_BIT(PF_R32) ? 8u : pf & (PF_BIT(PF_R16) | PF_BIT(PF_S16)) ? 4u : 2u;
-    return (pf & (PF_REPEAT | PF_BIT(PF_S8) | PF_BIT(PF_S16))) && sb && sc % sb < sb / 2u ? 1u + sc / sb % 6u : 0u;
-}
 static void umt_fx(uint32_t y, uint32_t mir)
 {
     uint16_t *px = cv_px, t[240];
+    static const uint16_t SC[6] = {0x7800u, 0x7BE0u, 0x03E0u, 0x03EFu, 0x400Fu, 0x780Fu};
     uint32_t x, r, mo = umq_o[G_MOS] > umv_mo ? umq_o[G_MOS] : umv_mo, so = umq_o[G_SOL], n = cv_w * cv_h;
+    uint32_t pf = perf_held | perf_latched, sb = beat_samples(), sc = song.playing ? ms_clock : fm1_ms * 44u;
     if (cv_w != 240u)
         return;
     if ((mir & 2u) && y)
@@ -323,13 +318,9 @@ static void umt_fx(uint32_t y, uint32_t mir)
     if (umq_o[G_INV] >= 50u)                            /* INVERT (50 or more) */
         for (x = 0; x < n; x++)
             px[x] = (uint16_t)~px[x];
-#if UMB_PJ
-    r = upj.sk;                                         /* (once a frame: both strips the same, and the projector's too) */
-#else
-    r = umt_strobe();
-#endif
-    if (r) {                                            /* the strobe */
-        uint16_t c = swap16(UMT_SC[r - 1u]);
+    sb /= pf & PF_BIT(PF_R32) ? 8u : pf & (PF_BIT(PF_R16) | PF_BIT(PF_S16)) ? 4u : 2u;
+    if ((pf & (PF_REPEAT | PF_BIT(PF_S8) | PF_BIT(PF_S16))) && sb && sc % sb < sb / 2u) {   /* the strobe */
+        uint16_t c = swap16(SC[sc / sb % 6u]);
         for (x = 0; x < n; x++)
             px[x] |= c;
     }
@@ -357,99 +348,14 @@ static void umt_fig(uint32_t y, uint32_t pl, uint32_t a)
 /* TOTALITY drawn: the ground and its layers over the whole screen (no header, tabs, knobs or footer: ui_draw.c
  * ui_draw_body draws nothing else) in two strips, the effects on them, the figures over those (they stay whole), sent
  * where they changed (gfx.c cv_blit_cells); under LOAD LITE / ECO every 50 / 70 ms, as HUD's HOME */
-/* the frame drawn: la each layer's light (Q8), mir MIRROR as it was, force the panel sent whole */
-static void umt_paint(const uint16_t *la, uint32_t mir, uint32_t force)
-{
-    uint32_t y, h, i, tg = fm1_ms - umt.tms;
-    char tn[3] = {'T', (char)('1' + song.sel % NTRK), 0};
-    dc_frame((int)force);                               /* (the strips move with the push: all sent while it does) */
-    umb.bare = 1;
-    for (y = 0; y < 240u; y += h) {                     /* strips of 120 rows at most, each the picture from row src on: */
-        uint32_t src = (y + 240u + (uint32_t)(int32_t)umt.roll) % 240u;   /* pushed, it goes round the screen's edge */
-        h = 240u - src < 120u ? 240u - src : 120u;
-        if (240u - y < h)
-            h = 240u - y;
-        cv_begin(240, h, T_BG);
-        umb_scene(0, (mir & 2u) ? 0 : (int32_t)src, la);
-        umt_fx(y, mir);
-        for (i = 0; i < 3u; i++)
-            if (umx_lp[i] == UMX_BODY)
-                umt_fig(src, umx_lp[i], i ? la[1u + i] : la[1] * umv_lt[1] >> 8);
-        if (umt.say_ms) {                               /* the word at the foot (a macro's: what it moves, over it) */
-            cv_text(8, 222 - (int32_t)y, &AF_S, umt.say, T_MID);
-            for (i = 0; !umt.fx && umt.say[0] == 'K' && umt.say[1] == 'N' && i < umt_ml.n; i++)
-                cv_text(8, 210 - 10 * (int32_t)(umt_ml.n - i) - (int32_t)y, &AF_X, umt_ml.ln[i], T_TEXT);
-        }
-        if (umt.info && tg < 1500u)                     /* the track, a second, then fading (ALGORITHM, SEQ: again) */
-            cv_text(6, 5 - (int32_t)y, &AF_S, tn, tg < 1000u ? T_TEXT : tg < 1250u ? T_MID : T_DIM);
-        cv_blit_cells(0, y);
-    }
-    umb.bare = 0;
-    dc_gate = 256u;
-}
-#if UMB_PJ
-BTAPP_FN static uint32_t upj_key_of(uint32_t pl)                /* a layer's page as the stream names it (0: none) */
-{
-    const umb_plate_t *p = pl < UMB_NPLT ? umb_mod(pl) : 0;
-    return pl == UMX_BODY ? UPJ_BODY : p ? umx_key(p->name) : 0u;
-}
-BTAPP_FN static void umt_pj_screen(const uint16_t *la, uint32_t mir, uint32_t force)   /* (the stream) this frame's, before it is drawn */
-{
-    upj_scr_t s;
-    uint32_t i;
-    s.frame = ui.frame;
-    for (i = 0; i < 4u; i++)
-        s.la[i] = la[i];
-    s.lt[0] = umv_lt[0];
-    s.lt[1] = umv_lt[1];
-    s.gt = dc_gate;
-    s.ge = (uint16_t)(umt.ge < 0 ? 0 : umt.ge > 65535 ? 65535 : umt.ge);
-    s.gk = (uint16_t)upj_key_of(umb_pl());
-    for (i = 0; i < 3u; i++)
-        s.lk[i] = (uint16_t)upj_key_of(umx_lp[i]);
-    memcpy(s.o, umq_o, sizeof s.o);
-    s.mo = umv_mo;
-    s.sk = upj.sk;
-    s.roll = umt.roll;
-    s.mir = (uint8_t)mir;
-    s.dcr = dc_roll;
-    s.rsv = 0;
-    upj_tx_screen(&s, force);
-}
-#if FELUCCA_WEB
-/* (the projector) a frame's SCREEN, after its layers ran: TOTALITY drawn as the sender drew it */
-static void upj_rx_paint(uint32_t force)
-{
-    const upj_scr_t *s = &upr.rs;
-    uint32_t i;
-    uint16_t la[4];
-    for (i = 0; i < 4u; i++)                            /* (a layer whose state has not all come: dark meanwhile) */
-        la[i] = (uint16_t)(upr.rsnap >> i & 1u ? 0u : s->la[i]);
-    memcpy(umq_o, s->o, sizeof umq_o);
-    umv_lt[0] = s->lt[0];
-    umv_lt[1] = s->lt[1];
-    umv_mo = s->mo;
-    dc_gate = s->gt;
-    dc_roll = s->dcr;
-    umt.ge = s->ge;
-    umt.roll = s->roll;
-    upj.sk = s->sk;
-    ui.frame = s->frame;
-    upr.gpl = (uint8_t)upj_pl(s->gk);
-    for (i = 0; i < 3u; i++)
-        umx_lp[i] = (uint8_t)upj_pl(s->lk[i]);
-    umt_paint(la, s->mir, force);
-    upr.st[7]++;
-}
-#endif
-#endif
 static void umb_full(void)
 {
     static uint32_t ms;
-    uint32_t i, mir = umq_o[G_MIR], f = umt_fade() / 2u, el = fm1_ms - umt.fms, ba = fm1_ms - ms, g = 256u;
-    uint32_t pf = perf_held | perf_latched;
+    uint32_t y, h, i, mir = umq_o[G_MIR], f = umt_fade() / 2u, el = fm1_ms - umt.fms, ba = fm1_ms - ms, g = 256u;
+    uint32_t pf = perf_held | perf_latched, tg = fm1_ms - umt.tms;
     uint16_t la[4] = {0, 0, 256u, 0};
     int32_t ro = (mir & 2u) ? 0 : (int32_t)(pf >> PF_OCTU & 1u) * 64 - (int32_t)(pf >> PF_OCTD & 1u) * 64;   /* (T-B: none) */
+    char tn[3] = {'T', (char)('1' + song.sel % NTRK), 0};
     if (sys_load && !ui.force && ba < (sys_load == LOAD_ECO ? 70u : 50u))
         return;
     ms = fm1_ms;
@@ -479,10 +385,28 @@ static void umb_full(void)
         umt.say_ms = 0;
     i = ro != umt.roll;                                 /* FX + OCT+ / OCT-: the picture pushed up / down 64 px, 8 a frame */
     umt.roll = (int8_t)(umt.roll + umb_clamp(ro - umt.roll, -8, 8));
-#if UMB_PJ
-    upj.sk = (uint8_t)umt_strobe();
-    if (upj.on)
-        umt_pj_screen(la, mir, ui.force || i);
-#endif
-    umt_paint(la, mir, ui.force || i);
+    dc_frame(ui.force || i);                            /* (the strips move with it: all sent while it does) */
+    umb.bare = 1;
+    for (y = 0; y < 240u; y += h) {                     /* strips of 120 rows at most, each the picture from row src on: */
+        uint32_t src = (y + 240u + (uint32_t)(int32_t)umt.roll) % 240u;   /* pushed, it goes round the screen's edge */
+        h = 240u - src < 120u ? 240u - src : 120u;
+        if (240u - y < h)
+            h = 240u - y;
+        cv_begin(240, h, T_BG);
+        umb_scene(0, (mir & 2u) ? 0 : (int32_t)src, la);
+        umt_fx(y, mir);
+        for (i = 0; i < 3u; i++)
+            if (umx_lp[i] == UMX_BODY)
+                umt_fig(src, umx_lp[i], i ? la[1u + i] : la[1] * umv_lt[1] >> 8);
+        if (umt.say_ms) {                               /* the word at the foot (a macro's: what it moves, over it) */
+            cv_text(8, 222 - (int32_t)y, &AF_S, umt.say, T_MID);
+            for (i = 0; !umt.fx && umt.say[0] == 'K' && umt.say[1] == 'N' && i < umt_ml.n; i++)
+                cv_text(8, 210 - 10 * (int32_t)(umt_ml.n - i) - (int32_t)y, &AF_X, umt_ml.ln[i], T_TEXT);
+        }
+        if (umt.info && tg < 1500u)                     /* the track, a second, then fading (ALGORITHM, SEQ: again) */
+            cv_text(6, 5 - (int32_t)y, &AF_S, tn, tg < 1000u ? T_TEXT : tg < 1250u ? T_MID : T_DIM);
+        cv_blit_cells(0, y);
+    }
+    umb.bare = 0;
+    dc_gate = 256u;
 }

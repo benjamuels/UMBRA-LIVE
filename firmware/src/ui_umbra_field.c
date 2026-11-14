@@ -65,7 +65,7 @@ static __attribute__((noinline)) uint16_t ump_wpx(int32_t b, uint32_t t, int32_t
 }
 /* a pitch across the keyboard, 0..256 (C2 .. C7); its place on the circle of fifths from track c's root (0..11) */
 static int32_t ump_pk(uint32_t n) { return umb_clamp(((int32_t)n - 36) * 4369 >> 10, 0, 256); }
-static uint32_t ump_fifth(uint32_t root, uint32_t n) { return (n + 120u - root) % 12u * 7u % 12u; }   /* (root: the context's) */
+static uint32_t ump_fifth(uint32_t c, uint32_t n) { return (n + 120u - (uint32_t)trk[c].p[P_ROOT] % 12u) % 12u * 7u % 12u; }
 /* a glint at X, Y (px, Q8): a point and the four round it a third as bright */
 static void ump_glint(int32_t X, int32_t Y, int32_t a, const uint8_t *c)
 {
@@ -113,12 +113,12 @@ static int32_t ump_co_on(const umb_lctx_t *cx, uint32_t j, const umb_note_t *nt,
  * its steps out (Q8 px) and round (1024 a turn), its start above the limb (Q8 px) */
 static const uint8_t UMR_LK[8] = {0, 1, 2, 4, 5, 3, 6, 7}, UMR_PW[4] = {13, 2, 13, 5}, UMR_PH[4] = {4, 9, 3, 2};
 static const uint16_t UMR_BG[4][4] = {{1, 0, 0, 154}, {3, 1024, 0, 154}, {2, 0, 14, 154}, {1, 0, 0, 3584}};
-static __attribute__((noinline)) void ump_co_bead(ump_co_t *s, int32_t v, uint32_t tn, uint32_t k, uint32_t now)   /* a glint more, kind k */
+static __attribute__((noinline)) void ump_co_bead(ump_co_t *s, int32_t v, uint32_t tn, uint32_t k)   /* a glint more, kind k */
 {
     uint32_t i = s->nbd++ % 10u;
-    s->ba[i] = (uint16_t)(umb_mb32(&s->rs) & 1023u);
+    s->ba[i] = (uint16_t)(umb_rnd() & 1023u);
     s->bv[i] = (uint8_t)(v > 255 ? 255 : v);
-    s->bt[i] = now;
+    s->bt[i] = umb_now;
     s->bc[i] = (uint8_t)tn;
     s->bk[i] = (uint8_t)k;
 }
@@ -137,12 +137,12 @@ static void ump_co_note(void *st, const umb_lctx_t *cx, const umb_api_t *ap, con
     if ((v = ump_co_on(cx, 5u, nt, (int)drum)) != 0) {
         uint32_t k = drum ? UMR_LK[lane & 7u] : 0u;
         if (k & 4u)                                     /* (a glint) */
-            ump_co_bead(s, v, tn, k & 3u, cx->now);
+            ump_co_bead(s, v, tn, k & 3u);
         else {
             i = s->np++ % 4u;
-            s->pa_[i] = (uint16_t)(umb_mb32(&s->rs) & 1023u);
+            s->pa_[i] = (uint16_t)(umb_rnd() & 1023u);
             s->ph[i] = (uint8_t)(10 + 12 * v / 256);
-            s->pt[i] = cx->now;
+            s->pt[i] = umb_now;
             s->pc[i] = (uint8_t)tn;
             s->pk[i] = (uint8_t)k;
         }
@@ -154,10 +154,10 @@ static void ump_co_note(void *st, const umb_lctx_t *cx, const umb_api_t *ap, con
         s->Pt = (uint8_t)tn;
     }
     if ((v = ump_co_on(cx, 6u, nt, n >= 76u)) != 0)     /* BEADS: a bead */
-        ump_co_bead(s, v, tn, 0u, cx->now);
+        ump_co_bead(s, v, tn, 0u);
     if (!(v = ump_co_on(cx, 3u, nt, 1)))                /* STREAM */
         return;
-    a0 = (int32_t)ump_fifth(cx->root[c % UMB_NTRK], n) * 128 / 12 + 96 + (nt->mo[0] >> 1);   /* (the root at the top; NOTE MOVEMENT round) */
+    a0 = (int32_t)ump_fifth(c, n) * 128 / 12 + 96 + (nt->mo[0] >> 1);   /* (the root at the top; NOTE MOVEMENT round) */
     sg = 16 + (((256 - ump_pk(n)) * 40) >> 8);          /* (its width: 1 .. 3.5 streamers, Q4) */
     e = 90 + ((141 * v) >> 8);
     for (d = -(3 * sg >> 4) - 1; d <= (3 * sg >> 4) + 1; d++) {
@@ -218,7 +218,7 @@ static void ump_co_blocks(int32_t x0, int32_t py, int16_t *bv, uint8_t *bt)
         bt[n] = s->T[i + (f >> 7)];
     }
 }
-static void ump_co_draw(int32_t x0, int32_t y0, uint32_t now)   /* (now: the plates' clock) */
+static void ump_co_draw(int32_t x0, int32_t y0)
 {
     ump_co_t *s = &umb.co;
     int32_t Pq = s->P & ~31, i, u, ch = 128 + ((154 * Pq) >> 8), ic = (64 * Pq) >> 8;
@@ -259,7 +259,7 @@ static void ump_co_draw(int32_t x0, int32_t y0, uint32_t now)   /* (now: the pla
         }
     }
     for (i = 0; i < 4; i++) {                           /* the arches: on the limb, 1.4 s, 8 steps; each its kind's shape */
-        uint32_t age = now - s->pt[i], kd = s->pk[i] & 3u;
+        uint32_t age = umb_now - s->pt[i], kd = s->pk[i] & 3u;
         int32_t fq = s->ph[i] ? ump_fade(age, 1400u, 8u) : 0, rise = age >= 250u ? 256 : (int32_t)(age * 256u / 250u),
                 dl = s->ph[i] * UMR_PW[kd] >> 2, hh = s->ph[i] * UMR_PH[kd] * rise >> 2,
                 lift = kd == 3u ? s->ph[i] * rise * 3 >> 1 : 0;
@@ -281,7 +281,7 @@ static void ump_co_draw(int32_t x0, int32_t y0, uint32_t now)   /* (now: the pla
     }
     for (i = 0; i < 10; i++) {                          /* the glints: on the limb or above it, 0.3 s */
         const uint16_t *g = UMR_BG[s->bk[i] & 3u];
-        int32_t fq = s->bv[i] ? ump_fade(now - s->bt[i], 300u, 8u) : 0, ro = UMR_RM * 256 + g[3];
+        int32_t fq = s->bv[i] ? ump_fade(umb_now - s->bt[i], 300u, 8u) : 0, ro = UMR_RM * 256 + g[3];
         if (fq)
             for (u = 0; u < (int32_t)g[0]; u++) {
                 uint32_t an = (uint32_t)(s->ba[i] + g[2] * u) << 22;
@@ -299,11 +299,11 @@ BTAPP_FN static void ump_co_xdraw(const umb_lctx_t *cx)   /* (in the Bluetooth s
 {
     int32_t i;
     if (cx->xk[0][0]) {                                 /* COMET: across in 24 s .. 4 s (SPEED), TAIL 6 .. 40 points */
-        uint32_t per = 24000u - cx->xk[0][1] * 200u, t = cx->now % per;
+        uint32_t per = 24000u - cx->xk[0][1] * 200u, t = umb_now % per;
         int32_t X = -30 * 256 + (int32_t)((uint64_t)t * 300u * 256u / per), Y = 18 * 256 + (int32_t)((uint64_t)t * 54u * 256u / per),
                 n = 6 + cx->xk[0][2] * 34 / 99, hd = 200 + (cx->beat >> 2);
         for (i = n; i >= 0; i--) {                      /* (the tail back along its path, spreading and fading) */
-            int32_t a = hd * (n - i) / n, sp = i * 40, w = (int32_t)(sine_i((cx->now + (uint32_t)i * 97u) * 900000u) >> 9) * i / n;
+            int32_t a = hd * (n - i) / n, sp = i * 40, w = (int32_t)(sine_i((umb_now + (uint32_t)i * 97u) * 900000u) >> 9) * i / n;
             umm_splat(X - i * 3 * 256, Y - i * 154 + w, a, UMP_WT);
             if (i > 2)
                 umm_splat(X - i * 3 * 256, Y - i * 154 + w + sp / 4 + 256, a >> 2, UMB_EVC[2]);
@@ -314,7 +314,7 @@ BTAPP_FN static void ump_co_xdraw(const umb_lctx_t *cx)   /* (in the Bluetooth s
         int32_t n = 4 + cx->xk[1][1] * 24 / 99, sh = 120 + cx->xk[1][2] * 2;
         for (i = 0; i < n; i++) {                       /* each on its own cycle (5 .. 11 s): in, shining, out, dark a
                                                          * while, then somewhere else round the frame: never all lit */
-            uint32_t h = (uint32_t)i * 0x9E3779B1u, per = 5000u + (h >> 7) % 6000u, t = cx->now + (h >> 3) % per,
+            uint32_t h = (uint32_t)i * 0x9E3779B1u, per = 5000u + (h >> 7) % 6000u, t = umb_now + (h >> 3) % per,
                      g = (h ^ (t / per) * 0x85EBCA77u) * 0xC2B2AE3Du, ph = t % per * 256u / per;
             int32_t X, Y, dx, dy, ex, ey, tw, sz = (g >> 29) == 0;
             if (ph >= 160u)                             /* (dark the last part of its cycle) */
@@ -326,7 +326,7 @@ BTAPP_FN static void ump_co_xdraw(const umb_lctx_t *cx)   /* (in the Bluetooth s
                 X = ex < 0 ? X - UMR_RM - 14 : X + UMR_RM + 14;
                 X = X < 6 ? 6 : X > 234 ? 234 : X;
             }
-            tw = tw * sh * (200 + cx->level / 4 + (sine_i(cx->now * 300000u + h) >> 10)) >> 16;
+            tw = tw * sh * (200 + cx->level / 4 + (sine_i(umb_now * 300000u + h) >> 10)) >> 16;
             tw = tw > 255 ? 255 : tw;
             X *= 256, Y *= 256;
             for (dy = -sz; dy <= sz; dy++)              /* (a dot, now and then a tiny disc; a cross of light when bright) */
@@ -347,8 +347,8 @@ static void ump_co_start(void *st, const umb_lctx_t *cx, const umb_api_t *ap)
 {
     (void)st;
     (void)ap;
+    umb.rs = 218u + cx->now;
     ump_co_init();
-    umb.co.rs = 218u + cx->now;
 }
 static void ump_co_strip(void *st, const umb_lctx_t *cx, const umb_api_t *ap, const umb_strip_t *sp)
 {
@@ -360,7 +360,7 @@ static void ump_co_strip(void *st, const umb_lctx_t *cx, const umb_api_t *ap, co
     umm_p = sp->px;
     umm_w = (uint32_t)sp->w;
     umm_h = (uint32_t)sp->h;
-    ump_co_draw(sp->x0, sp->y0, cx->now);
+    ump_co_draw(sp->x0, sp->y0);
     if (bt_hw_seg())
         ump_co_xdraw(cx);                               /* (API 6) */
 }
@@ -457,7 +457,7 @@ static void umb_welcome(uint32_t ms)
         umm_lq = (g * c) >> 8;
         umm_p = cv_px, umm_w = 240u, umm_h = y ? 96u : 120u;                         /* (CORONA's maps end at its screen's foot, 240 - UMW_DY) */
         if (c)
-            ump_co_draw(0, y + UMW_DY, umb_now);
+            ump_co_draw(0, y + UMW_DY);
         umm_h = 120u;
         umm_lq = g;
         h = 33 + (off >> 8);                            /* the sun (r 29, its limb darker) and the moon (r 30): a box */

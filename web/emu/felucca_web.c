@@ -33,7 +33,6 @@
 #define FELUCCA_VERSION "WEB"
 #endif
 #define UMB_MIRROR 0                     /* (UMBRA LIVE) the screen mirror, as src/felucca.c (its stream: web_mirror_*): out */
-#define UMB_PJ 1                         /* (UMBRA LIVE) the projector's stream (ui_umbra_pj.c): sent and received, web_pj_* */
 #if UMB_MIRROR
 #define SM_BUFFER 3072u
 #include "../../firmware/src/screen_mirror/screen_mirror.c"
@@ -337,10 +336,8 @@ static void web_frame(void)
     autosave_poll();
     song_poll();
     ui_leds();
-    if (!upj_rx)                                        /* (UMBRA LIVE) the projector draws only what it is sent */
-        umr_draw();                                     /* (UMBRA LIVE) ui_draw, and the mirror's repaint round */
+    umr_draw();                                         /* (UMBRA LIVE) ui_draw, and the mirror's repaint round */
     umr_poll();                                         /* (UMBRA LIVE) the screen mirror */
-    upj_tx_flush();                                     /* (UMBRA LIVE) the projector's stream: this frame's messages */
 }
 
 /* output ring, stereo float, filled by web_ms, drained by web_render */
@@ -366,17 +363,14 @@ static void web_ms(void)
         }
         web_half ^= 1u;
     }
-    if (web_booted && (int32_t)(fm1_ms - web_boot_ms) < 0 && !(fm1_ms % 20u) && !upj_rx)   /* main.c: the signature written
-                                                          * ((UMBRA LIVE) the projector following: not its welcome, which
-                                                          * draws CORONA in the ground's state, the sender's copy) */
+    if (web_booted && (int32_t)(fm1_ms - web_boot_ms) < 0 && !(fm1_ms % 20u))   /* main.c: the signature written */
         splash_write(SPL_TIME - (web_boot_ms - fm1_ms));
     if (!web_booted || (int32_t)(fm1_ms - web_boot_ms) < 0)
         return;
     if (web_boot_ms) {                                    /* main.c: the splash goes, the loop starts */
         web_boot_ms = 0;
         kb_boot_hold = 0;
-        if (!upj_rx)                                      /* ((UMBRA LIVE) the projector following: its screen the sender's) */
-            lcd_fill(0, 0, 240, 240, T_BG);
+        lcd_fill(0, 0, 240, 240, T_BG);
         web_last_frame = fm1_ms - 15u;
     }
     if (fm1_ms - web_last_frame >= 15u) {                /* main.c: a frame, then ui_input until 15 ms are over */
@@ -385,7 +379,6 @@ static void web_ms(void)
     } else {
         ui_input();                                       /* main.c's wait loop */
         umr_tick();                                       /* (UMBRA LIVE) and the mirror's queue topped up */
-        upj_tick();                                       /* (UMBRA LIVE) the projector's messages, as there is room */
     }
 }
 
@@ -676,46 +669,6 @@ EXPORT void web_test_heavy(void)
 
 EXPORT uint32_t web_test_user_preset(uint32_t i) { return (uint32_t)up_used(i); }
 
-/* (UMBRA LIVE) the projector's stream (ui_umbra_pj.c, plans/umbra-projector-sync.md). Sending: web_pj_watch (bit 0 on, bit 1
- * everything again), the packets made in web_pj_out() (web_pj_out_len bytes, SysEx) until web_pj_out_clear. Receiving:
- * web_pj_rx(1) (the device draws nothing of its own), the packets copied to web_pj_in(), web_pj_feed(n) runs them */
-EXPORT void web_pj_watch(uint32_t v) { upj_watch(v); }
-EXPORT void web_pj_rate(uint32_t n) { upj.snapn = (uint16_t)n; }   /* a held layer's state sent a frame (bytes; 0: UPJ_SNAPN) */
-EXPORT const uint8_t *web_pj_out(void) { return upj_out; }
-EXPORT uint32_t web_pj_out_len(void) { return upj_out_n; }
-EXPORT void web_pj_out_clear(void) { upj_out_n = 0; }
-EXPORT void web_pj_rx(uint32_t on)                     /* following (nothing of its own drawn), from the next frame's start */
-{
-    upj_rx = (uint8_t)(on != 0);
-    upr.rgot = upr.rsnap = 0;
-    upr.skip = 1;
-    upr.fn = 0;
-}
-EXPORT uint8_t *web_pj_in(void) { return upj_in; }
-EXPORT uint32_t web_pj_in_max(void) { return UPJ_INN; }
-EXPORT void web_pj_feed(uint32_t n) { upj_rx_feed(upj_in, n < UPJ_INN ? n : UPJ_INN); }
-EXPORT uint32_t web_pj_stat(uint32_t i)                /* the receiver's 0..7 (messages, bytes, CRCs right, wrong, gaps,
-                                                         * broken, frames run, paints); the sender's 8 frames lost, 9 events;
-                                                         * 10 the layers whose state has not all come (bits) */
-{
-    return i < 8u ? upr.st[i] : i == 8u ? upj.lost : i == 9u ? upj.made : i == 10u ? upr.rsnap : 0u;
-}
-EXPORT const char *web_pj_lname(uint32_t i)            /* (the receiver) what the sender has on the ground (0), LAYER 1..3 (1..3):
-                                                         * a plate's name, BODIES, "?" a plate not here, "" none */
-{
-    uint32_t key = i ? upr.rs.lk[(i - 1u) % 3u] : upr.rs.gk, pl = upj_pl(key);
-    return !key ? "" : pl == UMX_BODY ? "BODIES" : pl < UMB_NPLT && umb_mod(pl) ? umb_mod(pl)->name : "?";
-}
-EXPORT uint32_t web_pj_state(uint32_t li)              /* layer li's whole state, a CRC-16 (none: 0x10000) */
-{
-    const umb_layer_t *L = &umb_lay[li & 3u];
-    return L->pp && L->st ? upj_crc((const uint8_t *)L->st, L->pp->state) : 0x10000u;
-}
-EXPORT const char *web_pj_name(uint32_t li)            /* layer li's plate's name ("" none) */
-{
-    const umb_layer_t *L = &umb_lay[li & 3u];
-    return L->pp ? L->pp->name : "";
-}
 EXPORT uint16_t *web_screen(void) { return web_fb; }
 EXPORT uint32_t web_screen_draws(void) { return web_draws; }
 EXPORT uint32_t web_now_ms(void) { return fm1_ms; }

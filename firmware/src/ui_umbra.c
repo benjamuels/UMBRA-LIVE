@@ -56,14 +56,6 @@ static uint32_t umb_pl(void)                            /* .. drawn: CORONA whil
  * (LIGHT SPEED REACT MOVE TRAVEL DISSLV) at 0 .., EFFECTS' (MIRROR MOSAIC GLITCH SOLAR INVERT) at 8 .. */
 enum { G_LIGHT, G_SPEED, G_REACT, G_MOVE, G_TRAVEL, G_FADE, G_MIR = 8, G_MOS, G_GLI, G_SOL, G_INV, G_N = 16 };
 static uint8_t umq_o[G_N] __attribute__((section(".pool")));
-#ifndef UMB_PJ
-#define UMB_PJ 0                                        /* the projector's stream (ui_umbra_pj.c): the emulator's builds so far */
-#endif
-#if UMB_PJ && FELUCCA_WEB
-static uint8_t upj_rx;                                  /* (ui_umbra_pj.c) the projector: the plates run on what is sent, not here */
-#elif UMB_PJ
-#define upj_rx 0                                        /* (the FM-1 only sends) */
-#endif
 /* what can move an element: KNOB 1..4 (TOTALITY's: JIANT's macros M1..M4), a track's hits, its LFO, its step, the level,
  * the beat, a tap of ENV, LFO, EDIT, SEL or ARP in TOTALITY (one set to TAP on LIVE VIZ CTRLS' BUTTONS page); each one's
  * value now, 0 .. 256 (umq_tick) */
@@ -104,10 +96,6 @@ static void umq_tick(void);                             /* (ui_umbra_mac.c) */
 static void umb_clock(void)
 {
     uint32_t v, dt = fm1_ms - umb_cr, q;
-#if UMB_PJ
-    if (upj_rx)                                         /* (the projector: the clock and the routes are the sender's) */
-        return;
-#endif
     if (umb_cf == ui.frame + 1u)
         return;
     umb_cf = ui.frame + 1u;
@@ -191,7 +179,6 @@ typedef struct {
     uint8_t ph[4], bv[10], np, nbd;                     /* .. how high, how hard */
     uint8_t pk[4], bk[10];                              /* .. their shape (a drum's lane's: UMR_PK, UMR_BK) */
     uint32_t pt[4], bt[10];                             /* .. when */
-    uint32_t rs;                                        /* its dice (its own, as a plate's: the projector runs it on what is sent) */
 } ump_co_t;
 typedef struct {
     union {
@@ -836,10 +823,6 @@ static void umx_layers(void)
 {
     static uint8_t gen = 0xFFu;
     uint32_t i;
-#if UMB_PJ
-    if (upj_rx)                                         /* (the projector: the layers are the sender's) */
-        return;
-#endif
     umc_load();
     if (gen == (uint8_t)(ups_gen * 16u + umc_gen))
         return;
@@ -856,9 +839,6 @@ _Static_assert(UMX_BODY < UMB_NONE, "a layer's page: a byte, UMB_NONE none");
 static int32_t umb_api_move(const umb_note_t *n, uint32_t ax, int32_t v, int32_t span) { return umn_fold(n->mo[ax & 1u], v, span); }
 static const umb_api_t umb_api = {UMB_API, umb_api_move, SINE, UMB_EVC, umb_tn, umb_E, umb_ln, ump_lut};
 static int16_t umb_vg[UMB_VGN] __attribute__((section(".pool")));   /* the strip's rows' light (umb_strip_t.vg) */
-#if UMB_PJ
-#include "ui_umbra_pj.c"                                /* the projector's stream: what the layers are handed, sent / run */
-#endif
 static void umb_lay_tracks(umb_lctx_t *c)              /* the tracks now: NOTE MOVEMENT's offsets, the roots */
 {
     uint32_t t;
@@ -876,14 +856,14 @@ static int umb_ok(const umb_plate_t *p, uint32_t mode, uint32_t room)
 #define UMB_THS 54                                      /* a TIMELINE preview's side (umb_thumb) */
 static uint16_t umb_tl[2 * UMB_THS] __attribute__((section(".pool")));   /* .. a row of the screen for it */
 static uint8_t umb_th;                                  /* .. being drawn: the strip is that row, not the canvas */
-/* layer li's plate p, its state at st, its light lq (Q8): its context now (c), started afresh if it is new there, then once
- * a frame its notes and its frame */
-static void umb_lay_run(uint32_t li, const umb_plate_t *p, void *st, int32_t lq, umb_lctx_t *cp)
+/* layer li's plate p, its state at st, over the canvas as the screen's x0, y0 .., in draw mode mode, its light lq (Q8) */
+static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0, int32_t y0, uint32_t mode, int32_t lq)
 {
     umb_layer_t *L = &umb_lay[li];
     const umc_rec_t *r = umc_pre(umc_rec(p->name, 0u, p->nctl), p, 0);
     umb_lctx_t c;
-    uint32_t j;
+    umb_strip_t s;
+    uint32_t j, h = umb_th ? 1u : cv_h < UMB_VGN ? cv_h : UMB_VGN;
     for (j = 0; j < UMB_NCTL; j++) {                    /* its elements now, the tracks chosen for each */
         c.k[j] = (uint8_t)(j < p->nctl ? umc_ev(r, j, p->ctl[j].def, 99u) : 0u);
         c.et[j] = r->t[j];
@@ -912,25 +892,13 @@ static void umb_lay_run(uint32_t li, const umb_plate_t *p, void *st, int32_t lq,
         L->qr = umb_q.w;
         L->last = umb_now;
         p->init(st, &c, &umb_api);
-#if UMB_PJ
-        if (upj.on)
-            upj_tx_init(li, p, st, &c);
-#endif
     }
-    if (L->f0 != ui.frame                               /* once a frame: the notes since (a burst: the newest), its frame */
-#if UMB_PJ
-        && !(upj.on && upj_tx_snap(li, p, st, &c))      /* (a projector catching up: held while its state goes) */
-#endif
-       ) {
+    if (L->f0 != ui.frame) {                            /* once a frame: the notes since (a burst: the newest), its frame */
         L->f0 = ui.frame;
         c.dt = umb_now - L->last > 250u ? 250u : umb_now - L->last;
         L->last = umb_now;
         if (umb_q.w - L->qr > UMB_NQ)
             L->qr = umb_q.w - UMB_NQ;
-#if UMB_PJ
-        if (upj.on)
-            upj_tx_frame(li, p, st, &c);
-#endif
         for (; L->qr != umb_q.w; L->qr++) {
             uint32_t q = L->qr % UMB_NQ, t = umb_q.c[q], v = umb_vel(umb_q.vel[q]);   /* (REACT) */
             umb_note_t n;
@@ -947,35 +915,10 @@ static void umb_lay_run(uint32_t li, const umb_plate_t *p, void *st, int32_t lq,
             n.mo[0] = umb_qo[q][0];                     /* (where NOTE MOVEMENT put it: the ground's call, this frame's) */
             n.mo[1] = umb_qo[q][1];
             p->note(st, &c, &umb_api, &n);
-#if UMB_PJ
-            if (upj.on)
-                upj_tx_note(li, &n);
-#endif
         }
         umb_lay_tracks(&c);                             /* (after the notes: where they left the tracks) */
         p->frame(st, &c, &umb_api);
-#if UMB_PJ
-        if (upj.on)
-            upj_tx_post(li, p, st, &c);
-#endif
     }
-    *cp = c;
-}
-/* layer li's plate p, its state at st, over the canvas as the screen's x0, y0 .., in draw mode mode, its light lq (Q8) */
-static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0, int32_t y0, uint32_t mode, int32_t lq)
-{
-    umb_lctx_t c;
-    umb_strip_t s;
-    uint32_t j, h = umb_th ? 1u : cv_h < UMB_VGN ? cv_h : UMB_VGN;
-#if UMB_PJ && FELUCCA_WEB
-    if (upj_rx) {                                       /* (the projector: the context as sent; its dt in the frame's first strip) */
-        c = upr.rc[li & 3u];
-        if (!upr.rdt[li & 3u])
-            c.dt = 0;
-        upr.rdt[li & 3u] = 0;
-    } else
-#endif
-        umb_lay_run(li, p, st, lq, &c);
     for (j = 0; j < h; j++)
         umb_vg[j] = (int16_t)umb_rowlight(y0 + (int32_t)j, lq);
     s.px = umb_th ? umb_tl : cv_px;
@@ -1002,11 +945,7 @@ static int32_t umb_prep(void)                          /* before a frame's plate
 }
 static void umb_scene(int32_t x0, int32_t y0, const uint16_t *la)   /* la: the ground's light, LAYER 1..3's (Q8) */
 {
-#if UMB_PJ && FELUCCA_WEB
-    const umb_plate_t *p = umb_mod(upj_rx ? upr.gpl : umb_pl());   /* (the projector: the sender's ground) */
-#else
     const umb_plate_t *p = umb_mod(umb_pl());
-#endif
     uint32_t i, top = UMB_BLK, g = 0;
     int32_t lq = umb_prep();
     if (umb_ok(p, UMB_DRAW_REPLACE, UMB_BLK)) {

@@ -27,7 +27,6 @@ emcc ${EMU_OPT:--O2} -ffp-contract=off -std=gnu99 -w ${EMU_CFLAGS:-} \
     "-DFELUCCA_VERSION=\"$VERSION\"" -DUMB_RES_ALL=1 -DUMB_NSLOT=32u -Ibuild/gen -Ifirmware/src \
     --no-entry -sSTANDALONE_WASM -sSTACK_SIZE=1048576 -sINITIAL_MEMORY=33554432 -sFILESYSTEM=0 \
     -o build/player/plates.wasm web/emu/felucca_web.c
-cp build/player/plates.wasm build/emu/                  # (and the projector's, emu/?projector: it follows any plate the FM-1 runs)
 [ "${EMU_PREVIEW:-1}" = 0 ] && PREVIEW='' || PREVIEW=' (preview)'
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@PREVIEW@/$PREVIEW/g" web/emu/index.html > build/emu/index.html
 cp web/emu/worklet.js web/emu/stems.js web/fm1backup.js build/emu/

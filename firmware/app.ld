@@ -75,9 +75,7 @@ SECTIONS
     /* (V10.12) the Bluetooth segment's RAM in the pool, but its baseband block (ble_hw_wl82.c bb, 1508 B, read and
      * written by the radio's DMA) here, in the RAM every DMA reaches */
     .bss (NOLOAD) : { _bss_start = .; *(EXCLUDE_FILE(*bt_seg.o) .bss*) *(EXCLUDE_FILE(*bt_seg.o) .sbss*)
-                      *(EXCLUDE_FILE(*bt_seg.o) COMMON) *bt_seg.o(.bss.bb) *(.upj.bss) . = ALIGN(4); _bss_end = .; } > RAM
-    /* (UMBRA LIVE, 2026-11-14) .upj.bss: the projector's stream (ui_umbra_pj.c), last, so nothing before it moves (a few
-     * bytes more .bss in the middle cost kilobytes of image: the variables after it reached by longer addresses) */
+                      *(EXCLUDE_FILE(*bt_seg.o) COMMON) *bt_seg.o(.bss.bb) . = ALIGN(4); _bss_end = .; } > RAM
     .pool (NOLOAD) : { _pool_start = .; *(.pool*) *bt_seg.o(.bss* .sbss* COMMON) . = ALIGN(4); _pool_end = .; } > POOL
     /* (JIANT 0.6.71) the second core's stacks (hal/fm1_multicore.h): 6 KiB for the render, 1 KiB for an exception */
     .c1_stacks (NOLOAD) : { . = ALIGN(32); _c1_stack_lo = .; . += 7168; _c1_stack_hi = .; } > POOL

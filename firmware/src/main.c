@@ -499,10 +499,6 @@ static void fm1_main(void)
 #else
         ui_draw();
 #endif
-#if UMB_PJ
-        if (upj.on)
-            upj_tx_flush();                             /* (UMBRA LIVE) the projector's stream: the frame's events, to send */
-#endif
         felucca_dbg.stage = 9;
         while (fm1_ms - m < (ui_hold ? 50u : 15u)) {             /* ~60 UI frames/s at most; held: 20 */
             ui_input();
@@ -511,10 +507,6 @@ static void fm1_main(void)
 #endif
 #if UMB_MIRROR
             umr_tick();                         /* (UMBRA LIVE) the screen mirror's queue, as USB empties it */
-#endif
-#if UMB_PJ
-            if (upj.on)
-                upj_tick();                     /* (UMBRA LIVE) the projector's messages, one at a time as USB empties */
 #endif
         }
     }

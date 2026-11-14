@@ -55,17 +55,6 @@ static int ed_plate_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         rc = n != 1u || a[0] >= ED_PLATE_SLOTS ? 1u : ed_flash_stop() ? 3u : ups_erase(a[0]);
         ed_b(n ? a[0] : 127u); ed_b(rc);
         return 1;
-#if UMB_PJ
-    case UPJ_WATCH:                                     /* (the projector, ui_umbra_pj.c) bits: 0 watch (again within 3 s, or
-                                                         * it stops), 1 everything again -> watching, the stream's version,
-                                                         * the plate API. While watched: PJ_FRAME (102) messages */
-        if (n != 1u)
-            return 0;
-        if (bt_hw_seg())                                /* (the sender is in the Bluetooth segment) */
-            upj_watch(a[0]);
-        ed_b(upj.on); ed_b(1u); ed_b(UMB_API);
-        return 1;
-#endif
     }
     return 0;
 }
