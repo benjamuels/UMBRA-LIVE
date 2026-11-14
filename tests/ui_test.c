@@ -11791,9 +11791,9 @@ static int test_skin(void)
         fm1_in.buttons &= ~dn; frame(); frame();
         ok &= umw_on() && !umw_gone() && umw_pg == 4u && !umw_eat; /* (let go: it stays, no page back) */
         fm1_in.buttons |= dn; host_pressed |= dn;
-        for (k = 0; k < 330u; k++) frame();                        /* (~5.3 s: not yet) */
+        for (k = 0; k < 210u; k++) frame();                        /* (~3.4 s: not yet) */
         ok &= !umw_gone() && umw_on();
-        for (k = 0; k < 60u; k++) frame();                         /* (past 6 s: gone) */
+        for (k = 0; k < 60u; k++) frame();                         /* (past 4 s: gone) */
         l = ui.hset[0];
         ok &= umw_gone() && !umw_on() && l == 1u && ui.home && !ui.hlv && lz_tabs() == 2u && lz_crumb_is("HOME \xB7 UMBRA \xB7 LIVE AUDIO CTRLS") &&
               song.octave == 0;
@@ -11969,15 +11969,17 @@ static int test_skin(void)
         x = umx_raw(3u, 0u);
         turn(EN_K1, 1); turn(EN_K4, -5);                           /* (its first element set, in that preset) */
         ok &= umx_el == 1u && umx_raw(3u, 0u) != x && ui.song_row == 0u;
-        turn(EN_ALGO, 1); frame();                                 /* (ALGORITHM: the cell's plate, the next ground) */
+        turn(EN_ALGO, 1); frame();                                 /* (ALGORITHM: the cell's plate, the next ground; 2026-11-14:
+                                                                    * a plate chosen comes and goes in a CUT) */
         ok &= umv_cell(0, 0)->key != sx && umb_pl() == umx_pg && umx_pg != 3u && !umx_veil(umx_pg);
+        ok &= umv_cell(0, 0)->tr == UMV_CUT && umv_tf(UMV_CUT, 0u) == 3u && umv_tf(UMV_CUT, 2u) == 3u && umv_cell(0, 1)->tr == UMV_CUT;
         press(B_OCTUP); frame();                                   /* (2026-11-13: OCT+ again, its transition; KNOB 1 how it
                                                                     * comes in, nothing in the cell yet; ALGORITHM nothing) */
         n = umv_cell(0, 0)->key;
-        turn(EN_K1, 1); turn(EN_ALGO, 1);
-        ok &= umv_ed == 2u && umv_tf(umv_trd, 0u) == 1u && !umv_cell(0, 0)->tr && umv_cell(0, 0)->key == n;
+        turn(EN_K1, -2); turn(EN_ALGO, 1);                         /* (CUT, two back: FADE) */
+        ok &= umv_ed == 2u && umv_tf(umv_trd, 0u) == 1u && umv_cell(0, 0)->tr == UMV_CUT && umv_cell(0, 0)->key == n;
         press(B_OCTDN); frame();                                   /* (OCT-: the cell again, the transition as it was) */
-        ok &= umv_ed == 1u && !umv_cell(0, 0)->tr;
+        ok &= umv_ed == 1u && umv_cell(0, 0)->tr == UMV_CUT;
         press(B_OCTDN); frame();                                   /* (.. and out: the cell as before it was opened) */
         ok &= !umv_on() && umv_tk == 1u && chain_config.count == 3u && !ui.confirm;
         ok &= FELUCCA_FLASH ? umv_cell(0, 0)->key == sx && umv_cell(0, 0)->pre == 1u && umv_cell(1, 1)->key == bk :
@@ -14477,6 +14479,101 @@ static int test_eq_tape_load(void)
 
 #include "song_save_ui_cases.h"
 
+/* (UMBRA LIVE, the user 2026-11-14) TIMELINE: a transition's LENGTH up to 16 s (0.5 1 2 4 8 16), kept in its cell (the
+ * lengths' high bits in its preset byte's top: a store from before, every length as it was) and played that long */
+static int test_timeline_fade_16(void)
+{
+    int bad = 0, ok = 1;
+    uint32_t k, i, j, b = 0x2D7u;                       /* (every field something: the others left as they are) */
+    umc_cell_t *c;
+    ui_power_on(); frame();
+    for (k = 0; k < 4u; k++)
+        for (i = 0; i < ((k & 1u) ? UMV_NLS : 4u); i++)
+            for (j = 0; j < 4u; j++)
+                ok &= umv_tf(umv_ts(b, k, i), j) == (j == k ? i : umv_tf(b, j));
+    ok &= umv_tf(233u, 1u) == 3u && umv_tf(233u, 3u) == 2u && umv_tf(0u, 1u) == 1u && umv_tf(UMV_CUT, 3u) == 1u &&
+          str_eq(UMV_LS[UMV_NLS - 1u], "16 S");   /* (the old bytes: GENE's FADE 4 S in, 2 S out; 0: 1 s) */
+    if (!ok) printf("  fade 16: the fields\n");
+    memset(&umc, 0, sizeof umc);
+    chain_config.count = 2;
+    chain_config.row[0] = (chain_row_t){0, 1}; chain_config.row[1] = (chain_row_t){0, 2};
+    go_title("TIMELINE"); frame();
+    ui.song_row = 0; umv_tk = umv_ed = 0;
+    track_select(trk_live - 1u);
+    turn(EN_ALGO, 1); turn(EN_K4, 1); turn(EN_K4, 1);   /* (MAIN; past -- and OFF: a plate, a turn a step) */
+    c = umv_cell(0, 0);
+    c->pre = (c->pre & ~3u) | 2u;                       /* (its preset: 3) */
+    ok &= umv_tk == 1u && c->key && c->key != UMC_OFF && c->tr == UMV_CUT;
+    press(B_OCTUP); frame(); press(B_OCTUP); frame();   /* (the cell, then its transition) */
+    turn(EN_K1, -2); turn(EN_K2, 9);                    /* (IN: a FADE, as long as it goes: 16 S, not past it) */
+    turn(EN_K3, -2); turn(EN_K4, 3);                    /* (OUT: a FADE of 8 S, from CUT's 1 S) */
+    ok &= umv_ed == 2u && umv_tf(umv_trd, 0u) == 1u && umv_tf(umv_trd, 1u) == UMV_NLS - 1u && umv_tf(umv_trd, 2u) == 1u &&
+          umv_tf(umv_trd, 3u) == 4u && c->tr == UMV_CUT;
+    turn(EN_K2, -1);
+    ok &= umv_tf(umv_trd, 1u) == 4u;
+    turn(EN_K2, 1);
+    press(B_OCTUP); frame();                            /* (kept) */
+    ok &= !umv_on() && umv_tf(umv_trv(c), 1u) == 5u && umv_tf(umv_trv(c), 3u) == 4u && UMC_CPRE(c) == 2u && msg_is("CELL KEPT");
+    c->pre = (c->pre & ~3u) | 1u;                       /* (KNOB 3 / the web page's preset: the lengths stay) */
+    ok &= umv_tf(umv_trv(c), 1u) == 5u && UMC_CPRE(c) == 1u;
+    umv_apply(0);
+    umv_st.row = 0;
+    umv_st.t0[0] = fm1_ms - 8000u;                      /* (come in 8 s ago: half of it) */
+    umv_tick();
+    ok &= umv_lt[0] >= 126u && umv_lt[0] <= 130u;
+    umv_st.t0[0] = fm1_ms - 15000u;
+    umv_tick();
+    ok &= umv_lt[0] >= 238u && umv_lt[0] < 256u;
+    umv_st.t0[0] = fm1_ms - 16001u;
+    umv_tick();
+    ok &= umv_lt[0] == 256u;
+    if (!ok) printf("  fade 16: tk %u ed %u tr %u pre %u lt %u\n", umv_tk, umv_ed, c->tr, c->pre, umv_lt[0]);
+    bad += check("(UMBRA LIVE) TIMELINE: a transition's LENGTH up to 16 S, kept in the cell (the old bytes as they were), a FADE that long", ok);
+    turn(EN_ALGO, -2);
+    press(B_HOME); frame(); press(B_HOME); frame();
+    memset(&umc, 0, sizeof umc);
+    umc_flash(&umc, sizeof umc, 1);
+    chain_defaults(&chain_config);
+    umb_plate = 0x80u;
+    ui_power_on();
+    return bad;
+}
+
+/* (UMBRA LIVE, the user 2026-11-14) SAVE > PROJECT > ARRANGE: PLAY starts the song from the row selected, not always the
+ * first; the cursor on + ADD or END: the first. Run last: it plays a song, and the UMBRA tests before it start from what
+ * the ones before them left (LIVE VIZ CTRLS' page) */
+static int test_arrange_play_row(void)
+{
+    int bad = 0, ok;
+    chain_config_t keep;
+    ui_power_on(); frame();
+    project_save(0);
+    keep = chain_config;
+    chain_config.count = 3;
+    chain_config.row[0] = (chain_row_t){0, 1}; chain_config.row[1] = (chain_row_t){0, 2}; chain_config.row[2] = (chain_row_t){0, 3};
+    go_title("ARRANGE"); frame();
+    ok = !ui.home && cur_page()->graph == GR_SONG && cur_page()->title[0] == 'A';
+    ui.song_row = 2;
+    press(B_PLAY);
+    ok &= chain.armed && sec_stage.ready && sec_stage.row == 2u && umt.on;
+    events_block(32);
+    ok &= chain.running && chain.row == 2u;
+    press(B_PLAY); events_block(32);
+    ok &= !chain.running && !chain.armed && !song.playing;
+    song_poll();                                        /* (the main loop: the music as before the song) */
+    press(B_HOME); frame();
+    ok &= !umt.on && cur_page()->graph == GR_SONG && !chain.ended;
+    ui.song_row = (uint8_t)song_end_row();              /* (END) */
+    press(B_PLAY);
+    ok &= chain.armed && sec_stage.row == 0u;
+    press(B_PLAY); events_block(32); press(B_HOME); frame();
+    ok &= !chain.running && !chain.armed && !umt.on;
+    bad += check("(UMBRA LIVE) ARRANGE: PLAY from the row selected (row 3: row 3 plays); on END: from the first", ok);
+    chain_config = keep;
+    ui_power_on();
+    return bad;
+}
+
 int main(void)
 {
 #ifdef SONG_SAVE_ONLY
@@ -14616,6 +14713,8 @@ int main(void)
 #endif
     bad += test_power_on_099();
     bad += test_engine_order_099();
+    bad += test_timeline_fade_16();
+    bad += test_arrange_play_row();                     /* ((UMBRA LIVE) last: it plays a song) */
 
     if (getenv("UI_SCREEN_DIR")) chain_screens(getenv("UI_SCREEN_DIR"));
     printf(bad ? "ui: %d FAILED\n" : "ui: all passed\n", bad);

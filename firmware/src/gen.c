@@ -2889,7 +2889,7 @@ static void gen_go(void)
     gform_kept = 0;
     undo_mark();
     if (song_draft_begin()) {
-        if (play) { if (live.mode) chain_play_ui(); else transport_req = 1; }
+        if (play) { if (live.mode) chain_play_ui(0); else transport_req = 1; }
         return;
     }
     gen_make();
@@ -2900,7 +2900,7 @@ static void gen_go(void)
     str_cpy(gp.last + k, b, sizeof gp.last - k);
     ui_say("GENE: ", gp.last);
     str_cpy(ui.msg2, live.mode ? "PLAY: SONG / SAVE: ALL PARTS" : "UNDO: GLO + G4", sizeof ui.msg2);
-    if (play) { if (live.mode) chain_play_ui(); else transport_req = 1; }
+    if (play) { if (live.mode) chain_play_ui(0); else transport_req = 1; }
     ui.force = 1;
 }
 static uint32_t gen_sig(void)                           /* the settings that make the piece */

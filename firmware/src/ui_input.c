@@ -3017,7 +3017,8 @@ static void ui_input_frame(void)
                      live.mode || (UMB_ON && umt.on && umt.song)) {   /* (the song layer's SONG mode; PARTS: as KNOB 4
                                                          * says; (UMBRA LIVE) TOTALITY's song) */
                 uint32_t sp = !ui.home && cur_page()->graph == GR_SONG;
-                chain_play_ui();
+                chain_play_ui(sp && ui.song_row < chain_config.count ? ui.song_row : 0u);   /* ((UMBRA LIVE, the user
+                                                         * 2026-11-14) ARRANGE: from the row selected; + ADD, END: the first) */
                 if (UMB_ON && sp && chain_busy())       /* (UMBRA LIVE) TIMELINE, ARRANGE: the song in TOTALITY */
                     umt_enter(1);
             } else

@@ -72,6 +72,9 @@ static int16_t umq_s[UMQ_NS] __attribute__((section(".pool")));
 static uint16_t umv_lt[2] = {256u, 256u}, umv_gt = 256u;
 static uint8_t umv_mo;
 static struct { uint8_t tr[2], row; uint32_t t0[2]; } umv_st;   /* (row: the song's row they were laid for) */
+static uint8_t umv_sthi __attribute__((section(".pool")));   /* .. and each track's transition's lengths' high bits, 2 a
+                                                         * track (umv_trv; in the pool: .bss as it was, the audio's
+                                                         * layout kept) */
 BTAPP_FN static void umv_tick(void);
 static const char *const UMV_TN[2] = {"MAIN", "OVER"};   /* the picture tracks */
 /* NOTE MOVEMENT (SCREEN's MOVE): where a track's notes land on a plate moves along a path of the track's
@@ -407,9 +410,14 @@ typedef struct {
 typedef struct {                                        /* a cell of SAVE > SONG > TIMELINE's two picture tracks */
     uint16_t key;                                       /* the page shown from this row on (its name's key; 0: as before it,
                                                          * UMC_OFF: none) */
-    uint8_t pre, tr;                                    /* .. its preset; how it comes and goes (umv_tf: 0 comes in a
-                                                         * DISSOLVE of 1 s, goes in a CUT) */
+    uint8_t pre, tr;                                    /* .. its preset (pre's bits 0, 1: UMC_CPRE); how it comes and goes
+                                                         * (tr, and pre's bits 6, 7: IN's and OUT's lengths' high bits, the user
+                                                         * 2026-11-14: up to 16 s; umv_trv, umv_tf: 0 comes in a DISSOLVE of 1 s,
+                                                         * goes in a CUT; a plate chosen: UMV_CUT) */
 } umc_cell_t;
+#define UMC_CPRE(c) ((c)->pre & 3u)                     /* a cell's preset (UMC_NPRE) */
+#define UMV_CUT 3u                                      /* (the user, 2026-11-14) a plate chosen in a cell: no transition, IN
+                                                         * a CUT and OUT a CUT, until its transition is set (umv_tf) */
 typedef struct {
     uint32_t magic;
     uint16_t lay[3];                                    /* LAYER 1..3: the page lying there (its key; 0: none) */
@@ -756,6 +764,7 @@ static void umv_apply(uint32_t r)
         if (!c)
             continue;
         umv_st.tr[tk] = c->tr;
+        umv_sthi = (uint8_t)((umv_sthi & ~(3u << 2u * tk)) | (uint32_t)(c->pre >> 6) << 2u * tk);
         if (c->key == UMC_OFF) {
             if (tk && umc.lay[0]) {
                 umc.lay[0] = 0;
@@ -768,7 +777,7 @@ static void umv_apply(uint32_t r)
             }
         } else if ((pl = umx_find(c->key)) != UMB_NONE && umx_can(pl, 1u + tk)) {
             umx_place_set(pl, 1u + tk);
-            umx_pre_set(pl, c->pre);
+            umx_pre_set(pl, UMC_CPRE(c));
         }
     }
 }
@@ -787,6 +796,7 @@ static void umv_turn(umc_cell_t *c, uint32_t tk, int32_t s)
         return;
     c->key = (uint16_t)(pl == -2 ? 0u : pl == -1 ? UMC_OFF : umx_key(d.name));
     c->pre = 0;
+    c->tr = UMV_CUT;                                    /* (as the preset: a plate chosen starts with none) */
     umc_touch();
 }
 static void umv_name(const umc_cell_t *c, char *b)     /* a cell's page as words (12 bytes) */

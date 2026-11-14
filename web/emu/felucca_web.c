@@ -490,7 +490,7 @@ EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA LIVE) 99: the g
         else {
             umc_cell_t *c = umv_cell(v >> 24, v >> 16 & 1u);
             c->key = (uint16_t)((v & 255u) == 254u ? 0u : (v & 255u) == 255u ? UMC_OFF : umx_desc(v & 255u, &d) ? umx_key(d.name) : 0u);
-            c->pre = (uint8_t)(v >> 8 & 3u);
+            c->pre = (uint8_t)((c->pre & ~3u) | (v >> 8 & 3u));   /* (pre's high bits: the transition's lengths') */
         }
     } else if (i == 97u)
         umx_place_set(v & 255u, v >> 8);

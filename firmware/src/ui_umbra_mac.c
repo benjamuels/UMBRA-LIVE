@@ -193,17 +193,32 @@ static int umt_blit(uint32_t i)
  * long, 3 how it goes OUT, 4 how long; OCT+ again: all of it kept. OCT- a step back with nothing kept (the user,
  * 2026-11-13): from the transition its four as they were, from the cell the store as it was when the cell was opened
  * (read again from flash: it was saved as the cell opened, and nothing is saved while one is open, umv_poll) */
-static uint8_t umv_trd, umv_bp;                         /* the transition being set; the ground's plate as the cell was opened */
+static uint16_t umv_trd __attribute__((section(".pool")));   /* the transition being set (umv_trv) */
+static uint8_t umv_bp;                                  /* the ground's plate as the cell was opened */
 static const char *const UMV_TY[4] = {"DISSOLVE", "FADE", "BLOCKS", "CUT"};
-static const char *const UMV_LS[4] = {"0.5 S", "1 S", "2 S", "4 S"};
-/* a transition byte's field k as its place in the lists: 0 IN's kind (UMV_TY), 1 IN's length (UMV_LS), 2 OUT's kind,
- * 3 OUT's length; and the field's two bits for a place (a new cell's 0: IN a DISSOLVE of 1 s, OUT a CUT) */
+#define UMV_NLS 6u                                      /* (the user, 2026-11-14: a fade up to 16 s; 4 s until then) */
+static const char *const UMV_LS[UMV_NLS] = {"0.5 S", "1 S", "2 S", "4 S", "8 S", "16 S"};   /* (500 ms << the place) */
+/* a transition (umv_trv: a cell's tr, its lengths' high bits 8 IN's, 9 OUT's)'s field k as its place in the lists: 0 IN's
+ * kind (UMV_TY), 1 IN's length (UMV_LS), 2 OUT's kind, 3 OUT's length; umv_ts the transition with field k at place i
+ * (0: IN a DISSOLVE of 1 s, OUT a CUT; a plate chosen in a cell, umv_turn: UMV_CUT, IN a CUT too; a store from before
+ * the lengths' high bits: all 0, every length as it was) */
 static uint32_t umv_tf(uint32_t v, uint32_t k)
 {
-    v = v >> 2u * k & 3u;
-    return k == 2u ? (v + 3u) & 3u : (k & 1u) ? v ^ 1u : v;
+    uint32_t f = v >> 2u * k & 3u;
+    return k == 2u ? (f + 3u) & 3u : (k & 1u) ? (f ^ 1u) | (v >> (8u + (k >> 1)) & 1u) << 2 : f;
 }
-static uint32_t umv_tb(uint32_t i, uint32_t k) { return k == 2u ? (i + 1u) & 3u : (k & 1u) ? i ^ 1u : i; }
+static uint32_t umv_ts(uint32_t v, uint32_t k, uint32_t i)
+{
+    uint32_t h = 8u + (k >> 1);
+    v = (v & ~(3u << 2u * k)) | (k == 2u ? (i + 1u) & 3u : (k & 1u) ? (i ^ 1u) & 3u : i) << 2u * k;
+    return (k & 1u) ? (v & ~(1u << h)) | (i >> 2 & 1u) << h : v;
+}
+static uint32_t umv_trv(const umc_cell_t *c) { return c->tr | (uint32_t)(c->pre >> 6) << 8; }
+static void umv_trput(umc_cell_t *c, uint32_t v)
+{
+    c->tr = (uint8_t)v;
+    c->pre = (uint8_t)((c->pre & 63u) | (v >> 8 & 3u) << 6);
+}
 /* once a frame (umb_clock): the transitions now. A plate come in with its row (umv_st.t0, umv_poll) comes IN over its
  * length; one the song's next row replaces (a cell there) goes OUT over the end of this row. FADE: the track's light;
  * DISSOLVE: TOTALITY's gate (going: the track dark behind it); BLOCKS: MOSAIC, from or to its coarsest */
@@ -218,7 +233,8 @@ BTAPP_FN static void umv_tick(void)                     /* (in the Bluetooth seg
         left = chain.row != r ? 0u : ((chain.remaining ? chain.remaining : 1u) * chain_bar() - chain.bar_pos) / (b / mb);   /* row's
                                                          * plates not in yet: gone still */
     for (tk = 0; tk < 2u; tk++) {
-        uint32_t v = umv_st.tr[tk], ty = umv_tf(v, 2u), ln = 500u << umv_tf(v, 3u), p = left, out = 1, lt = 256u;
+        uint32_t v = umv_st.tr[tk] | (umv_sthi >> 2u * tk & 3u) << 8, ty = umv_tf(v, 2u), ln = 500u << umv_tf(v, 3u), p = left,
+                 out = 1, lt = 256u;
         if (left >= ln || !umv_cell(r + 1u, tk)->key) { /* (not going: coming in?) */
             out = 0;
             ty = umv_tf(v, 0u);
@@ -841,7 +857,7 @@ static int umv_knob(uint32_t k, int32_t s)
         return 0;
     c = umv_cc();
     if (umv_on() && umv_ed == 2u)                       /* its transition: KNOB k its field, a detent a place */
-        umv_trd = (uint8_t)((umv_trd & ~(3u << 2u * k)) | umv_tb((uint32_t)clamp((int32_t)umv_tf(umv_trd, k) + s, 0, 3), k) << 2u * k);
+        umv_trd = (uint16_t)umv_ts(umv_trd, k, (uint32_t)clamp((int32_t)umv_tf(umv_trd, k) + s, 0, (k & 1u) ? (int32_t)UMV_NLS - 1 : 3));
     else if (!umv_on())
         umv_turn(c, umv_tk - 1u, s);
     else if (umx_pg != UMB_NONE && (umx_el || !k)) {
@@ -858,7 +874,8 @@ static int umk_preset(int32_t s)
 {
     if (umv_on()) {
         if (umx_pg != UMB_NONE && umv_ed == 1u) {
-            umv_cc()->pre = (uint8_t)clamp((int32_t)umv_cc()->pre + s, 0, UMC_NPRE - 1);
+            umc_cell_t *c = umv_cc();
+            c->pre = (uint8_t)((c->pre & ~3u) | (uint32_t)clamp((int32_t)UMC_CPRE(c) + s, 0, UMC_NPRE - 1));
             umc_touch();
             umv_sync();
         }
@@ -914,7 +931,7 @@ BTAPP_FN static void umv_gene(uint32_t en, uint32_t dr, uint32_t sd)
             if (key != last[tk]) {
                 c->key = (uint16_t)(last[tk] = key);
                 c->pre = (uint8_t)(((sd >> 4) ^ chain_config.row[r].slot) & 3u);
-                c->tr = (uint8_t)(e < 34u ? 233u : e > 60u ? 6u : 0u);   /* (umv_tb: FADE 4 S in, FADE 2 S out; BLOCKS 0.5 S in) */
+                c->tr = (uint8_t)(e < 34u ? 233u : e > 60u ? 6u : 0u);   /* (umv_ts: FADE 4 S in, FADE 2 S out; BLOCKS 0.5 S in) */
             }
         }
     }
@@ -975,11 +992,11 @@ static uint32_t umv_input(uint32_t oct)
         umv_bp = umb_plate;
         umv_ed = 1;
     } else if (umv_ed == 1u && bt_hw_seg()) {           /* (no segment: no transitions, kept at once) */
-        umv_trd = umv_cc()->tr;
+        umv_trd = (uint16_t)umv_trv(umv_cc());
         umv_ed = 2;
     } else {
         if (umv_ed == 2u)
-            umv_cc()->tr = umv_trd;
+            umv_trput(umv_cc(), umv_trd);
         umc_touch();
         umv_ed = 0;
         ui_message("CELL KEPT");
@@ -1014,7 +1031,7 @@ static void umv_tl(void)
         } else
             cv_text(x, 106, &AF_X, b, c->key ? T_TEXT : T_DIM);
         if (!chain.running && c->key && c->key != UMC_OFF) {
-            umx_pre_name(umx_find(c->key), c->pre, b);
+            umx_pre_name(umx_find(c->key), UMC_CPRE(c), b);
             cv_text(x, 116, &AF_X, b[2] ? b + 3 : b, T_MID);
         }
     }
