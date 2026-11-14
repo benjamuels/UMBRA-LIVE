@@ -1,8 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 UMBRA LIVE contributors */
 /* BEACON, a plate module (umb_plate.h): the lighthouse of UMBRA OBSCURA, the game, in its line art. A tower on its rock,
- * six windows up it, the lamp room under its roof; the lamp turns, and its beam (a fan of rays) reaches out to one side,
- * shortens as it swings toward you, and comes out again on the other. Line art only: its light is added to the strip, so it
+ * six windows up it, the lamp room under its roof; the lamp turns all the way round, and its beam (a fan of rays) reaches
+ * out to one side, swings toward you (wider and brighter, the lamp flaring into a burst as it faces you), out to the other
+ * side, and round behind the tower (narrow and dim, the lamp room hiding its root). Over the whole sky, top to bottom,
+ * sixteen constellations of the sky's own (the kit's and the tracks' shapes) rest faint and light in turn: each its stars
+ * one by one, then the lines between them, then out; where in its round each stands follows a wave whose way across the
+ * sky turns slowly, mixed with a dice of its own that grows and shrinks, so the pattern keeps changing and never all are
+ * lit at once (the beat and the level push it on). Line art only: its light is added to the strip, so it
  * lies on a layer as well as it stands alone (REPLACE: black under it).
  * Elements: TURN (how fast the lamp turns: 0 still), FADE (how long a window or a star stays lit);
  *   STARS   (the user, 2026-11-13) a note puts its instrument's constellation in the sky, high or low and left or right
@@ -24,12 +29,14 @@ typedef struct {
     uint32_t ang;                                       /* the lamp's turn (2^32 a turn) */
     uint16_t win[UMB_NTRK];                             /* each window's light (Q8) */
     uint16_t flare, lamp;                               /* the beam's flare, the lamp's flash (Q8) */
+    uint32_t sk;                                        /* the sky's constellations' clock (ms, the beat pushing it) */
 } plb_t;
 #define PLB_X 120                                       /* the tower's middle */
 #define PLB_BY 214                                      /* .. its foot, its top (the gallery), the lamp */
 #define PLB_TY 96
 #define PLB_LY 84
 static const uint8_t PLB_RAY[3] = {200, 240, 236};
+static const uint8_t PLB_RAIN[3] = {110, 150, 210};    /* (NEW) the rain's grey-blue */
 #define PLB_ST 170                                      /* a star comes out every 170 ms a note is held */
 /* the shapes, five stars each (px from the note's place): a track's 0 .. 5, the kit's lanes 6 .. 13 by lane */
 static const int8_t PLB_PAT[14][5][2] = {
@@ -91,6 +98,7 @@ PL_SMALL static void plb_frame(void *st, const umb_lctx_t *cx, const umb_api_t *
     uint32_t t;
     (void)a;
     m->ang += cx->dt * 10737u * cx->k[0];               /* (TURN 50: a turn in 8 s) */
+    m->sk += cx->dt * (256u + cx->beat + cx->level / 2u) >> 8;   /* (on the beat, loud: up to twice as fast) */
     for (t = 0; t < UMB_NTRK; t++)
         m->win[t] = pl_dec(m->win[t], f);
     for (t = 0; t < PLB_NS; t++) {
@@ -107,8 +115,28 @@ static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
 {
     const plb_t *m = st;
     int32_t tw = 96 * cx->k[6] / 50, sea = cx->k[7], c = pl_sine(a, m->ang + 0x40000000u), ac = pl_abs(c), dir = c < 0 ? -1 : 1,
-            L = (168 * ac) >> 15, j, i, X = PLB_X * 256, y;
+            L = (168 * ac) >> 15, fw = pl_sine(a, m->ang) >> 7, j, i, X = PLB_X * 256, y;
     pl_clear(S);
+    /* the sky's constellations: 4 x 4 (none over the tower), each in its round of 5.2 s (its stars out 0.2 s apart, the
+     * lines at 1 s, out from 2 s to 2.6 s, then resting faint); where in it each stands: the wave (its way turning once in
+     * 80 s) and its dice (as much as 0.4 .. 0.9 of a round, in 50 s) */
+    for (i = 0; i < 16; i++) {
+        uint32_t h = pl_hash((uint32_t)i + 31u);
+        int32_t cx0 = ((int32_t[]){26, 70, 170, 214})[i & 3] + (int32_t)(h >> 28) - 8,
+                cy0 = PL_TOP(cx) + 18 + (i >> 2) * (166 - PL_TOP(cx)) / 3 + (int32_t)(h >> 24 & 15u) - 8,
+                w = (pl_sine(a, cx->now * 53687u) * (cy0 - 110) + pl_sine(a, cx->now * 53687u + 0x40000000u) * (cx0 - 120)) >> 15,
+                u = (int32_t)((m->sk + (uint32_t)(w * 5200 / 220 + 15600) + (h >> 8 & 255u) * (uint32_t)(166 + (pl_sine(a, cx->now * 85899u) >> 9)) * 5200u / 65536u) % 5200u),
+                fl = (h & 1u) ? -320 : 320, px = 0, py = 0, o = u < 2000 ? 256 : u < 2600 ? (2600 - u) * 256 / 600 : 0;
+        const int8_t (*pt)[2] = PLB_PAT[(i * 5 + (int32_t)(h >> 20)) % 14];
+        for (j = 0; j < 5; j++) {
+            int32_t tx = cx0 * 256 + pt[j][0] * fl, ty = cy0 * 256 + pt[j][1] * 320,
+                    e = 22 + ((u >= j * 200 ? o : 0) * (200 + (pl_sine(a, cx->now * 90000u + h * (uint32_t)(j + 1)) >> 9)) >> 8);
+            if (j && u >= 1000)
+                pl_line(S, px, py, tx, ty, (o * pl_clamp(u - 1000, 0, 400) / 400) >> 1, PL_INK);
+            pl_glint(S, tx, ty, e > 255 ? 255 : e, PL_WT);
+            px = tx, py = ty;
+        }
+    }
     /* the stars: each constellation as far out as its note has been held, the lines once all five are */
     for (i = 0; i < PLB_NS; i++) {
         const plb_s_t *q = &m->sky[i];
@@ -166,15 +194,50 @@ static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         for (y = 1; e && y < 9; y++)
             pl_line(S, wx + 256, wy + y * 256, wx + 5 * 256, wy + y * 256, e, tc);
     }
-    /* the beam: a fan of seven rays to the side the lamp faces, as long as it faces that way; flaring */
+    /* the beam: a fan of seven rays to the side the lamp faces, as long as it faces that way; flaring. Toward you (fw: 0 ..
+     * 256) the fan opens wide and bright; behind the tower (fw below 0) it narrows to a third and dims to under half */
     for (j = -3; j <= 3 && L > 6; j++) {
         int32_t al = ((70 + m->flare / 2) * (80 + ((176 * ac) >> 15)) >> 8) * (5 - pl_abs(j)) / 5;
-        pl_line(S, X + dir * 11 * 256, PLB_LY * 256, X + dir * (11 + L) * 256, PLB_LY * 256 + j * L * 18, al, PLB_RAY);
+        al = fw >= 0 ? al * (256 + fw) >> 8 : al * 110 >> 8;
+        pl_line(S, X + dir * 11 * 256, PLB_LY * 256, X + dir * (11 + L) * 256, PLB_LY * 256 + j * L * (fw >= 0 ? 18 + fw / 6 : 6), al, PLB_RAY);
     }
-    /* the lamp: brighter as it faces you; its flash a star */
-    pl_glint(S, X, PLB_LY * 256, 150 + ((105 * (32768 - ac)) >> 15), PL_WT);
+    /* the lamp: bright facing you, dim facing away; as it faces you (fw past 0.7) a burst of eight rays and a ring of
+     * glow; its flash a star */
+    pl_glint(S, X, PLB_LY * 256, 120 + ((135 * fw) >> 8), PL_WT);
+    if (fw > 180) {
+        int32_t q = (fw - 180) * 256 / 76, r = (6 + q * 34 / 256) * 256;
+        for (j = 0; j < 8; j++) {
+            uint32_t ph = (uint32_t)j * 0x20000000u + m->ang / 8u;
+            pl_line(S, X + pl_pol(a, 2560, ph + 0x40000000u), PLB_LY * 256 + pl_pol(a, 2560, ph), X + pl_pol(a, j & 1 ? r / 2 : r, ph + 0x40000000u),
+                    PLB_LY * 256 + pl_pol(a, j & 1 ? r / 2 : r, ph), q * 3 >> 2, PLB_RAY);
+        }
+        pl_arc(S, a, X, PLB_LY * 256, 1792, 0, ~0u, q, PL_WT);
+        pl_arc(S, a, X, PLB_LY * 256, r / 3, 0, ~0u, q >> 2, PLB_RAY);
+    }
     if (m->lamp)
         pl_star(S, X, PLB_LY * 256, (4 + m->lamp / 20) * 256, m->lamp, PL_WT);
+    /* (NEW, API 6) GULLS: birds wheeling round the lamp, each a flapping V on its own loop; one in the beam's side shines */
+    if (cx->xk[0][0]) {
+        int32_t n = 1 + cx->xk[0][1] * 11 / 99;
+        uint32_t sp = 60000u + cx->xk[0][2] * 9000u;
+        for (i = 0; i < n; i++) {
+            uint32_t h = pl_hash((uint32_t)i), ph = cx->now * (sp + (h >> 26) * 1500u) + h;
+            int32_t rx = (34 + (int32_t)(h >> 24) % 46) * 256, gx = X + pl_pol(a, rx, ph + 0x40000000u),
+                    gy = (PLB_LY - 14 - (int32_t)(h >> 20) % 20) * 256 + pl_pol(a, rx / 4, ph),
+                    fl = pl_sine(a, cx->now * 1400000u + h) >> 13, lit = (gx - X) * dir > 0 && L > 6 ? 240 : 120;
+            pl_line(S, gx - 5 * 256, gy - fl * 64, gx, gy + 256, lit, PL_WT);
+            pl_line(S, gx, gy + 256, gx + 5 * 256, gy - fl * 64, lit, PL_WT);
+        }
+    }
+    /* (NEW, API 6) RAIN: slanting streaks across the whole sky, faster with FALL, leaning with SLANT; on the beat they flash */
+    if (cx->xk[1][0]) {
+        int32_t sl = (cx->xk[1][2] - 50) * 256 / 12, fall = 60 + cx->xk[1][1] * 4, al = 50 + (cx->beat >> 2);
+        for (i = 0; i < 46; i++) {
+            uint32_t h = pl_hash((uint32_t)i + 77u);
+            int32_t x = (int32_t)(h >> 8) % 280 - 20, y = (int32_t)((cx->now * (uint32_t)fall / 256u + (h >> 16)) % 280u) - 20;
+            pl_line(S, x * 256, y * 256, x * 256 + sl, (y + 8) * 256, al, PLB_RAIN);
+        }
+    }
 }
 
 #include "splash/beacon.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
@@ -184,8 +247,16 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_beacon = {
     {{"TURN", 50}, {"STARS", 50}, {"FADE", 50}, {"BEAM", 50}, {"WINDOW", 50}, {"LAMP", 50}, {"TOWER", 50}, {"SEA", 50}},
     plb_init, plb_note, plb_frame, plb_draw,
     {0, UMB_EL_NOTES, 0, UMB_EL_NOTES, UMB_EL_NOTES, UMB_EL_NOTES, 0, 0},
-    "A lighthouse, its sky full of the notes' stars", 3u, {0, 0, 0},
+    "A lighthouse, its sky alive with stars", 3u, {0, 0, 0},
     {{"SWEEP", {81, 31, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), 0}, {99, 99, 60, 0}},
      {"FOG", {0, 31, 86, 36, 0, 0, 0, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 7u), UMB_LINK(UMB_SRC_LFO(0), 0u)}, {99, 99, 30, 30}},
      {"SIGNAL", {11, 91, 0, 0, 96, 91, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 3u), UMB_LINK(UMB_SRC_BEAT, 7u)}, {99, 99, 60, 40}}},
-    52u, {0, 0, 0}, SPL_BEACON};
+    52u, {0, 0, 0}, SPL_BEACON,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"GULLS", 3u, 1u, {0, 0}, {{"ON", 0}, {"FLOCK", 40}, {"WHEEL", 50}},
+      "Seabirds wheel round the lamp; the ones on the beam's side catch its light",
+      {"Gulls on or off", "How many gulls (1 to 12)", "How fast they circle the tower"}},
+     {"RAIN", 3u, 1u, {0, 0}, {{"ON", 0}, {"FALL", 50}, {"SLANT", 65}},
+      "Rain streaks across the night, flashing brighter on every beat",
+      {"Rain on or off", "How fast the rain falls", "Which way it leans (50 straight down)"}}}};

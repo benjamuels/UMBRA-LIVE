@@ -550,6 +550,30 @@ EXPORT const char *web_umb_name(uint32_t pl)           /* .. page pl's name ("":
 EXPORT void web_umx(uint32_t pl, uint32_t j, uint32_t v) { umx_put(pl, j, (int32_t)v); }
 EXPORT uint32_t web_umx_get(uint32_t pl, uint32_t j) { return j == 100u ? umx_pre(pl) : umx_raw(pl, j); }
 EXPORT const void *web_umx_mod(uint32_t pl) { return pl < UMB_NPLT && umb_has(pl) ? umb_mod(pl) : 0; }
+/* (API 6) the plates page's player: plate pl's new element parameter j (element j / 3, its parameter j % 3)
+ * set; read back; where the new elements lie in umb_plate_t, and each one's size (the page reads them from the module) */
+EXPORT void web_umx_x(uint32_t pl, uint32_t j, uint32_t v)
+{
+#if UMB_RES_ALL
+    umb_xput(web_umx_mod(pl), j, v);
+#else
+    (void)pl, (void)j, (void)v;
+#endif
+}
+EXPORT uint32_t web_umx_xget(uint32_t pl, uint32_t j)
+{
+    const umb_plate_t *p = web_umx_mod(pl);
+    uint8_t xk[UMB_NXE][UMB_NXP];
+    if (!p || j >= UMB_NXE * UMB_NXP)
+        return 0;
+    umb_xget(p, xk);
+    return xk[j / UMB_NXP][j % UMB_NXP];
+}
+EXPORT uint32_t web_umx_xoff(uint32_t i)
+{
+    return i == 0u ? (uint32_t)__builtin_offsetof(umb_plate_t, nxe) : i == 1u ? (uint32_t)sizeof(umb_xel_t)
+           : i == 2u ? (uint32_t)__builtin_offsetof(umb_xel_t, what) : (uint32_t)__builtin_offsetof(umb_xel_t, pw);
+}
 /* a channel message from Web MIDI, as a USB-MIDI packet arrives (usb.c midi_enqueue): 0 = the ring was full */
 EXPORT uint32_t web_midi(uint32_t status, uint32_t d1, uint32_t d2)
 {

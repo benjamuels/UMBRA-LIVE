@@ -15,7 +15,7 @@
  *            side, a stream; stepped 12 .. 25 times a second and still between steps        (plates/fluid.inc)
  *   veils: BEACON ZODIAC SONAR MOTHS MARSH PACHINKO   line art from UMBRA OBSCURA, the game          (plates/ *.c)
  *          KOI MEDUSA   fish seen from above, jellyfish: made for SEPIA and FATHOM          (plates/fluid.inc)
- * (SAROS, FILAMENT, WAX, RIVULET, BLOT, BOATS, FIZZ, BOKEH, RIDGE, QUILL and MURMUR are plate files no install brings
+ * (SAROS, FILAMENT, WAX, RIVULET, BLOT, BOATS, HELIX (fizz.c), BOKEH, RIDGE, QUILL and MURMUR are plate files no install brings
  * since then: the plates page can still send one.) Built to the FM-1's limits: a byte field or none, a table read and a palette
  * read a pixel, no lighting pass, fades in steps, still between notes, so the blit (gfx.c cv_blit_cells) sends little.
  * Every plate declares its elements (umb_plate.h): LIVE VIZ CTRLS (ui_umbra_mac.c) sets each one, chooses the tracks
@@ -200,13 +200,14 @@ typedef struct {
 } umb_layer_t;
 static umb_layer_t umb_lay[UMB_NLAY];
 
-static uint32_t umb_rnd(void)                          /* mulberry32 */
+static uint32_t umb_mb32(uint32_t *s)                 /* mulberry32 (TOTALITY's umt_rnd too, its own seed) */
 {
-    uint32_t t = umb.rs += 0x6D2B79F5u;
+    uint32_t t = *s += 0x6D2B79F5u;
     t = (t ^ (t >> 15)) * (t | 1u);
     t ^= t + (t ^ (t >> 7)) * (t | 61u);
     return t ^ (t >> 14);
 }
+static uint32_t umb_rnd(void) { return umb_mb32(&umb.rs); }
 static uint32_t umb_isqrt(uint32_t v)
 {
     uint32_t r = 0, b = 1u << 30;
@@ -782,6 +783,48 @@ static int umb_ok(const umb_plate_t *p, uint32_t mode, uint32_t room)
 #define UMB_THS 54                                      /* a TIMELINE preview's side (umb_thumb) */
 static uint16_t umb_tl[2 * UMB_THS] __attribute__((section(".pool")));   /* .. a row of the screen for it */
 static uint8_t umb_th;                                  /* .. being drawn: the strip is that row, not the canvas */
+/* (API 6) the other elements' parameters as the plates page's player set them,
+ * plate by plate (web_umx_x); a plate never set: its defaults */
+#if UMB_RES_ALL                                         /* (the web player only: the FM-1 has no control for them yet,
+                                                         * so there its plates draw them as their defaults) */
+#define UMB_NXS 40u
+static struct {
+    const umb_plate_t *p;
+    uint8_t v[UMB_NXE][UMB_NXP];
+} umb_xs[UMB_NXS];
+static void umb_xput(const umb_plate_t *p, uint32_t j, uint32_t v)   /* plate p's new parameter j (element j / 3's j % 3) */
+{
+    uint32_t i, e = j / UMB_NXP, k = j % UMB_NXP;
+    if (!p || p->api < 6u || e >= p->nxe || k >= p->xel[e].np)
+        return;
+    for (i = 0; i < UMB_NXS && umb_xs[i].p && umb_xs[i].p != p; i++)
+        ;
+    if (i == UMB_NXS)
+        return;
+    if (!umb_xs[i].p) {                                 /* (first set: its defaults, then this one) */
+        uint32_t a, b;
+        umb_xs[i].p = p;
+        for (a = 0; a < UMB_NXE; a++)
+            for (b = 0; b < UMB_NXP; b++)
+                umb_xs[i].v[a][b] = a < p->nxe && b < p->xel[a].np ? p->xel[a].p[b].def : 0u;
+    }
+    umb_xs[i].v[e][k] = (uint8_t)(p->xel[e].tog >> k & 1u ? v != 0u : v > 99u ? 99u : v);
+}
+#endif
+static void umb_xget(const umb_plate_t *p, uint8_t (*xk)[UMB_NXP])
+{
+    uint32_t a, b;
+#if UMB_RES_ALL
+    for (a = 0; a < UMB_NXS && umb_xs[a].p; a++)
+        if (umb_xs[a].p == p) {
+            memcpy(xk, umb_xs[a].v, sizeof umb_xs[a].v);
+            return;
+        }
+#endif
+    for (a = 0; a < UMB_NXE; a++)
+        for (b = 0; b < UMB_NXP; b++)
+            xk[a][b] = p->api >= 6u && a < p->nxe && b < p->xel[a].np ? p->xel[a].p[b].def : 0u;
+}
 /* layer li's plate p, its state at st, over the canvas as the screen's x0, y0 .., in draw mode mode, its light lq (Q8) */
 static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0, int32_t y0, uint32_t mode, int32_t lq)
 {
@@ -802,7 +845,8 @@ static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0
     c.layer = (uint8_t)li;
     c.level = (uint8_t)(umq_s[UMQ_LEVEL] > 255 ? 255 : umq_s[UMQ_LEVEL]);
     c.beat = (uint8_t)(umq_s[UMQ_BEAT] > 255 ? 255 : umq_s[UMQ_BEAT]);
-    c.rsv = c.rsv2[0] = c.rsv2[1] = c.rsv3[0] = c.rsv3[1] = 0;
+    c.rsv = c.rsv2[0] = c.rsv2[1] = c.rsv3[0] = c.rsv3[1] = c.rsv4[0] = c.rsv4[1] = c.rsv4[2] = 0;
+    umb_xget(p, c.xk);                                  /* (API 6: the other elements) */
     umb_lay_tracks(&c);
     if (p != L->pp || st != L->st || L->gen != ups_gen) {   /* another plate in its place, its state moved, or the bank
                                                          * changed under it: it starts afresh, the notes from now */

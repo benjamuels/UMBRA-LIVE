@@ -7,7 +7,10 @@
  * round the wax, orange inside, the rim pale. A note lets a hot blob go from the foot where its pitch falls (low notes
  * larger); the kick heaves them all up and swells them; the rest of the kit are beads that hurry up and go.
  * Elements: HEAT (how hard the lamp drives them), THICK (how the wax resists), SIZE (the blobs'), BLOB (the notes that
- * are no drum), HEAVE (the kick), BEAD (the rest of the kit), GLOW (the light round them and their rim). */
+ * are no drum), HEAVE (the kick), BEAD (the rest of the kit), GLOW (the light round them and their rim).
+ * (NEW, API 6) COLOR: the wax in a colour of its own instead of its embers, its glow HUE's, its body and rim drifting
+ * slowly through the hues beside it (SHIFT: how far; 0 one colour) (ON, HUE, SHIFT); GLASS: the lamp's glass, a waisted bottle with the dark outside it and a sheen down its side that the beat
+ * lights (ON, TAPER, SHEEN). */
 #include "plate_lib.h"
 
 #define FWX_NR 6                                        /* blobs always there (the last of them a small one); then as many
@@ -20,7 +23,7 @@ typedef struct {
     uint8_t cv[256];                                    /* the light of each level of the field .. */
     uint8_t kg;                                         /* .. as GLOW was when it was made (+ 1) */
     uint8_t nn, nb;                                     /* the next note's blob, the next bead */
-    uint8_t rsv;
+    uint8_t lc;                                         /* (NEW, API 6) COLOR: the palette now its own (1) or the embers */
     int16_t x[FWX_NB], y[FWX_NB], vy[FWX_NB];           /* each blob: where (cells, Q8), how fast down (Q8 a step) .. */
     uint8_t T[FWX_NB], R[FWX_NB], hx[FWX_NB], life[FWX_NB];   /* .. how warm, its reach (cells, Q4; 0: none), where
                                                          * across it keeps to (cells), the steps left to it (0: for good) */
@@ -115,6 +118,16 @@ static void fwx_step(fwx_t *s, const umb_lctx_t *cx, const umb_api_t *a)
     }
     s->heave = pl_dec(s->heave, 10923);                 /* (0.3 s) */
 }
+/* (NEW, API 6) COLOR: hue h (1536 a turn) at light v (0..256), w of it white (0..256), into palette stop c */
+static void fwx_hue(uint8_t *c, int32_t h, int32_t v, int32_t w)
+{
+    int32_t k, d;
+    for (k = 0; k < 3; k++) {
+        d = ((h - k * 512) % 1536 + 1536) % 1536;
+        d = pl_clamp(512 - (d < 768 ? d : 1536 - d), 0, 255);
+        c[k] = (uint8_t)((d + (((255 - d) * w) >> 8)) * v >> 8);
+    }
+}
 static void fwx_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 {
     fwx_t *s = st;
@@ -130,15 +143,43 @@ static void fwx_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
                                          : i < 196 ? 150 : i < 208 ? 150 + (i - 196) * 5 : 210, 0, 255);
         }
     }
+    if (cx->xk[0][0] && n) {                            /* (NEW, API 6) COLOR: the palette made again a step at a time (the drift: 10 s) */
+        uint8_t st[4][3];
+        int32_t h = cx->xk[0][1] * 1536 / 100, h2 = h + (cx->xk[0][2] * 6 * (256 + (pl_sine(a, s->t * 21000000u) >> 7)) >> 9);
+        fwx_hue(st[0], h, 104, 0);
+        fwx_hue(st[1], h, 230, 20);
+        fwx_hue(st[2], h2, 256, 70);
+        fwx_hue(st[3], h2, 256, 180);
+        pl_lut(s->lut, st, 4);
+        s->lc = 1;
+    } else if (!cx->xk[0][0] && s->lc) {
+        pl_lut(s->lut, FWX_ST, 4);
+        s->lc = 0;
+    }
     while (n--)
         fwx_step(s, cx, a);
 }
 static void fwx_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
 {
     const fwx_t *s = st;
-    (void)cx;
-    (void)a;
+    int32_t y;
     pl_fdraw(S, s->f, s->cv, s->lut, 1);
+    /* (NEW, API 6) GLASS: the bottle, widest low down, narrowing (TAPER) to the cap and the foot; outside it black, its
+     * walls a pale line, a sheen down the left wall that the beat lights (SHEEN: how bright) */
+    if (cx->xk[1][0])
+        for (y = 0; y < S->h; y++) {
+            int32_t py = S->y0 + y, d = pl_abs(py - 150), hw = 112 - (d * d * (cx->xk[1][1] + 10) / 99) / 230, x, e;
+            uint16_t *row = S->px + y * S->w;
+            hw = hw < 24 ? 24 : hw;
+            for (x = 0; x < S->w; x++)
+                if (pl_abs(S->x0 + x - 120) > hw)
+                    row[x] = 0;
+            pl_px(S, 120 - hw, py, 150, FWX_ST[3][0], FWX_ST[3][1], FWX_ST[3][2]);
+            pl_px(S, 120 + hw, py, 150, FWX_ST[3][0], FWX_ST[3][1], FWX_ST[3][2]);
+            e = (cx->xk[1][2] * 2 + 30) * (100 + cx->beat) / 160 * (256 - d * 256 / 160) >> 8;
+            for (x = 0; x < 4; x++)
+                pl_px(S, 120 - hw + 8 + x, py, e * (4 - pl_abs(x - 1)) / 4, FWX_ST[3][0], FWX_ST[3][1], FWX_ST[3][2]);
+        }
 }
 
 #include "splash/wax.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
@@ -152,4 +193,12 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_wax = {
     {{"LAMP", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 6u)}, {99, 99, 50, 40}},
      {"TAR", {11, 96, 81, 31, 21, 0, 26, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 25, 0}},
      {"BOIL", {96, 11, 31, 0, 91, 96, 81, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 30, 40}}},
-    22u, {0, 0, 0}, SPL_WAX};
+    22u, {0, 0, 0}, SPL_WAX,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"COLOR", 3u, 1u, {0, 0}, {{"ON", 0}, {"HUE", 60}, {"SHIFT", 30}},
+      "The wax takes a colour of its own, its body drifting slowly through the hues beside it",
+      {"Colour on or off (off: the embers)", "The wax's colour, round the hues", "How far its body drifts from that colour (0: one colour)"}},
+     {"GLASS", 3u, 1u, {0, 0}, {{"ON", 0}, {"TAPER", 50}, {"SHEEN", 50}},
+      "The lamp's glass: a waisted bottle, black outside it, a sheen down its side lit by the beat",
+      {"Glass on or off", "How much the bottle narrows to its cap and foot", "How bright the sheen on the glass is"}}}};

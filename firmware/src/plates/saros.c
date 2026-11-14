@@ -8,7 +8,10 @@
  * REPLACE the strip is cleared to black first (JIANT's), in ADD the threads light whatever is under them.
  * Elements: SPIN, FADE, SIZE (the umbra's); THREAD and POINT (the notes that are no drum: the threads they join, the
  * points they light; each as hard as its value, its tracks LIVE VIZ CTRLS' to choose), DIAL (the dial's ticks and the
- * umbra's rim). */
+ * umbra's rim), REACH (how far out the outermost ring of notes lies: 50 as it was, 108 px; 0: 74 px; 99: 170 px, the
+ * screen's corners).
+ * (NEW, API 6) CORONA: streamers out of the umbra's rim, longer as the song is louder, flaring on the kick (ON, RAYS, FLARE);
+ * BEADS: Baily's beads, a bright bead on the rim at each note's place on the dial, going out slowly (ON, SPARK, LINGER). */
 #include "plate_lib.h"
 
 #define PLS_CX 120                                      /* the centre (px) */
@@ -28,6 +31,9 @@ typedef struct {
     int16_t ux[12], uy[12];                             /* the twelve places on the circle of fifths, turned (Q15) */
     uint8_t nth, nnd, last[UMB_NTRK];                   /* threads in use, the next point; each track's last note + 1 */
     uint32_t th, tms;                                   /* the turn (2^32 a turn) and its clock */
+    uint32_t kt;                                        /* (NEW, API 6) CORONA: the last kick: when, how hard */
+    uint8_t kv;
+    uint8_t bd[12];                                     /* (NEW, API 6) BEADS: each place on the dial's bead (0..255) */
 } pls_t;
 
 static int32_t pls_ru(const umb_lctx_t *cx)            /* the umbra's radius (SIZE: 26 px at 50, px Q8) */
@@ -35,14 +41,19 @@ static int32_t pls_ru(const umb_lctx_t *cx)            /* the umbra's radius (SI
     int32_t v = (int32_t)cx->k[2];
     return 26 * (v <= 50 ? 64 + v * 192 / 50 : 256 + (v - 50) * 256 / 49);
 }
+static int32_t pls_rx(const umb_lctx_t *cx)            /* the outermost ring's radius less 14 px (REACH, px Q8: 94 px at 50) */
+{
+    int32_t v = (int32_t)cx->k[6];
+    return v <= 50 ? 15360 + v * 8576 / 50 : 23936 + (v - 50) * 16000 / 49;
+}
 static int32_t pls_fk(const umb_lctx_t *cx) { return 506 / ((int32_t)cx->k[1] + 1); }   /* FADE's rate (45: 11) */
 /* note n of track c on the dial (px, Q8): its place on the circle of fifths from the track's root, its octave the ring;
  * NOTE MOVEMENT turns the track's whole web round the dial and moves it out or in */
 static void pls_pos(const pls_t *m, const umb_lctx_t *cx, uint32_t c, uint32_t n, int32_t *X, int32_t *Y)
 {
-    int32_t ru = pls_ru(cx);
+    int32_t ru = pls_ru(cx), rx = pls_rx(cx);
     uint32_t k = ((n + 120u - cx->root[c]) % 12u * 7u + (uint32_t)(24 + ((cx->mo[c][0] * 12) >> 8))) % 12u;
-    int32_t r = ru + 3584 + pl_fold(cx->mo[c][1], pl_clamp((int32_t)n / 12 - 3, 0, 5), 5) * (23936 - ru) / 5;
+    int32_t r = ru + 3584 + pl_fold(cx->mo[c][1], pl_clamp((int32_t)n / 12 - 3, 0, 5), 5) * (rx - ru) / 5;
     *X = PLS_CX * 256 + ((r * m->ux[k]) >> 15);
     *Y = PLS_CY * 256 + ((r * m->uy[k]) >> 15);
 }
@@ -65,6 +76,14 @@ static void pls_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     int32_t v, vp, lo = 1 << 30;
     if (!nt->vel)
         return;
+    if (nt->drum && !nt->lane) {                        /* (NEW, API 6) CORONA: the kick kept */
+        m->kt = cx->now;
+        m->kv = nt->vel;
+    }
+    if (cx->xk[1][0] && !nt->drum) {                    /* (NEW, API 6) BEADS: the note's place on the dial lights */
+        k = ((n + 120u - cx->root[c]) % 12u * 7u + (uint32_t)(24 + ((cx->mo[c][0] * 12) >> 8))) % 12u;
+        m->bd[k] = (uint8_t)(nt->vel * 2u + 1u);
+    }
     v = pl_drive(cx, 3u, nt, !nt->drum);                /* THREAD */
     vp = pl_drive(cx, 4u, nt, !nt->drum);               /* POINT */
     if (!v && !vp)
@@ -108,6 +127,8 @@ static void pls_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
     uint32_t i, j, k, th;
     m->th += (cx->now - m->tms) * (42950u * cx->k[0] / 30u);   /* (SPIN 30: a turn in 100 s; 0: still; 99: in 30 s) */
     m->tms = cx->now;
+    for (i = 0; i < 12u; i++)                           /* (NEW, API 6) BEADS going out (LINGER 50: ~1 s) */
+        m->bd[i] = (uint8_t)pl_dec(m->bd[i], pl_clamp((int32_t)cx->dt * 65536 / (120 + cx->xk[1][2] * cx->xk[1][2] / 3), 0, 65536));
     th = m->th - m->th % 5892960u;                     /* (a step at a time: a pixel at the rim, 116 px) */
     for (i = 0; i < 12u; i++) {
         uint32_t ph = i * 357913941u - 0x40000000u + th;   /* (the root at the top, turned) */
@@ -209,17 +230,59 @@ static void pls_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                           (tc[2] + PL_WT[2]) >> 1);
             }
     }
+    /* (NEW, API 6) CORONA: streamers out of the rim, each its own length and lean, turning with the dial; the level draws
+     * them out, the kick flares them (FLARE: how far), each fading to nothing at its tip */
+    if (cx->xk[0][0]) {
+        int32_t n = 8 + cx->xk[0][1] * 40 / 99, age = (int32_t)(cx->now - m->kt), fl = m->kv && age < 600 ? m->kv * (600 - age) / 600 : 0;
+        for (i = 0; i < n; i++) {
+            uint32_t h = pl_hash((uint32_t)i + 5u), ph = (uint32_t)i * (0xFFFFFFFFu / (uint32_t)n) + (h >> 26) * 0x01000000u + m->th;
+            int32_t r0 = ru * 58 / 52, L = (ru >> 2) + (int32_t)((h >> 8) & 255u) * ru / 300 + ru * cx->level / 400 +
+                                                                 fl * cx->xk[0][2] * ru / 10000,
+                    co = pl_sine(a, ph + 0x40000000u), si = pl_sine(a, ph), lc = pl_sine(a, ph + 0x40000000u + ((h & 0x07FFFFFFu) >> 1)),
+                    ls = pl_sine(a, ph + ((h & 0x07FFFFFFu) >> 1)), e = 120 + (fl >> 1);
+            for (k = 0; k < 4; k++) {                   /* (in four, each fainter, bending a little at the tip) */
+                int32_t ra = r0 + L * k / 4, rb = r0 + L * (k + 1) / 4;
+                pl_line(S, PLS_CX * 256 + (((k ? lc : co) >> 4) * (ra >> 4) >> 7), PLS_CY * 256 + (((k ? ls : si) >> 4) * (ra >> 4) >> 7),
+                        PLS_CX * 256 + ((lc >> 4) * (rb >> 4) >> 7), PLS_CY * 256 + ((ls >> 4) * (rb >> 4) >> 7), e * (4 - k) / 5, PLS_TEAL);
+            }
+        }
+    }
+    /* (NEW, API 6) BEADS: on the rim at each lit place of the dial, a white bead and its rays (SPARK: how bright and long) */
+    if (cx->xk[1][0])
+        for (i = 0; i < 12; i++) {
+            int32_t b = m->bd[i] * (100 + cx->xk[1][1] * 3) / 160, r = ru * 53 / 52, X, Y, dx, dy;
+            if (b <= 4)
+                continue;
+            b = b > 255 ? 255 : b;
+            X = PLS_CX * 256 + ((r * m->ux[i]) >> 15);
+            Y = PLS_CY * 256 + ((r * m->uy[i]) >> 15);
+            pl_star(S, X, Y, (3 + b / 22) * 256, b, PL_WT);
+            for (dy = -4; dy <= 4; dy++)                /* (its bead: a soft round of light) */
+                for (dx = -4; dx <= 4; dx++) {
+                    int32_t w = 256 - (dx * dx + dy * dy) * 15;
+                    if (w > 0)
+                        pl_px(S, (X >> 8) + dx, (Y >> 8) + dy, (b * ((w * w) >> 8)) >> 8, PL_WT[0], PL_WT[1], PL_WT[2]);
+                }
+        }
 }
 
 #include "splash/saros.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_saros = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(pls_t), "SAROS",
-    UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 6u, {0, 0, 0},
-    {{"SPIN", 30}, {"FADE", 45}, {"SIZE", 50}, {"THREAD", 50}, {"POINT", 50}, {"DIAL", 50}},
+    UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 7u, {0, 0, 0},
+    {{"SPIN", 30}, {"FADE", 45}, {"SIZE", 50}, {"THREAD", 50}, {"POINT", 50}, {"DIAL", 50}, {"REACH", 50}},
     pls_init, pls_note, pls_frame, pls_draw,
-    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0},
+    {0, 0, 0, UMB_EL_NOTES, UMB_EL_NOTES, 0, 0},
     "The melody as string art on a circle", 3u, {0, 0, 0},
     {{"ORBIT", {71, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), UMB_LINK(UMB_SRC_BEAT, 5u)}, {99, 99, 30, 50}},
      {"LOOM", {0, 86, 0, 91, 21, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 2u), 0}, {99, 99, 25, 0}},
      {"SPARKS", {0, 21, 0, 26, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_BEAT, 4u)}, {99, 99, 30, 40}}},
-    42u, {0, 0, 0}, SPL_SAROS};
+    42u, {0, 0, 0}, SPL_SAROS,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"CORONA", 3u, 1u, {0, 0}, {{"ON", 0}, {"RAYS", 45}, {"FLARE", 60}},
+      "Streamers reach out of the umbra's rim, longer as the song is louder, flaring on every kick",
+      {"Corona on or off", "How many streamers (8 to 48)", "How far the kick throws them out"}},
+     {"BEADS", 3u, 1u, {0, 0}, {{"ON", 0}, {"SPARK", 50}, {"LINGER", 60}},
+      "Baily's beads: each note lights a bright bead on the umbra's rim at its place on the dial",
+      {"Beads on or off", "How bright and long-rayed the beads are", "How long a bead stays lit"}}}};

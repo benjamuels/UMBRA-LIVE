@@ -12,7 +12,11 @@
  * curtain after another; the rest of the kit are stars that glint above.
  * Elements: DRIFT (how fast the light runs along), FADE (how long the notes' light lasts), HEIGHT (the rays'), RAY (the
  * notes that are no drum), FLARE (the kick), GLINT (the rest of the kit), WAVE (how deep the curtains fold), REST (their
- * light with no note). */
+ * light with no note).
+ * (NEW, API 6) METEOR (on/off; RATE: how often a kick throws one; TRAIL: its tail's length): shooting stars across the
+ * sky above the curtains. MOON (on/off; PHASE: its month, 0 and 99 eclipsed (dark but
+ * for a faint ghost), waxing to full at 50 and waning back; HALO: its ring of light, breathing with the beat
+ * and the level): a moon over the top right. */
 #include "plate_lib.h"
 
 #define FAU_NC 3                                        /* curtains */
@@ -34,6 +38,8 @@ typedef struct {
                                                          * d1 0): worked out at once, the rest in the curtain's turn */
     uint32_t rs, ms, fp;                                /* the dice; the steps' clock; where the folds stand (its own each
                                                          * time the plate starts) */
+    uint32_t xr, mt[4];                                 /* (NEW, API 6) METEOR: its own dice; each one since when (0: none) .. */
+    uint8_t mx[4], my[4], md[4], nm;                    /* .. where it set off (px), its dice (way, speed); the next */
 } fau_t;
 
 static void fau_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
@@ -44,6 +50,7 @@ static void fau_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
     s->ms = cx->now;
     s->fp = pl_rnd(&s->rs);
     s->all = 1u;                                        /* (each worked out once before it is drawn) */
+    s->xr = 7151u + cx->now;                            /* (NEW, API 6) METEOR's dice, apart from the plate's own */
     pl_lut(s->lut, FAU_ST, 4);
 }
 static void fau_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_note_t *nt)
@@ -54,6 +61,14 @@ static void fau_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     (void)a;
     if (!nt->vel)
         return;
+    /* (NEW, API 6) METEOR: a kick throws a shooting star (RATE: one kick in ten .. every one), high in the sky */
+    if (cx->xk[0][0] && nt->drum && !nt->lane && pl_rnd(&s->xr) % 100u < 10u + cx->xk[0][1] * 90u / 99u) {
+        i = s->nm++ % 4u;
+        s->mx[i] = (uint8_t)(30u + pl_rnd(&s->xr) % 180u);
+        s->my[i] = (uint8_t)(PL_TOP(cx) + 6 + (int32_t)(pl_rnd(&s->xr) % 40u));
+        s->md[i] = (uint8_t)pl_rnd(&s->xr);
+        s->mt[i] = cx->now | 1u;
+    }
     if ((v = pl_drive(cx, 4u, nt, nt->drum && !nt->lane)) != 0) {   /* FLARE (the kick): the next curtain's foot */
         s->flare = (uint16_t)v;
         s->fk = (uint8_t)((s->fk + 1u) % FAU_NC);
@@ -151,6 +166,33 @@ static void fau_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         if (f)
             pl_glint(S, s->gx[i] * 256, s->gy[i] * 256, (f * (110 + (s->gv[i] >> 1))) >> 8, PL_WT);
     }
+    /* (NEW, API 6) MOON: a disc over the top right, lit but for the shadow (PHASE: the shadow's disc, a quarter px a step,
+     * over it at 0 and 99, clear of it at 50; waxing from the right, waning to the left), the dark part a faint ghost;
+     * round it a halo (HALO) that swells on the beat and with the level */
+    if (cx->xk[1][0]) {
+        int32_t p = cx->xk[1][1], X = 192, Y = PL_TOP(cx) + 30, R = 11, off = (p < 50 ? -p : 99 - p) * 92 / 49,
+                H = 4 + cx->xk[1][2] * 22 / 99,
+                Ro = R + H, hl = (cx->xk[1][2] + 20) * (90 + cx->beat / 3 + cx->level / 4) >> 7, x, y;
+        for (y = Y - Ro > S->y0 ? Y - Ro : S->y0; y <= Y + Ro && y < S->y0 + S->h; y++)
+            for (x = X - Ro; x <= X + Ro; x++) {
+                int32_t d2 = (x - X) * (x - X) + (y - Y) * (y - Y), e2 = (4 * (x - X) - off) * (4 * (x - X) - off) + 16 * (y - Y) * (y - Y);
+                if (d2 <= R * R)
+                    pl_px(S, x, y, e2 > 16 * R * R ? (d2 > (R - 1) * (R - 1) ? 255 : 200) : 22, PL_WT[0], PL_WT[1], PL_WT[2]);
+                else if (d2 < Ro * Ro)
+                    { int32_t q = (Ro * Ro - d2) * 256 / (Ro * Ro - R * R); pl_px(S, x, y, (hl * ((q * q) >> 8)) >> 9, 150, 120, 255); }
+            }
+    }
+    /* (NEW, API 6) METEOR: each a bright head and a tail (TRAIL) going out behind it, gone in 0.7 s */
+    for (i = 0; cx->xk[0][0] && i < 4; i++)
+        if (s->mt[i] && cx->now - s->mt[i] < 700u) {
+            int32_t age = (int32_t)(cx->now - s->mt[i]), vx = (s->md[i] & 1 ? -1 : 1) * (150 + (s->md[i] >> 2)),
+                    vy = 60 + (s->md[i] >> 3), hx = s->mx[i] * 256 + vx * age * 256 / 1000, hy = s->my[i] * 256 + vy * age * 256 / 1000,
+                    L = 10 + cx->xk[0][2] * 60 / 99, n = (int32_t)pl_isqrt((uint32_t)(vx * vx + vy * vy)), al = pl_out(255, (uint32_t)age, 700u),
+                    dx = vx * L * 256 / n, dy = vy * L * 256 / n, k;
+            for (k = 0; k < 4; k++)
+                pl_line(S, hx - dx * k / 4, hy - dy * k / 4, hx - dx * (k + 1) / 4, hy - dy * (k + 1) / 4, al * (4 - k) / 5, k ? FAU_ST[3] : PL_WT);
+            pl_glint(S, hx, hy, al, PL_WT);
+        }
 }
 
 #include "splash/aurora.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
@@ -164,4 +206,12 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_aurora = {
     {{"POLAR", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 50, 40}},
      {"HUSH", {16, 91, 81, 31, 0, 26, 26, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 6u), 0}, {99, 99, 30, 0}},
      {"STORM", {91, 26, 96, 91, 96, 0, 91, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 6u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 40, 30}}},
-    35u, {0, 0, 0}, SPL_AURORA};
+    35u, {0, 0, 0}, SPL_AURORA,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"METEOR", 3u, 1u, {0, 0}, {{"ON", 0}, {"RATE", 50}, {"TRAIL", 50}},
+      "Shooting stars streak across the sky above the curtains, thrown by the kick",
+      {"Meteors on or off", "How many kicks throw one (one in ten .. every one)", "How long their tails are"}},
+     {"MOON", 3u, 1u, {0, 0}, {{"ON", 0}, {"PHASE", 30}, {"HALO", 50}},
+      "A moon over the top right, its halo breathing with the beat and the level",
+      {"Moon on or off", "Its phase: eclipsed at 0 and 99, full at 50", "How wide and bright its halo"}}}};

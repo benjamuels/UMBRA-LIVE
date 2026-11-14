@@ -291,6 +291,58 @@ static void ump_co_draw(int32_t x0, int32_t y0)
     }
 }
 
+/* (API 6) CORONA's new elements, light over the eclipse:
+ *   COMET    a comet crosses the sky above the eclipse, its tail streaming behind it; its head flares on the beat
+ *   PLANETS  tiny planets all round the frame, each coming and going on its own (never all lit), twinkling with the mix */
+#if UMB_RES_ALL                                         /* (the web player only, as the FM-1 cannot turn them on yet) */
+static const uint8_t UMR_PLC[5][3] = {{255, 248, 230}, {255, 206, 120}, {230, 150, 110}, {200, 230, 255}, {255, 236, 180}};
+static void ump_co_xdraw(const umb_lctx_t *cx)
+{
+    int32_t i;
+    if (cx->xk[0][0]) {                                 /* COMET: across in 24 s .. 4 s (SPEED), TAIL 6 .. 40 points */
+        uint32_t per = 24000u - cx->xk[0][1] * 200u, t = umb_now % per;
+        int32_t X = -30 * 256 + (int32_t)((uint64_t)t * 300u * 256u / per), Y = 18 * 256 + (int32_t)((uint64_t)t * 54u * 256u / per),
+                n = 6 + cx->xk[0][2] * 34 / 99, hd = 200 + (cx->beat >> 2);
+        for (i = n; i >= 0; i--) {                      /* (the tail back along its path, spreading and fading) */
+            int32_t a = hd * (n - i) / n, sp = i * 40, w = (int32_t)(sine_i((umb_now + (uint32_t)i * 97u) * 900000u) >> 9) * i / n;
+            umm_splat(X - i * 3 * 256, Y - i * 154 + w, a, UMP_WT);
+            if (i > 2)
+                umm_splat(X - i * 3 * 256, Y - i * 154 + w + sp / 4 + 256, a >> 2, UMB_EVC[2]);
+        }
+        ump_glint(X, Y, hd, UMP_WT);
+    }
+    if (cx->xk[1][0]) {                                 /* PLANETS: COUNT 4 .. 28 tiny ones, SHINE how bright */
+        int32_t n = 4 + cx->xk[1][1] * 24 / 99, sh = 120 + cx->xk[1][2] * 2;
+        for (i = 0; i < n; i++) {                       /* each on its own cycle (5 .. 11 s): in, shining, out, dark a
+                                                         * while, then somewhere else round the frame: never all lit */
+            uint32_t h = (uint32_t)i * 0x9E3779B1u, per = 5000u + (h >> 7) % 6000u, t = umb_now + (h >> 3) % per,
+                     g = (h ^ (t / per) * 0x85EBCA77u) * 0xC2B2AE3Du, ph = t % per * 256u / per;
+            int32_t X, Y, dx, dy, ex, ey, tw, sz = (g >> 29) == 0;
+            if (ph >= 160u)                             /* (dark the last part of its cycle) */
+                continue;
+            tw = ph < 40u ? (int32_t)ph * 6 : ph > 120u ? (int32_t)(160u - ph) * 6 : 240;
+            X = 8 + (int32_t)((g >> 8) % 224u), Y = 8 + (int32_t)((g >> 16) % 224u);
+            ex = X - 120, ey = Y - 120;                 /* (none on the eclipse: out past its rim) */
+            if (ex * ex + ey * ey < (UMR_RM + 14) * (UMR_RM + 14)) {
+                X = ex < 0 ? X - UMR_RM - 14 : X + UMR_RM + 14;
+                X = X < 6 ? 6 : X > 234 ? 234 : X;
+            }
+            tw = tw * sh * (200 + cx->level / 4 + (sine_i(umb_now * 300000u + h) >> 10)) >> 16;
+            tw = tw > 255 ? 255 : tw;
+            X *= 256, Y *= 256;
+            for (dy = -sz; dy <= sz; dy++)              /* (a dot, now and then a tiny disc; a cross of light when bright) */
+                for (dx = -sz; dx <= sz; dx++)
+                    umm_splat(X + dx * 256, Y + dy * 256, tw * (dx * dx + dy * dy == 0 ? 256 : 140) >> 8, UMR_PLC[g % 5u]);
+            for (dx = sz + 1; tw > 170 && dx < sz + 4; dx++) {
+                int32_t f = (tw - 170) * (sz + 4 - dx) / 4;
+                umm_splat(X + dx * 256, Y, f, UMR_PLC[g % 5u]), umm_splat(X - dx * 256, Y, f, UMR_PLC[g % 5u]);
+                umm_splat(X, Y + dx * 256, f, UMR_PLC[g % 5u]), umm_splat(X, Y - dx * 256, f, UMR_PLC[g % 5u]);
+            }
+        }
+    }
+}
+#endif
+
 /* ---------------------------------------------------------------------------------------------------------- */
 /* CORONA as a plate (umb_plate.h), built in: its state the block's start (umb.co: the welcome borrows it) */
 static void ump_co_start(void *st, const umb_lctx_t *cx, const umb_api_t *ap)
@@ -311,6 +363,11 @@ static void ump_co_strip(void *st, const umb_lctx_t *cx, const umb_api_t *ap, co
     umm_w = (uint32_t)sp->w;
     umm_h = (uint32_t)sp->h;
     ump_co_draw(sp->x0, sp->y0);
+#if UMB_RES_ALL
+    ump_co_xdraw(cx);                                   /* (NEW, API 6) */
+#else
+    (void)cx;
+#endif
 }
 static const umb_plate_t umb_plate_corona = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(ump_co_t), "CORONA",
@@ -322,7 +379,20 @@ static const umb_plate_t umb_plate_corona = {
     {{"BREATH", {0, 71, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 20, 50}},
      {"DIAMOND", {0, 0, 36, 31, 0, 91, 96, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 7u), UMB_LINK(UMB_SRC_HIT(0), 0u)}, {99, 99, 60, 40}},
      {"ANNULAR", {26, 0, 81, 71, 0, 0, 0, 91}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 50, 30}}},
-    80u, {0, 0, 0}, 0};
+    80u, {0, 0, 0}, 0,
+#if UMB_RES_ALL
+    /* (API 6) its other elements (the web player only) */
+    2u, {0, 0, 0},
+    {{"COMET", 3u, 1u, {0, 0}, {{"ON", 0}, {"SPEED", 40}, {"TAIL", 50}},
+      "A comet crosses the sky above the eclipse, its head flaring on every beat",
+      {"Comet on or off", "How fast it crosses (24 s to 4 s)", "How long its tail streams"}},
+     {"PLANETS", 3u, 1u, {0, 0}, {{"ON", 0}, {"COUNT", 60}, {"SHINE", 50}},
+      "Tiny planets all round the frame, each fading in and out on its own, so never all lit at once",
+      {"Planets on or off", "How many planets (4 to 28)", "How bright they shine"}}}
+#else
+    0u, {0, 0, 0}, {{""}}
+#endif
+};
 
 /* ------------------------------------------------------------------------------------------------ WELCOME --- */
 /* (UMBRA LIVE) the power-on screen, UMW_T ms (ui_draw.c draw_splash, splash_write: main.c boot_splash, web/emu): an

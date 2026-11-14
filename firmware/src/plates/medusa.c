@@ -4,12 +4,16 @@
  * bell, the line of its rim, a smaller arc inside, five threads trailing under it that sway, each a little behind the
  * last. Each has a depth of its own (DEPTH: at 50 they keep under FATHOM's surface) and sinks toward it, the faster the
  * higher over it, and beats: the bell draws in and is thrown upward, then opens again. Each beats on its own every few
- * seconds, enough to hold its depth. A note is a beat of the one nearest its pitch (C2 left .. C7 right), harder
+ * seconds, enough to hold its depth. Across, each keeps to a third of the width (left, right, middle, round again) and
+ * drifts slowly from side to side in it. A note is a beat of the one nearest its pitch (C2 left .. C7 right), harder
  * than its own, and its lines take the note's colour; the kick is a beat of all of them at once; the rest of the kit are
- * sparks in the water round them. One that leaves the top comes in again from below. Line art only: its light is added to
+ * sparks in the water round them. One that leaves the top comes in again from below, in its third. Line art only: its light is added to
  * the strip, so it lies on a layer as well as it stands alone (REPLACE: black under it).
  * Elements: DEPTH (how deep they keep: 0 the top .. 99 the bottom), FADE (how long one keeps a note's colour), SIZE (theirs), PULSE (the notes that
- * are no drum), THROB (the kick), SPARKS (the rest of the kit), BLOOM (how many: 1 .. 6), TRAIL (the threads' length). */
+ * are no drum), THROB (the kick), SPARKS (the rest of the kit), BLOOM (how many: 1 .. 6), TRAIL (the threads' length).
+ * (NEW, API 6) HALO (ON, REACH, RINGS): every beat of a bell throws rings of light out round it, in its colour.
+ * (NEW, API 6) SNOW (ON, FLAKES, SINK): marine snow, motes sinking and swaying through the water, brighter with the
+ * mix, glittering on the beat. */
 #include "plate_lib.h"
 
 #define OME_N 6                                         /* jellyfish at once */
@@ -32,7 +36,6 @@ static void ome_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
     (void)a;
     s->rs = 4703u + cx->now;
     for (i = 0; i < OME_N; i++) {
-        s->x[i] = (int16_t)((20u + (i * 40503u & 0xFFFFu) * 200u / 65536u) * 64u);   /* (spread across, however many there are) */
         s->y[i] = (int16_t)((150u + pl_rnd(&s->rs) % 60u) * 64u);
         s->ph[i] = (uint16_t)pl_rnd(&s->rs);
     }
@@ -72,7 +75,6 @@ static void ome_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 {
     ome_t *s = st;
     int32_t dt = (int32_t)cx->dt, k1 = cx->k[1], n = 1 + cx->k[6] * 5 / 99, i;
-    (void)a;
     for (i = 0; i < n; i++) {
         uint16_t ph = (uint16_t)(s->ph[i] + dt * (14 + i * 5 % 9));   /* (its own beat: every 3 .. 4.7 s) */
         int32_t y, up = pl_clamp(70 + cx->k[0] * 9 / 5 + i * 9, 0, 215) * 64 - s->y[i];   /* (how far over its own depth,
@@ -83,11 +85,12 @@ static void ome_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
         /* thrown up by its beat (its own: ~5 px, a note's: up to 14); sinking (3 px a second at its own depth, and as
          * much again for each 3 px over it: a steady kick holds it some 8 px higher, no more) */
         y = s->y[i] - ((s->p[i] * dt * 3) >> 16) + (int32_t)((uint32_t)((19200 + (up > 0 ? up * 100 : 0)) * dt) + pl_rnd(&s->rs) % 100000u) / 100000;
-        if (y < (PL_TOP(cx) - 44) * 64) {               /* (out at the top: in again from below, somewhere else) */
+        if (y < (PL_TOP(cx) - 44) * 64)                 /* (out at the top: in again from below) */
             y = 262 * 64;
-            s->x[i] = (int16_t)((24u + pl_rnd(&s->rs) % 192u) * 64u);
-        }
         s->y[i] = (int16_t)(y > 266 * 64 ? 266 * 64 : y);
+        /* across: each keeps to a third of the width (left, right, middle, round again; one alone the middle) and drifts
+         * slowly from side to side in it, 26 px each way, a round every 22 .. 37 s */
+        s->x[i] = (int16_t)((40 + 80 * (n == 1 ? 1 : i * 2 % 3)) * 64 + pl_pol(a, 26 * 64, cx->now * (116000u + (uint32_t)i * 15000u) + (uint32_t)i * 0x6A09E667u));
         s->p[i] = (uint16_t)(s->p[i] > dt * 109 ? s->p[i] - dt * 109 : 0);   /* (0.6 s) */
         s->e[i] = (uint8_t)pl_dec(s->e[i], dt * 65536 / (300 + k1 * k1 * 4 / 5));   /* (FADE 50: 2.3 s) */
     }
@@ -102,11 +105,25 @@ static void ome_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         if (s->st[i] && age < 800u)
             pl_glint(S, s->sx[i] * 256, s->sy[i] * 256 - (int32_t)age * 4, pl_out(s->sv[i], age, 800u), PL_WT);
     }
+    /* (NEW, API 6) SNOW: motes sinking (SINK: how fast) and swaying, FLAKES of them; brighter with the mix, some glittering
+     * on the beat */
+    if (cx->xk[1][0])
+        for (i = 0; i < 8 + cx->xk[1][1] * 56 / 99; i++) {
+            uint32_t h = pl_hash((uint32_t)i + 57u), h2 = (h ^ (h >> 15)) * 0x2C1B3C6Du, top = (uint32_t)PL_TOP(cx), H = 248u - top;
+            int32_t y = (int32_t)(top + (h2 >> 8) % H + cx->now * (4u + cx->xk[1][2] / 4u + (h >> 30)) / 1000u) % (int32_t)H + (int32_t)top - 4,
+                    x = (int32_t)((h >> 8) % 240u) * 256 + pl_pol(a, (2 + (int32_t)(h >> 29)) * 256, cx->now * (90000u + (h >> 25) * 3000u) + h2),
+                    al = 100 + (cx->level >> 2) + ((h2 & 3u) == 0 ? cx->beat >> 1 : 0);
+            if (h & 0x40u)
+                pl_glint(S, x, y * 256, al, PL_WT);
+            else
+                pl_line(S, x, y * 256, x + 256, y * 256 + 256, al, PL_INK);
+        }
     for (i = 0; i < n; i++) {
         int32_t w = (9 + cx->k[2] * 9 / 50) * (8 + i * 3 % 5) / 10, q = s->p[i] >> 8, rx = w * (256 - ((q * 77) >> 8)), ry = w * (230 + ((q * 40) >> 8)),
                 X = s->x[i] * 4 + pl_pol(a, 3 * 256, cx->now * 200000u + (uint32_t)i * 0x3C6EF372u), Y = s->y[i] * 4, e, x0, y0;
         uint8_t m[3];
-        if (Y + 5 * len + 1024 < S->y0 * 256 || Y - ry - 512 > (S->y0 + S->h) * 256)
+        if (Y + 5 * len + 1024 + (cx->xk[0][0] ? rx + 21500 : 0) < S->y0 * 256 ||   /* ((NEW, API 6) and its HALO's reach) */
+            Y - ry - 512 - (cx->xk[0][0] ? rx + 21500 : 0) > (S->y0 + S->h) * 256)
             continue;
         e = pl_mix(m, PL_INK, pl_ncol(a, s->c[i]), 70 + q / 4, s->e[i]);
         x0 = X - rx;                                    /* the bell: half a round over its rim, drawn in by the beat */
@@ -132,6 +149,16 @@ static void ome_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 y0 = y1;
             }
         }
+        /* (NEW, API 6) HALO: its beat (s->p falling over 0.6 s) throws rings out round it, RINGS of them one after another,
+         * REACH: how far, fading as they go */
+        if (cx->xk[0][0] && s->p[i])
+            for (k = 0; k < 1 + cx->xk[0][2] * 2 / 99; k++) {
+                int32_t f = 65535 - s->p[i] - k * 9000, R;
+                if (f <= 0)
+                    continue;
+                R = rx + ((f >> 8) * (12 + cx->xk[0][1]) * 3 >> 2);
+                pl_arc(S, a, X, Y - ry / 3, R, 0u, 0xFFFFFFFFu, (e + 60) * (65535 - f) >> 16, m);
+            }
     }
 }
 
@@ -146,4 +173,12 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_medusa = {
     {{"BLOOM", {0, 0, 31, 0, 0, 0, 100, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 40, 30}},
      {"ABYSS", {86, 91, 91, 0, 26, 100, 1, 100}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 7u), 0}, {99, 99, 30, 0}},
      {"SURGE", {16, 21, 0, 100, 100, 0, 61, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 4u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 50, 30}}},
-    30u, {0, 0, 0}, SPL_MEDUSA};
+    30u, {0, 0, 0}, SPL_MEDUSA,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"HALO", 3u, 1u, {0, 0}, {{"ON", 0}, {"REACH", 40}, {"RINGS", 50}},
+      "Every beat of a bell throws rings of light out round it, in its colour",
+      {"Halos on or off", "How far the rings spread", "How many rings follow each beat (1 to 3)"}},
+     {"SNOW", 3u, 1u, {0, 0}, {{"ON", 0}, {"FLAKES", 50}, {"SINK", 30}},
+      "Marine snow: motes sink and sway through the water, brighter with the mix, glittering on the beat",
+      {"Marine snow on or off", "How many motes (8 to 64)", "How fast they sink"}}}};

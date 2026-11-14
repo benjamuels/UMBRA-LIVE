@@ -28,6 +28,24 @@ export function restoreSectors(nor, sectors) {
 
 export const HOLD_MS = 24;
 
+/* (API 6) a plate module's new elements (umb_plate.h umb_xel_t, API 6), read from the wasm's memory:
+ * [{ name, what, p: [{ name, def, tog, what }] }] */
+export function xels(ex, h) {
+  if (!ex.web_umx_xoff) return [];
+  const mem = new Uint8Array(ex.memory.buffer), dv = new DataView(ex.memory.buffer);
+  const str = (p) => { let s = ""; for (; p && mem[p]; p++) s += String.fromCharCode(mem[p]); return s; };
+  const api = mem[h + 4] | mem[h + 5] << 8, off = ex.web_umx_xoff(0), sz = ex.web_umx_xoff(1), ow = ex.web_umx_xoff(2), op = ex.web_umx_xoff(3);
+  if (api < 6) return [];
+  const out = [], n = Math.min(3, mem[h + off]);           // (UMB_NXE)
+  for (let e = 0; e < n; e++) {
+    const b = h + off + 4 + e * sz, np = Math.min(3, mem[b + 8]), tog = mem[b + 9], el = { name: str(b), what: str(dv.getUint32(b + ow, true)), p: [] };
+    for (let i = 0; i < np; i++)
+      el.p.push({ name: str(b + 12 + 8 * i), def: mem[b + 19 + 8 * i], tog: !!(tog >> i & 1), what: str(dv.getUint32(b + op + 4 * i, true)) });
+    out.push(el);
+  }
+  return out;
+}
+
 if (typeof registerProcessor === "function") {
   const clock = globalThis.performance ? () => globalThis.performance.now() : () => Date.now();
   class Felucca extends AudioWorkletProcessor {
@@ -77,11 +95,12 @@ if (typeof registerProcessor === "function") {
       else if (m.type === "umx" && ex.web_umx) ex.web_umx(m.pl | 0, m.j | 0, m.v | 0);   // (UMBRA LIVE) the plates page's player: a page's element
       else if (m.type === "umxget" && ex.web_umx_get)                 // .. a page's elements as set, its preset
         this.port.postMessage({ type: "umx", pl: m.pl, v: [0, 1, 2, 3, 4, 5, 6, 7].map((j) => ex.web_umx_get(m.pl, j)), pre: ex.web_umx_get(m.pl, 100) });
+      else if (m.type === "umxx" && ex.web_umx_x) ex.web_umx_x(m.pl | 0, m.j | 0, m.v | 0);   // (API 6) one of its other elements's parameter
       else if (m.type === "umxinfo" && ex.web_umx_mod) {              // .. the pages there (number, name, a plate's header), the genres
         const mem = new Uint8Array(ex.memory.buffer), str = (p) => { let s = ""; for (; p && mem[p]; p++) s += String.fromCharCode(mem[p]); return s; };
         const pages = [];
         for (let pl = 0; pl < ex.web_umb_get(90); pl++)
-          if (ex.web_umb_get(100 + pl)) { const h = ex.web_umx_mod(pl); pages.push({ pl, name: str(ex.web_umb_name(pl)), head: h ? mem.slice(h, h + 240) : null }); }
+          if (ex.web_umb_get(100 + pl)) { const h = ex.web_umx_mod(pl); pages.push({ pl, name: str(ex.web_umb_name(pl)), head: h ? mem.slice(h, h + 240) : null, xel: h ? xels(ex, h) : [] }); }
         const genres = []; for (let i = 0; i < ex.web_gen_count(); i++) genres.push(str(ex.web_gen_name(i)));
         this.port.postMessage({ type: "umxinfo", pages, genres });
       } else if (m.type === "gen" && ex.web_gen) {                     // .. a song made and played (the generator's)

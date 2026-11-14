@@ -6,7 +6,11 @@
  * C7 right), its track's band its height (low notes wider); held, it keeps feeding it. The kick a swell from below, the
  * snare and clap a scatter of sparks, the rest one spark. Track 3's heat glows yellow, track 4's orange (a tint byte a cell,
  * carried with the heat). Elements: RISE, COOL, SWAY; COAL (the notes that are no drum), SWELL (the kick), SPARK (the
- * rest of the kit): each as hard as its value, its tracks LIVE VIZ CTRLS' to choose. */
+ * rest of the kit): each as hard as its value, its tracks LIVE VIZ CTRLS' to choose.
+ * (NEW, API 6) EMBERS (on/off; COUNT: how many; SWIRL: how wide they spiral): embers swirling up off the heat on
+ * curling paths, yellow-orange when new, cooling through orange to deep red as they climb, flickering, flaring on the
+ * beat, then out. SMOKE (on/off; CURL: how much the wisps curl; HEIGHT:
+ * how high they climb): faint wisps of smoke going up over the embers, thicker as the music swells. */
 #include "plate_lib.h"
 
 typedef struct {
@@ -136,13 +140,21 @@ static void plc_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)   /* t
     if ((uint32_t)(cx->now - s->ms) >= 50u)
         s->ms = cx->now;
 }
+static const uint8_t PLC_SMOKE[3] = {84, 104, 150};   /* (NEW, API 6) SMOKE's grey-blue */
+static const uint8_t PLC_EMB[4][3] = {{255, 232, 130}, {255, 150, 30}, {230, 54, 10}, {120, 12, 2}};   /* (NEW, API 6) an
+                                                         * ember cooling: new, orange, red, deep red */
+/* (NEW, API 6) EMBERS: ember h (its dice) c px up, swirling sw (px, Q8 at the foot): where across (px, Q8) */
+static int32_t plc_emb(const umb_api_t *a, uint32_t h, int32_t c, int32_t sw, uint32_t now)
+{
+    uint32_t ph = (uint32_t)c * (60000000u + (h >> 26) * 1600000u) * (h & 1u ? 1u : ~0u) + h + now * 6000u;
+    return (int32_t)((h >> 12) % 220u + 10u) * 256 + pl_pol(a, sw * (128 + c) / 128, ph) + (pl_sine(a, now * 400000u + h) >> 9);
+}
 static void plc_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
 {
     const plc_t *s = st;
     uint8_t xi[240], xf[240], bb[240];
     int32_t vv[PL_N + 1], x0 = S->x0, y0 = S->y0;
     int32_t cxx, cy;
-    (void)cx;
     pl_cols(S, xi, xf);
     for (cy = 0; cy < S->h; cy++) {
         int32_t py = y0 + cy, vg = S->vg[cy], any = pl_vrow(s->h, py, vv, 255), dq = (py & 1) << 1;
@@ -172,6 +184,49 @@ static void plc_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             }
         }
     }
+    /* (NEW, API 6) SMOKE: five wisps from over the embers up HEIGHT px (60 .. 200), each swinging wider (two strands) as it climbs (CURL),
+     * going out toward its top; the level thickens it */
+    if (cx->xk[1][0]) {
+        int32_t H = 60 + cx->xk[1][2] * 140 / 99, cu = 3 + cx->xk[1][1] * 36 / 99, k, j;
+        for (k = 0; k < 5; k++) {
+            uint32_t h = pl_hash((uint32_t)k + 300u);
+            int32_t bx = 24 + k * 48 + (int32_t)(h >> 28) - 8, ox = 0, oy = 0, by = 214 - (int32_t)(h >> 27 & 15u);
+            for (j = 0; j <= 24; j++) {
+                int32_t y = by - j * H / 24, x = bx * 256 + ((pl_sine(a, (uint32_t)j * 120000000u - cx->now * 1300000u + h) * cu * j) >> 11)
+                                                 + j * (int32_t)(h >> 24 & 7u) * 16;
+                if (j) {                                /* (two strands, a pixel apart: a wisp, not a hair) */
+                    pl_line(S, ox, oy, x, y * 256, (24 - j) * (60 + cx->level / 3) / 24, PLC_SMOKE);
+                    pl_line(S, ox + 384, oy, x + 384, y * 256, (24 - j) * (30 + cx->level / 5) / 24, PLC_SMOKE);
+                }
+                ox = x;
+                oy = y * 256;
+            }
+        }
+    }
+    /* (NEW, API 6) EMBERS: COUNT (4 .. 40) rise off the heat (as fast as RISE has it, each its own pace), each up a spiral
+     * of its own (SWIRL: 1 .. 8 px round at the foot, widening as it climbs; one way or the other) for its own height
+     * (90 .. 200 px); as it climbs it cools (yellow-orange, orange, red, deep red) and dims, flickering, flaring on the
+     * beat, brighter on the near side of its turn; a short trail behind it along its path */
+    if (cx->xk[0][0]) {
+        int32_t n = 4 + cx->xk[0][1] * 36 / 99, sw = 256 + cx->xk[0][2] * 1792 / 99, k, j;
+        for (k = 0; k < n; k++) {
+            uint32_t h = pl_hash((uint32_t)k + 900u), sp = 20u + (uint32_t)cx->k[0] / 2u + (h >> 28) * 3u;
+            int32_t L = 90 + (int32_t)(h >> 21 & 127u) * 110 / 127, c = (int32_t)((cx->now * sp / 1000u + (h >> 8)) % (uint32_t)L),
+                    y = 232 - (int32_t)(h >> 4 & 15u) - c, t = c * 768 / L, g = t >> 8, f = t & 255, x = plc_emb(a, h, c, sw, cx->now),
+                    e = (256 - ((c * c / L) << 8) / L) * (200 + cx->beat / 3 + (pl_sine(a, cx->now * 9000000u + h * 7u) >> 10)
+                         + (pl_sine(a, cx->now * 23000000u + h * 3u) >> 10)) >> 8;
+            uint8_t cl[3];
+            e = e * (210 + (pl_sine(a, (uint32_t)c * (60000000u + (h >> 26) * 1600000u) * (h & 1u ? 1u : ~0u) + h + cx->now * 6000u) >> 10)) >> 8;
+            for (j = 0; j < 3; j++)
+                cl[j] = (uint8_t)(PLC_EMB[g][j] + (((PLC_EMB[g + 1][j] - PLC_EMB[g][j]) * f) >> 8));
+            e = pl_clamp(e, 0, 255);
+            for (j = 3; j < 12 && j < c; j += 3)        /* (the trail: three pieces along its path, going out) */
+                pl_line(S, plc_emb(a, h, c - j, sw, cx->now), (y + j) * 256, plc_emb(a, h, c - j + 3, sw, cx->now), (y + j - 3) * 256,
+                        e * (14 - j) / 24, cl);
+            pl_glint(S, x, y * 256, e, cl);
+            pl_splat(S, x, y * 256, e, cl);                 /* (its core: twice the light) */
+        }
+    }
 }
 
 #include "splash/cinder.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
@@ -185,4 +240,10 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_cinder = {
     {{"PULSE", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 60, 50}},
      {"SMOLDER", {21, 76, 31, 0, 0, 21, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 40, 0}},
      {"FLARE", {71, 31, 0, 81, 0, 91, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 5u), UMB_LINK(UMB_SRC_BEAT, 0u)}, {99, 99, 60, 25}}},
-    62u, {0, 0, 0}, SPL_CINDER};
+    62u, {0, 0, 0}, SPL_CINDER,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"EMBERS", 3u, 1u, {0, 0}, {{"ON", 0}, {"COUNT", 50}, {"SWIRL", 50}}, "Red embers swirl up off the coals, cooling from yellow-orange to deep red, flickering out",
+      {"Embers on or off", "How many rise at once", "How wide they spiral as they climb"}},
+     {"SMOKE", 3u, 1u, {0, 0}, {{"ON", 0}, {"CURL", 50}, {"HEIGHT", 50}}, "Faint wisps of smoke climb over the embers, thicker as the music swells",
+      {"Smoke on or off", "How much the wisps curl", "How high they climb"}}}};

@@ -12014,7 +12014,7 @@ static int test_skin(void)
         ui_power_on(); frame();
         memset(&umc, 0, sizeof umc);
         ok = umb_plate_cinder.splash == SPL_CINDER && umb_plate_tarn.energy < umb_plate_pachinko.energy && !umb_plate_corona.splash &&
-             umb_plate_corona.api == 5u;
+             umb_plate_corona.api == UMB_API;
         memset(&cx, 0, sizeof cx); memset(cx.k, 50, sizeof cx.k);
         memset(&umb.co, 0, sizeof umb.co);
         memset(&nt, 0, sizeof nt); nt.vel = 100; nt.note = 36; nt.drum = 1;

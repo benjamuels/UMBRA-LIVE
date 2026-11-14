@@ -54,6 +54,9 @@
     border-color: var(--edge); font-size: 12px; line-height: 1; font-variant-numeric: tabular-nums; }
   .tile.in .add { border-color: var(--teal); color: var(--teal); }
   #none { grid-column: 1 / -1; padding: 24px 0; }
+  .tile.under { border-color: var(--teal); border-style: dashed; }
+  .tile .utag { position: absolute; top: 6px; left: 6px; font-size: 9.5px; letter-spacing: .14em; color: var(--teal); background: rgba(0, 0, 0, .75);
+    border: 1px solid var(--teal); border-radius: 999px; padding: 0 7px; }
 
   /* the player */
   #player { position: sticky; top: 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 16px;
@@ -83,6 +86,26 @@
   .prm.set .top output { color: var(--teal); }
   .prm small { display: block; margin-top: 3px; font-size: 12.5px; line-height: 1.4; color: var(--dim); }
   input[type=range] { width: 100%; margin: 0; accent-color: var(--teal); }
+  /* with a veil over a ground: which of the two the controls below set (both keep playing) */
+  #pedit { padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+  #layers { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; flex: 1; }
+  #layers button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 10px; text-align: left; border-color: var(--line); color: var(--dim); }
+  #layers button b { font-weight: 500; font-size: 13px; letter-spacing: .12em; }
+  #layers button small { font-size: 10px; letter-spacing: .16em; }
+  #layers button[aria-checked=true] { border-color: var(--teal); background: var(--teal); color: #000; }
+  /* the elements a plate brings beside its eight: each with an on/off switch and parameters of its own */
+  .xel { padding: 10px 0 6px; border-bottom: 1px solid var(--line); }
+  .xel .xt { display: flex; align-items: center; gap: 10px; }
+  .xel .xt b { font-size: 12px; font-weight: 500; letter-spacing: .1em; margin-right: auto; }
+  .xel > small { display: block; margin: 3px 0 4px; font-size: 12.5px; line-height: 1.4; color: var(--dim); }
+  .xel.off .prm { opacity: .45; }
+  .xel .prm { border-bottom: 0; padding: 5px 0 4px; }
+  .sw { display: inline-flex; align-items: center; gap: 8px; padding: 3px 10px 3px 6px; border-radius: 999px; border-color: var(--line);
+    font-size: 11px; letter-spacing: .14em; color: var(--dim); }
+  .sw .k { position: relative; width: 30px; height: 16px; border-radius: 999px; background: #2a2a2a; }
+  .sw .k::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--dim); transition: transform .12s; }
+  .sw[aria-checked=true] { color: var(--teal); border-color: var(--teal); }
+  .sw[aria-checked=true] .k::after { transform: translateX(14px); background: var(--teal); }
   .foot { display: flex; gap: 8px; align-items: center; }
   .foot .sp { flex: 1; }
   #pnote { font-size: 12px; margin: 10px 0 0; color: var(--faint); }
@@ -160,13 +183,16 @@
       <div class="head"><b id="pname"></b><span class="tag" id="pkind"></span></div>
       <p id="pdesc"></p>
       <div class="ctl" id="pover" hidden><label for="over">OVER</label><select id="over"></select></div>
+      <div class="ctl" id="pedit" hidden><label>EDITING</label><div id="layers" role="radiogroup" aria-label="Which plate the controls set"></div></div>
       <div class="ctl" id="pmusic" hidden><label for="genre">MUSIC</label><select id="genre"></select>
         <button id="song" title="Another song of this kind">New song</button><button id="sound" aria-pressed="true">Sound on</button></div>
       <div class="ctl"><label>PRESET</label><div class="seg" id="pres"></div></div>
       <div id="params"></div>
+      <div id="xels"></div>
       <div class="foot"><button id="defs">Defaults</button><span class="sp"></span><button id="padd" class="go">Add to the bank</button></div>
       <p id="pnote">What you set here is for trying the plate out: it is not sent to the FM-1. There, the same controls are on
-        HOME &gt; UMBRA &gt; LIVE VIZ CTRLS.</p>
+        HOME &gt; UMBRA &gt; LIVE VIZ CTRLS, apart from the elements with an ON switch: those play here only for now, and the FM-1
+        draws them switched off.</p>
     </aside>
   </div>
 
@@ -195,7 +221,7 @@
 const META = {
   AURORA: { k: "g", t: ["light"] }, BEACON: { k: "v", t: ["light", "sea"] }, BLOT: { k: "g", t: [] }, BOATS: { k: "v", t: ["sea"] },
   BOKEH: { k: "v", t: ["light"] }, CINDER: { k: "g", t: ["light"] }, CORONA: { k: "g", t: ["space", "light"] }, FATHOM: { k: "g", t: ["sea"] },
-  FILAMENT: { k: "v", t: ["light"] }, FIZZ: { k: "v", t: ["sea"] }, GRANULE: { k: "g", t: ["space"] }, GYRE: { k: "g", t: ["sea"] },
+  FILAMENT: { k: "v", t: ["light"] }, HELIX: { k: "v", t: ["sea"] }, GRANULE: { k: "g", t: ["space"] }, GYRE: { k: "g", t: ["sea"] },
   KOI: { k: "v", t: ["sea"] }, MARSH: { k: "v", t: ["light", "sea"] }, MEDUSA: { k: "v", t: ["sea"] }, MOTHS: { k: "v", t: ["light"] },
   MURMUR: { k: "v", t: [] }, PACHINKO: { k: "v", t: ["space"] }, QUILL: { k: "v", t: [] }, RAPIDS: { k: "g", t: ["sea"] },
   RIDGE: { k: "v", t: ["space"] }, RIVULET: { k: "g", t: ["sea"] }, SAROS: { k: "v", t: ["space"] }, SEPIA: { k: "g", t: ["sea"] },
@@ -233,6 +259,19 @@ const DOC = {
   "ZODIAC": [["TURN", 30, "Sky's wheel speed (0 = still)"], ["FADE", 50, "How long a star stays lit"], ["SIZE", 60, "Size of the signs"], ["STARS", 50, "Notes (default: every note) light one of the track's stars"], ["JOINS", 50, "Joins' own light"], ["SPREAD", 55, "How far from the pole the signs lie"]],
 /*@END*/
 };
+/* (2026-11-14, the plates revised) elements whose meaning changed or that are new: name -> [[name, default, what it does] ..],
+ * laid over DOC's (FIZZ is HELIX now) */
+const DOC2 = {
+  "HELIX": [["RISE", 40, "How fast the helix climbs (6 to 66 px a second)"], ["TWIST", 50, "How tightly it winds"], ["SPREAD", 50, "How wide it is (the mix's level widens it too)"], ["BEAD", 50, "Notes that are not drums: a bead lit in the track's colour at the note's height, a ring flashing out"], ["PULSE", 50, "Kick: the helix swells and flashes"], ["SPARK", 50, "Rest of the kit: sparks thrown off the threads"], ["SHINE", 50, "How bright the near side is"], ["SWAY", 30, "How far its axis snakes side to side"]],
+  "SAROS": [["REACH", 50, "How far out the outermost ring of notes lies (74 px .. the corners)"]],
+  "SONAR": [["PINGS", 50, "Notes: pings out from the centre, each as hard as its value; below 50 ever gentler"]],
+  "KOI": [["SWIM", 50, "How fast they swim (0: a slow, gentle drift)"]],
+};
+for (const [k, v] of Object.entries(DOC2)) {           /* (each in its place; one new to the plate after its others) */
+  const o = DOC[k] || [];
+  DOC[k] = [...o.map((a) => v.find((b) => b[0] === a[0]) || a), ...v.filter((b) => !o.some((a) => a[0] === b[0]))];
+}
+delete DOC.FIZZ;
 const CORONA_DESC = "The eclipse: streamers, drums as arches and beads.";
 /* the plates an install brings, in the bank's order (tools/build.py BANK_PLATES) */
 const ALL = ["CINDER", "GRANULE", "TARN", "SEPIA", "GYRE", "AURORA", "FATHOM", "RAPIDS", "BEACON", "ZODIAC", "SONAR", "MOTHS", "MARSH",
@@ -463,7 +502,7 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 const pic = (name) => (META[name] ? `img/${name.toLowerCase()}.png` : "");
 const KEY = "umbra-plates";
 const keep = (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } })();
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ plan: planOwn ? plan : null, sel, genre: keep.genre, sound: keep.sound, over: keep.over })); } catch (e) { /* not kept */ } };
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ plan: planOwn ? plan : null, sel, xv, genre: keep.genre, sound: keep.sound, over: keep.over })); } catch (e) { /* not kept */ } };
 let sel = keep.sel && typeof keep.sel === "string" ? keep.sel : "CORONA";
 let fkind = "all", ftheme = "all", asking = false;
 if (Array.isArray(keep.plan)) { plan = keep.plan.slice(0, 32).map((n) => (typeof n === "string" ? n : null)); fit(Math.max(16, plan.length)); planOwn = true; }
@@ -492,7 +531,7 @@ function drawTiles() {
   $("count").textContent = list.length === all.length ? `${all.length} PLATES` : `${list.length} OF ${all.length} PLATES`;
   const box = $("tiles"); box.textContent = "";
   for (const e of list) {
-    const k = plan.indexOf(e.name), t = el("div", "tile" + (e.name === sel ? " sel" : "") + (k >= 0 || e.builtin ? " in" : ""));
+    const u = under(), k = plan.indexOf(e.name), t = el("div", "tile" + (e.name === sel ? " sel" : "") + (u && u.name === e.name ? " under" : "") + (k >= 0 || e.builtin ? " in" : ""));
     const b = el("button", "pick"), p = el("span", "pic"), nm = el("span", "nm");
     if (pic(e.name)) p.style.backgroundImage = `url(${pic(e.name)})`;
     nm.append(el("b", "", e.name), el("i", "", e.own ? "YOURS" : e.kind === "v" ? "VEIL" : "GROUND"));
@@ -507,6 +546,7 @@ function drawTiles() {
     a.setAttribute("aria-label", a.title);
     a.onclick = () => { if (k >= 0) planSet(k, null); else add(e.name); };
     t.appendChild(a);
+    if (u && u.name === e.name) t.appendChild(el("span", "utag", "UNDER"));
     if (e.p) {
       t.draggable = true;
       t.ondragstart = (ev) => { ev.dataTransfer.setData("text/plain", "plate:" + e.name); ev.dataTransfer.effectAllowed = "copyMove"; };
@@ -609,7 +649,10 @@ $("file").onchange = async (ev) => {
 /* The firmware with every plate built in (plates.wasm), run by the emulator's worklet: TOTALITY alone on the screen, a song
  * of the generator's playing for the plate to follow. vals[name][preset]: the controls as set here (never sent to the FM-1) */
 const vals = {};
-let pre = 0, node = null, ac = null, gain = null, pages = null, starting = false;
+const preOf = {};                                      /* name -> its preset here (0 BASIC): a veil and the ground under it each their own */
+const P = (e) => preOf[e.name] || 0;
+const xv = keep.xv && typeof keep.xv === "object" ? keep.xv : {};   /* name -> [element][parameter]: the elements beside the eight */
+let edit = "top", node = null, ac = null, gain = null, pages = null, starting = false;
 const cur = { ground: null, veil: null };              /* (the pages lying there now) */
 const cv = $("cv"), cx = cv.getContext("2d"), img = cx.createImageData(240, 240);
 const send = (m) => { if (node) node.port.postMessage(m); };
@@ -618,6 +661,44 @@ function vset(e, p) {
   return (v[p] ||= e.ctl.map((c, j) => (p && e.pre[p - 1] ? e.pre[p - 1].v[j] : c.def)));
 }
 const base = (e, p, j) => (p && e.pre[p - 1] ? e.pre[p - 1].v[j] : e.ctl[j].def);
+/* the ground under the veil chosen (null: none, or a ground chosen); the plate the controls set (the veil, or that ground) */
+const under = () => { const e = LIB.get(sel); return e && e.kind === "v" ? LIB.get($("over").value) || null : null; };
+const target = () => (edit === "under" && under()) || LIB.get(sel);
+function xget(e) {
+  const d = (e.xel || []).map((x) => x.p.map((p) => p.def)), v = xv[e.name];
+  if (!v || v.length !== d.length || v.some((r, i) => !Array.isArray(r) || r.length !== d[i].length)) xv[e.name] = d;
+  return xv[e.name];
+}
+function xsend(e) {                                    /* a plate's other elements to the player */
+  if (!pages || pages[e.name] == null) return;
+  xget(e).forEach((r, i) => r.forEach((v, j) => send({ type: "umxx", pl: pages[e.name], j: i * 3 + j, v })));
+}
+function drawX(e) {
+  const box = $("xels"), v = xget(e); box.textContent = "";
+  (e.xel || []).forEach((x, i) => {
+    const t = x.p.findIndex((p) => p.tog), on = t < 0 || !!v[i][t];
+    const c = el("div", "xel" + (on ? "" : " off")), top = el("div", "xt");
+    top.appendChild(el("b", "", x.name));
+    if (t >= 0) {
+      const s = el("button", "sw"); s.setAttribute("role", "switch"); s.setAttribute("aria-checked", String(on));
+      s.setAttribute("aria-label", `${x.name}: ${x.p[t].name}`); s.title = x.p[t].what;
+      s.append(el("span", "k"), on ? "ON" : "OFF");
+      s.onclick = () => { v[i][t] = on ? 0 : 1; save(); xsend(e); drawX(e); };
+      top.appendChild(s);
+    }
+    c.append(top, el("small", "", x.what));
+    x.p.forEach((p, j) => {
+      if (j === t) return;
+      const r = el("div", "prm"), tp = el("div", "top"), lab = el("label", "", p.name), s = el("input"), o = el("output", "", String(v[i][j]));
+      s.type = "range"; s.min = 0; s.max = 99; s.value = v[i][j]; s.id = `x${i}_${j}`; lab.htmlFor = s.id;
+      s.oninput = () => { v[i][j] = +s.value; o.textContent = s.value; save(); if (pages && pages[e.name] != null) send({ type: "umxx", pl: pages[e.name], j: i * 3 + j, v: v[i][j] }); };
+      tp.append(lab, s, o); r.appendChild(tp);
+      if (p.what) r.appendChild(el("small", "", p.what));
+      c.appendChild(r);
+    });
+    box.appendChild(c);
+  });
+}
 function drawScreen(fb) {
   const d = img.data;
   for (let i = 0; i < 240 * 240; i++) {
@@ -628,7 +709,7 @@ function drawScreen(fb) {
 }
 function choose(name) {
   if (!LIB.has(name)) return;
-  sel = name; pre = 0;
+  sel = name; edit = "top";
   drawTiles(); drawPlayer(); show();
 }
 function drawAdd() {
@@ -651,45 +732,65 @@ function drawPlayer() {
   $("start").disabled = starting || (!!node && !can);
   $("start").querySelector("span").textContent = starting ? "Starting…" : node && !can ? "No player for this plate" : "Play this plate";
   $("pover").hidden = e.kind !== "v";
+  const u = under(), lay = $("layers"); lay.textContent = "";
+  $("pedit").hidden = !u;
+  if (!u) edit = "top";
+  if (u) [["top", e, "VEIL · ON TOP"], ["under", u, "GROUND · UNDER"]].forEach(([k, p, what]) => {
+    const b = el("button"); b.setAttribute("role", "radio"); b.setAttribute("aria-checked", String(edit === k));
+    b.append(el("b", "", p.name), el("small", "", what));
+    b.title = `Set ${p.name}'s preset and controls; both keep playing`;
+    b.onclick = () => { edit = k; drawPlayer(); };
+    lay.appendChild(b);
+  });
+  const t = target(), pre = P(t);
   const ps = $("pres"); ps.textContent = "";
-  ["BASIC", ...e.pre.map((p) => p.name)].forEach((n, i) => {
+  ["BASIC", ...t.pre.map((p) => p.name)].forEach((n, i) => {
     const b = el("button", "", n);
     b.setAttribute("aria-pressed", String(i === pre));
-    b.onclick = () => { pre = i; drawPlayer(); show(); };
+    b.onclick = () => { preOf[t.name] = i; drawPlayer(); show(); };
     ps.appendChild(b);
   });
-  const box = $("params"), v = vset(e, pre); box.textContent = "";
-  e.ctl.forEach((c, j) => {
-    const r = el("div", "prm" + (v[j] !== base(e, pre, j) ? " set" : "")), top = el("div", "top");
+  const box = $("params"), v = vset(t, pre); box.textContent = "";
+  t.ctl.forEach((c, j) => {
+    const r = el("div", "prm" + (v[j] !== base(t, pre, j) ? " set" : "")), top = el("div", "top");
     const lab = el("label", "", c.name), s = el("input"), o = el("output", "", String(v[j]));
     s.type = "range"; s.min = 0; s.max = 99; s.value = v[j]; s.id = "k" + j; lab.htmlFor = s.id;
     s.oninput = () => {
-      v[j] = +s.value; o.textContent = s.value; r.classList.toggle("set", v[j] !== base(e, pre, j));
-      if (pages && pages[e.name] != null) send({ type: "umx", pl: pages[e.name], j, v: v[j] });
+      v[j] = +s.value; o.textContent = s.value; r.classList.toggle("set", v[j] !== base(t, pre, j));
+      if (pages && pages[t.name] != null) send({ type: "umx", pl: pages[t.name], j, v: v[j] });
     };
     top.append(lab, s, o); r.appendChild(top);
     if (c.what) r.appendChild(el("small", "", c.what));
     box.appendChild(r);
   });
-  if (!e.ctl.length) box.appendChild(el("p", "", "This plate declares no controls here."));
+  if (!t.ctl.length) box.appendChild(el("p", "", "This plate declares no controls here."));
+  drawX(t);
   drawAdd();
 }
-$("defs").onclick = () => { const e = LIB.get(sel); if (!e) return; delete (vals[e.name] || {})[pre]; drawPlayer(); show(); };
+$("defs").onclick = () => {
+  const e = target(); if (!e) return;
+  delete (vals[e.name] || {})[P(e)]; delete xv[e.name]; save(); drawPlayer(); show();
+};
 $("padd").onclick = () => add(sel);
-/* the plate chosen onto the player's screen: a ground alone; a veil on LAYER 1, over the ground chosen for it or over none */
+/* the plate chosen onto the player's screen: a ground alone; a veil on LAYER 1, over the ground chosen for it or over none;
+ * each its own preset, controls and other elements */
 function show() {
   save();
   const e = LIB.get(sel);
   if (!node || !pages || !e || pages[e.name] == null) return;
   const pl = pages[e.name], lay = (p, w) => send({ type: "umb", i: 97, v: p | w << 8 });
-  const under = e.kind === "v" ? pages[$("over").value] ?? null : pl;
+  const gpl = e.kind === "v" ? pages[$("over").value] ?? null : pl;   /* (the ground's page: the one under a veil, or the plate) */
   if (cur.veil != null && (e.kind !== "v" || cur.veil !== pl)) { lay(cur.veil, 0); cur.veil = null; }
-  if (under == null) { if (cur.ground != null) lay(cur.ground, 0); }
-  else if (cur.ground !== under) send({ type: "umb", i: 99, v: under });
-  cur.ground = under;
+  if (gpl == null) { if (cur.ground != null) lay(cur.ground, 0); }
+  else if (cur.ground !== gpl) send({ type: "umb", i: 99, v: gpl });
+  cur.ground = gpl;
   if (e.kind === "v" && cur.veil !== pl) { lay(pl, 2); cur.veil = pl; }
-  send({ type: "umb", i: 93, v: pl | pre << 8 });
-  vset(e, pre).forEach((v, j) => send({ type: "umx", pl, j, v }));
+  for (const p of [under(), e]) {                      /* (the ground under it, then the plate chosen) */
+    if (!p || pages[p.name] == null) continue;
+    send({ type: "umb", i: 93, v: pages[p.name] | P(p) << 8 });
+    vset(p, P(p)).forEach((v, j) => send({ type: "umx", pl: pages[p.name], j, v }));
+    xsend(p);
+  }
 }
 function song(fresh) {
   if (fresh || keep.seed == null) keep.seed = Math.floor(Math.random() * 10000);
@@ -721,6 +822,7 @@ async function start() {
     for (const p of info.pages) {
       pages[p.name] = p.pl;
       const h = p.head && head(p.head), e = LIB.get(p.name);   /* (CORONA has no file: its header from the firmware) */
+      if (e) e.xel = p.xel || [];                      /* (the elements beside the eight: the player reads them from the plate) */
       if (h && e && !e.p && !e.own) { const was = e.ctl; Object.assign(e, { desc: h.desc || e.desc, pre: h.pre, energy: h.energy,
         ctl: h.ctl.map((c) => ({ ...c, what: (was.find((w) => w.name === c.name) || {}).what || "" })) }); }
     }
@@ -749,7 +851,7 @@ $("sound").onclick = () => {
   $("sound").textContent = keep.sound ? "Sound on" : "Sound off"; $("sound").setAttribute("aria-pressed", String(keep.sound)); save();
 };
 if (keep.sound === false) { $("sound").textContent = "Sound off"; $("sound").setAttribute("aria-pressed", "false"); }
-$("over").onchange = () => { keep.over = $("over").value; show(); };
+$("over").onchange = () => { keep.over = $("over").value; edit = "top"; drawTiles(); drawPlayer(); show(); };
 document.addEventListener("visibilitychange", () => send({ type: "visible", on: !document.hidden, fps: 30 }));
 
 if (!navigator.requestMIDIAccess) { $("connect").disabled = true; say("This browser has no Web MIDI, which reaching the FM-1 needs: use Chrome or Edge. The plates play here all the same.", true); }

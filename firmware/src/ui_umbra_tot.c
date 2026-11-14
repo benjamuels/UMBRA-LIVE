@@ -240,13 +240,7 @@ static void umt_knob(uint32_t k, int32_t d)
 }
 
 /* ------------------------------------------------------------------------------------------ the effects --- */
-static uint32_t umt_rnd(uint32_t *s)                    /* (mulberry32, its own seed: the two strips agree) */
-{
-    uint32_t t = *s += 0x6D2B79F5u;
-    t = (t ^ (t >> 15)) * (t | 1u);
-    t ^= t + (t ^ (t >> 7)) * (t | 61u);
-    return t ^ (t >> 14);
-}
+#define umt_rnd umb_mb32                                /* (mulberry32, its own seed: the two strips agree) */
 /* once a frame: GLITCH's energy, from the notes since (REACT's), falling off in ~0.2 s */
 static void umt_glitch_tick(void)
 {

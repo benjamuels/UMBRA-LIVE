@@ -50,7 +50,7 @@ await run('connect()');
 check(st().bad && /IAC Driver Bus 1, Launchkey MK3/.test(st().text), `connect, no FM-1: says which ports it sees`);
 ctx.navigator.requestMIDIAccess = access(['IAC Driver Bus 1', 'FM-1']);   // (the FM-1's USB name since JIANT V10)
 await run('connect()');
-check(run('dev.name') === 'FM-1' && /Plate API 5, 16 slots, 0 in use/.test(run('dev.info')), `connect: finds "FM-1", the bank: "${run('dev && dev.info')}"`);
+check(run('dev.name') === 'FM-1' && /Plate API 6, 16 slots, 0 in use/.test(run('dev.info')), `connect: finds "FM-1", the bank: "${run('dev && dev.info')}"`);
 check(names() === E && run('plan.length') === 16 && run('plan.every((x) => x === null)'), `the bank, empty; the loading bank follows it`);
 const e = run('addFile(__bytes, "ember.plate", true)');
 check(e && e.name === 'FIL EMBER' && e.own && e.len > 0 && run('movable("FIL EMBER")') && !run('movable("CORONA")'),

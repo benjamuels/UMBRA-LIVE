@@ -18,12 +18,15 @@
 #define UMB_PLATE_H
 #include <stdint.h>
 
-#define UMB_API 5u                                      /* (2: the context's tracks' offsets and roots, the
+#define UMB_API 6u                                      /* (2: the context's tracks' offsets and roots, the
                                                          * services' tables: what the field plates read; 3: the
                                                          * controls are elements: the tracks chosen for each, the level
                                                          * and the beat in the context, UMB_EL_* in the header; 4: the
                                                          * plate's own line of description and its presets in the header;
-                                                         * 5: how lively it reads and its still picture in the header) */
+                                                         * 5: how lively it reads and its still picture in the header;
+                                                         * 6: up to three more elements beside the eight,
+                                                         * each with up to three parameters of its own, one an on/off
+                                                         * toggle: umb_xel_t, umb_lctx_t.xk) */
 #define UMB_SPL 64u                                     /* (API 5) a plate's still picture: UMB_SPL px square; 16 colours as
                                                          * the panel takes them (RGB565, the high byte first), then its
                                                          * rows, a nibble a pixel (the left one the byte's high) */
@@ -69,6 +72,23 @@ typedef struct {                                        /* a control a plate dec
     uint8_t def;                                        /* its default, 0..99 */
 } umb_ctl_t;
 
+/* (API 6) a plate's other elements, apart from its eight: each one a part of the
+ * picture with parameters of its own (a slider 0..99, or an on/off toggle: 0 off, 1 on). The firmware hands their values
+ * in umb_lctx_t.xk[element][parameter]; the plates page's player sets them (web_umx_x); on the FM-1, LIVE VIZ CTRLS does not
+ * show them yet: there they stay at their defaults (every toggle off) */
+#define UMB_NXE 3u                                      /* the new elements a plate may bring */
+#define UMB_NXP 3u                                      /* .. the parameters each may have */
+typedef struct {
+    char name[8];                                       /* the element's name, 0-ended (7 letters) */
+    uint8_t np;                                         /* its parameters (p[0 .. np - 1]) */
+    uint8_t tog;                                        /* bit i: parameter i is an on/off toggle (its value 0 or 1) */
+    uint8_t rsv[2];
+    umb_ctl_t p[UMB_NXP];                               /* each parameter: its name (6 letters), its default (a toggle's:
+                                                         * 0 off, 1 on) */
+    const char *what;                                   /* what the element does, a sentence for the plates page */
+    const char *pw[UMB_NXP];                            /* .. what each parameter does */
+} umb_xel_t;
+
 typedef struct {                                        /* (API 4) a preset: the elements set another way, what moves them */
     char name[8];                                       /* as LIVE VIZ CTRLS shows it, 0-ended */
     uint8_t v[UMB_NCTL];                                /* each element's value + 1 (0: its default) */
@@ -96,6 +116,9 @@ typedef struct {                                        /* a layer, worked out o
     uint8_t level;                                      /* the mix's level now, 0..255 */
     uint8_t beat;                                       /* 255 on the beat, falling to the next (stopped: 0) */
     uint8_t rsv3[2];
+    /* (API 6) */
+    uint8_t xk[UMB_NXE][UMB_NXP];                       /* each new element's parameters now (a toggle 0 or 1, else 0..99) */
+    uint8_t rsv4[3];
 } umb_lctx_t;
 
 typedef struct {                                        /* the strip being drawn */
@@ -149,6 +172,9 @@ typedef struct umb_plate_s {                            /* (not umb_plate: ui_um
     uint8_t energy, rsv5[3];                            /* how lively it reads, 0 still .. 99 (GENE: a part's plate the one
                                                          * nearest the part's own) */
     const uint8_t *splash;                              /* its still picture, UMB_SPL_BYTES (PLATES' side boxes; 0: none) */
+    /* (API 6: read only where api >= 6) */
+    uint8_t nxe, rsv6[3];                               /* its new elements (xel[0 .. nxe - 1]) */
+    umb_xel_t xel[UMB_NXE];
 } umb_plate_t;
 
 #endif
