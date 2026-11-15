@@ -7,7 +7,10 @@
  * their tops violet. A third of one curtain is worked out afresh at a time, 40 times a second, each in its turn (the
  * columns a note has just lit at once), and the folds stand where the plate's start put them (a fold that crept redrew every ray it
  * moved a pixel: most of the screen, for a motion too slow to see; WAVE moves them, by hand or by a link): at rest the
- * curtains stand, and a note changes only where its light is. A note lights its track's
+ * curtains stand, and a note changes only where its light is. FLOW on (the user, 2026-11-15) sets the folds going: each
+ * curtain's wave runs along it, one curtain against the next, its second fold three times as fast so the shape keeps
+ * changing, as fast as SPEED says; then every curtain is worked out whole each step (all of it moves: the screen link
+ * sends most of it). A note lights its track's
  * curtain where its pitch falls (C2 left .. C7 right) and the light drifts off with it; the kick flares the foot of one
  * curtain after another; the rest of the kit are stars that glint above.
  * Elements: DRIFT (how fast the light runs along), FADE (how long the notes' light lasts), HEIGHT (the rays'), RAY (the
@@ -16,7 +19,8 @@
  * (NEW, API 6) METEOR (on/off; RATE: how often a kick throws one; TRAIL: its tail's length): shooting stars across the
  * sky above the curtains. MOON (on/off; PHASE: its month, 0 and 99 eclipsed (dark but
  * for a faint ghost), waxing to full at 50 and waning back; HALO: its ring of light, breathing with the beat
- * and the level): a moon over the top right. */
+ * and the level): a moon over the top right. FLOW (on/off; SPEED: how fast the curtains' wave evolves, a turn of it in
+ * ~85 min at 1 .. 2.5 s at 99): the curtains' folds on the move. */
 #include "plate_lib.h"
 
 #define FAU_NC 3                                        /* curtains */
@@ -39,6 +43,7 @@ typedef struct {
     uint32_t rs, ms, fp;                                /* the dice; the steps' clock; where the folds stand (its own each
                                                          * time the plate starts) */
     uint32_t xr, mt[4];                                 /* (NEW, API 6) METEOR: its own dice; each one since when (0: none) .. */
+    uint32_t fw;                                        /* (FLOW) how far the folds' wave has run (2^32 a turn) */
     uint8_t mx[4], my[4], md[4], nm;                    /* .. where it set off (px), its dice (way, speed); the next */
 } fau_t;
 
@@ -100,7 +105,7 @@ static void fau_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
 static void fau_cols(fau_t *s, const umb_lctx_t *cx, const umb_api_t *a, int32_t k, int32_t x0, int32_t x1)
 {
     int32_t wa = (int32_t)cx->k[6] * 16 / 50, y0 = (cx->bare ? 84 : 104) + k * 50, x;
-    uint32_t ph = (uint32_t)k * 1431655765u + s->fp;
+    uint32_t ph = (uint32_t)k * 1431655765u + s->fp + (k & 1 ? 0u - s->fw : s->fw);   /* (FLOW: one way, the next the other) */
     for (x = x0; x < x1; x++) {
         uint32_t p = (uint32_t)x * (FAU_NI * 65536u / 240u) + s->off[k];
         int32_t i0 = (int32_t)((p >> 16) % FAU_NI), i1 = (i0 + 1) % FAU_NI, fr = (int32_t)(p >> 8 & 255u),
@@ -124,6 +129,12 @@ static void fau_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
             s->d1[k] = 0;
         }
     n = pl_owed(cx->now, &s->ms, 25u);
+    if (cx->xk[2][0]) {                                 /* FLOW: the wave on (SPEED 50: a turn in ~9.5 s), every curtain
+                                                         * whole each step (a third at a time would tear where they meet) */
+        s->fw += cx->dt * ((uint32_t)cx->xk[2][1] * cx->xk[2][1] + 4u * cx->xk[2][1]) * 168u;
+        if (n)
+            s->all = 1u;
+    }
     if (s->all)
         n = 3u * FAU_NC;
     s->all = 0;
@@ -208,10 +219,13 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_aurora = {
      {"STORM", {91, 26, 96, 91, 96, 0, 91, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 6u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 40, 30}}},
     35u, {0, 0, 0}, SPL_AURORA,
     /* (API 6, the test) its new elements */
-    2u, {0, 0, 0},
+    3u, {0, 0, 0},
     {{"METEOR", 3u, 1u, {0, 0}, {{"ON", 0}, {"RATE", 50}, {"TRAIL", 50}},
       "Shooting stars streak across the sky above the curtains, thrown by the kick",
       {"Meteors on or off", "How many kicks throw one (one in ten .. every one)", "How long their tails are"}},
      {"MOON", 3u, 1u, {0, 0}, {{"ON", 0}, {"PHASE", 30}, {"HALO", 50}},
       "A moon over the top right, its halo breathing with the beat and the level",
-      {"Moon on or off", "Its phase: eclipsed at 0 and 99, full at 50", "How wide and bright its halo"}}}};
+      {"Moon on or off", "Its phase: eclipsed at 0 and 99, full at 50", "How wide and bright its halo"}},
+     {"FLOW", 2u, 1u, {0, 0}, {{"ON", 0}, {"SPEED", 40}},
+      "The curtains' wave evolves: their folds run along them and change shape",
+      {"Flow on or off (off: the curtains stand)", "How fast the wave evolves"}}}};
