@@ -2,14 +2,15 @@
  * Copyright (C) 2026 UMBRA LIVE contributors */
 /* (included by ui_umbra.c, after TOTALITY) HOME > WELCOME: UMBRA explained in six pages over the plate (the user's words,
  * 2026-11-09). The first time the FM-1 starts with UMBRA it starts here. OCT+ the next page (it breathes while there is
- * one), OCT- the one before (round: from the first, the last); OCT- held: after a second a count from 5 over the page,
+ * one), OCT- the one before (round: from the first, the last); OCT- held: after a second a count from 3 over the page,
  * a second a step, and at its end WELCOME is gone, from HOME's pages and from the next power-ons (MENU > SYSTEM >
  * WELCOME ON brings it back); let go before, it stays (and that let-go is no page back). On WELCOME the octave keys do
  * this and nothing else (the keyboard's octave stays). OCT- and OCT+ held together are UPDATE MODE's, as everywhere
  * (main.c): no count here. Built for size (tools/size_fns.py) */
 #define UMW_NP 6u                                       /* the pages */
-#define UMW_SHOW 1000u                                  /* OCT- held this long (ms): the count shows, from 5 .. */
-#define UMW_GONE (UMW_SHOW + 5000u)                     /* .. and at its end WELCOME is gone */
+#define UMW_SHOW 1000u                                  /* OCT- held this long (ms): the count shows, from 3 .. */
+#define UMW_COUNT 3000u                                 /* (the count: 5 s until 2026-11-14) */
+#define UMW_GONE (UMW_SHOW + UMW_COUNT)                 /* .. and at its end WELCOME is gone */
 static uint8_t umw_eat;                                 /* the count shown: OCT-'s let-go no page back */
 static uint32_t umw_t0;                                 /* OCT- held alone on WELCOME since (| 1; 0: not) */
 /* (umw_pg, the page shown, and umw_gone / umw_put, MENU > SYSTEM > WELCOME's setting: menu_items.c) */
@@ -145,7 +146,7 @@ BTAPP_FN static void umw_draw(int32_t x0, int32_t top, int32_t bot)
         static const char NX[] = "next: \001Oct +\001";
         (void)umw_run(232 - umw_run(0, 0, NX, sizeof NX - 1u, 0, 0) - x0, bot - 13, NX, sizeof NX - 1u, 1, 0);
     }
-    if (umw_t0 && fm1_ms - umw_t0 >= UMW_SHOW) {        /* OCT- held: the count, over the page (5 .. 1, a second a step;
+    if (umw_t0 && fm1_ms - umw_t0 >= UMW_SHOW) {        /* OCT- held: the count, over the page (3 .. 1, a second a step;
                                                          * the bar runs out with it) */
         uint32_t el = fm1_ms - umw_t0, left = el >= UMW_GONE ? 0u : UMW_GONE - el;
         int32_t cy = (top + bot) / 2, w;
@@ -158,7 +159,7 @@ BTAPP_FN static void umw_draw(int32_t x0, int32_t top, int32_t bot)
         umw_line(120 - x0, cy + 6, "Dismissing WELCOME", 18, 1, 0);
         umw_line(120 - x0, cy + 18, "let go to keep it", 17, 1, 0);
         cv_rect(62 - x0, cy + 30, 116, 3, T_RAISE);
-        cv_rect(62 - x0, cy + 30, (int32_t)(116u * left / 5000u), 3, T_THEME);
+        cv_rect(62 - x0, cy + 30, (int32_t)(116u * left / UMW_COUNT), 3, T_THEME);
     }
     cv_halo = ha;
 }

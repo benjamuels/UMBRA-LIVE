@@ -4,14 +4,21 @@
  * In: HOME tapped on HOME (its button lit there; on GEN too, which closes), or PLAY on SAVE > SONG > TIMELINE or SAVE >
  * PROJECT > ARRANGE (the song starts, and TOTALITY with it). Out: HOME again (back to the page it came from), or a button
  * that goes to a page (a section's, SAVE, SEQ, HOME held for the menu, a dialog, GEN: umt_check). In it:
- *   PRESETS the MAIN plate (the ground), round, a detent a plate; the new one spreads from the middle over the old
- *   (DISSOLVE: gfx.c dc_gate, the cells not yet reached keep what they showed; 0 a cut .. 99 four seconds);
+ *   PRESETS the MAIN plate (the ground), round, a detent a plate: the old one fades out, then the new one in (the user,
+ *   2026-11-14: no more the blocks spreading from the middle; DISSLV how long, both halves: 0 a cut .. 99 four seconds);
+ *   while the song plays, a plate chosen here (PRESETS, SELECT, a layer's button held + ALGORITHM; not a layer shown or
+ *   hidden, not BODIES, the user 2026-11-15) takes the picture over: the rows'
+ *   cells let be, GLO lit; GLO tapped hands it back, blinking until the next row (or its next round) brings the
+ *   row's plates again, every layer shown (umv_own, ui_umbra_plate.c umv_poll);
  *   PRESETS a ground, never a veil (the user, 2026-11-13);
- *   SELECT the OVER plate (LAYER 1: OFF, then the veils: the light plates and BODIES), round (the user, 2026-11-13);
- *   SEL ENV ARP LFO EDIT as LIVE VIZ CTRLS' BUTTONS page sets them (the user, 2026-11-13; at first SEL LAYER 3, the
- *   figures; ENV OVER; ARP MAIN; LFO and EDIT TAP: the strobe, the blocks): a layer's button tapped hides it or shows it
- *   again (over half a second), held with ALGORITHM turned the next plate there, a detent a plate (umt_algo), lit while
- *   it shows something; a TAP button tapped fires its links, held its layer as ever, lit while its tap lasts (umt_btns);
+ *   SELECT the OVER plate (OFF, then the veils: the light plates and BODIES), round (the user, 2026-11-13);
+ *   SEL ENV ARP LFO EDIT as LIVE VIZ CTRLS' BUTTONS page sets them (the user, 2026-11-13; at first SEL BODIES, ENV
+ *   OVER, ARP MAIN; LFO and EDIT TAP: the strobe, the blocks): a layer's button tapped hides it or shows it again (over
+ *   half a second), held with ALGORITHM turned the next plate there, a detent a plate (umt_algo), lit while it shows
+ *   something; BODIES' (the user, 2026-11-15: no third layer, BODIES a veil on OVER) tapped lays BODIES on OVER in the
+ *   veil's place, or hides them, and OVER's button then brings the veil back, so never both at once; held with
+ *   ALGORITHM turned the next track's figure; a TAP button tapped fires its links, held its layer as ever, lit while its
+ *   tap lasts (umt_btns);
  *   ALGORITHM the track, as ever (a layer's button held: its plate); with SEQ's words on, its number at the upper left for a second, then fading;
  *   FX + a key (JIANT's punch-in effects) on the picture too: a REPEAT or a STUTTER a strobe at its rate, each flash
  *   another colour; OCT+ / OCT- the picture pushed up / down, round the screen's edge (umb_full, umt_fx);
@@ -19,8 +26,8 @@
  *   LIVE AUDIO CTRLS and LIVE VIZ CTRLS say (ui_umbra_mac.c; at first the plate's first three elements and LIGHT); with
  *   SEQ's words on, what the knob's macro moves listed over its word (umt_mlist);
  *   FX tapped: KNOB 1..4 the visual effects instead (MIRROR MOSAIC GLITCH SOLAR), FX lit; tapped again: the plate's;
- *   LAYER 3 shown with nothing there: BODIES laid on it, the selected track's engine's figure in the middle
- *   (ui_engvis.c; ALGORITHM another track's);
+ *   BODIES on OVER: the selected track's engine's figure in the middle (ui_engvis.c; ALGORITHM another track's; BODIES'
+ *   TRACK one track's always);
  *   the keys, PLAY, REC, OCT, ALGORITHM, PRESETS and a layer held as on HOME (the layer's map over it while it shows);
  *   PLAY plays the song again when TOTALITY came from TIMELINE or ARRANGE;
  *   LEDs: the keys of the notes that sound (ui_input.c ui_leds), FX while its knobs are the effects, SEQ with the words,
@@ -38,13 +45,15 @@ static struct {
     char say[32];
     uint32_t qr, gms;                                   /* GLITCH: the notes read, its clock */
     int32_t ge;                                         /* .. its energy (Q8) */
-    uint32_t fms;                                       /* DISSOLVE: since when (0: none) */
-    uint8_t lh;                                         /* hidden (bits): the ground, OVER, LAYER 3 (BUTTONS) */
+    uint32_t fms;                                       /* PRESETS' fade: since when (0: none) */
+    uint8_t np;                                         /* .. the ground coming once the old one is out (| 0x80; 0: none) */
+    uint8_t lh;                                         /* hidden (bits): the ground, OVER (BUTTONS) */
     uint8_t bh;                                         /* SEL ENV ARP LFO EDIT (bits): held past a tap (ALGORITHM turned) */
     uint32_t bt[5];                                     /* .. down since (| 1; 0: up) */
     int8_t roll;                                        /* FX + OCT+ / OCT-: the picture pushed up / down so far (px) */
     uint32_t tms;                                       /* the track's number at the upper left: since when */
-    uint16_t ba[3];                                     /* the ground's, OVER's, LAYER 3's light now, 0..256 (fading: umb_full) */
+    uint16_t ba[3];                                     /* the ground's, OVER's light now, 0..256 (fading: umb_full; [2]
+                                                         * unused, .bss kept as it was: ui_umbra.c UMB_NLAY) */
 } umt;
 #define UMT_FXN(k) (UMX_C[2][k].name)                   /* the effects (FX): MIRROR MOSAIC GLITCH SOLAR */
 static const char *const UMT_MIRN[4] = {"OFF", "L-R", "T-B", "QUAD"};
@@ -118,15 +127,17 @@ static int umt_home(void)
         return 0;
     return 1;
 }
-/* the next page for tk, round: 0 (PRESETS) a ground; 1 (SELECT) a veil (a light plate, BODIES) lying nowhere else, for
- * LAYER 1 (OVER), through OFF; 2 the same on LAYER 3. | 4: never OFF (a button held). What is chosen is shown */
+static uint32_t umt_fade(void);
+static void umt_take(void);
+/* the next page for tk, round: 0 (PRESETS) a ground; 1 (SELECT) a veil (a light plate, BODIES) for OVER, through OFF.
+ * | 4: never OFF (a button held). What is chosen is shown */
 BTAPP_FN static void umt_select(int32_t s, uint32_t tk)   /* (in the Bluetooth segment: the app slot is full) */
 {
     umx_desc_t d;
     int32_t n = (int32_t)UMX_BODY + 2, pl, k;
-    uint32_t t = tk & 3u, w = t == 2u ? 4u : t + 1u;
+    uint32_t t = tk & 1u, w = t + 1u;
     umc_load();
-    pl = (int32_t)(t ? umx_find(umc.lay[w - 2u]) : umb_pl());
+    pl = (int32_t)(t ? umx_find(umc.lay[0]) : umt.np ? umt.np & 0x3Fu : umb_pl());
     if (pl > (int32_t)UMX_BODY)
         pl = -1;                                        /* (none) */
     for (k = 0; k < n; k++) {
@@ -137,19 +148,26 @@ BTAPP_FN static void umt_select(int32_t s, uint32_t tk)   /* (in the Bluetooth s
     }
     if (k == n)
         return;
-    if (!t) {
-        umb_plate = (uint8_t)(0x80u | (uint32_t)pl);
-        umv_dirty = 1;
-        umv_ms = fm1_ms;
-        umt.fms = umt.on ? fm1_ms | 1u : 0u;            /* (DISSOLVE: from here) */
+    umt_take();
+    if (!t) {                                           /* (the new ground once the old one has faded out: umb_full) */
+        if (!umt.np || fm1_ms - umt.fms >= umt_fade() / 2u)
+            umt.fms = fm1_ms | 1u;
+        umt.np = (uint8_t)(0x80u | (uint32_t)pl);
     } else if (pl < 0) {
-        umc.lay[w - 2u] = 0;
+        umc.lay[0] = umx_vk = 0;
         umc_gen++;
         umc_touch();
     } else
         umx_place_set((uint32_t)pl, w);
     umt.lh &= (uint8_t)~(1u << t);
     umt_say(UMX_BF[t], pl < 0 ? "OFF" : d.name);
+}
+/* PRESETS' fade, both halves, ms (SCREEN's DISSLV: 0 a cut .. 99 four seconds) */
+static uint32_t umt_fade(void) { return umq_o[G_FADE] * umq_o[G_FADE] * 4000u / 9801u; }
+static void umt_take(void)                              /* a plate chosen in TOTALITY: the song's rows let it be (GLO lit) */
+{
+    if (chain.running && chain.config.count)
+        umv_own = 1;
 }
 static void umt_seq_tap(void)                           /* SEQ: the words at the foot on, or off again (lit while on) */
 {
@@ -178,17 +196,17 @@ static void umt_mlist(uint32_t k)
     char *b;
     umt_ml.n = 0;
     umx_layers();
-    for (i = 0; i < 6u; i++) {                          /* (the ground, LAYER 1..3, SCREEN, EFFECTS) */
-        pl = i ? i < 4u ? umx_lp[i - 1u] : UMX_SCREEN + i - 4u : umb_pl();
+    for (i = 0; i < 4u; i++) {                          /* (the ground, OVER, SCREEN, EFFECTS) */
+        pl = i ? i < 2u ? umx_lp[0] : UMX_SCREEN + i - 2u : umb_pl();
         if (!umx_desc(pl, &d))
             continue;
         const umc_rec_t *r = umx_rec(pl);
         for (j = 0; j < UMC_NL && umt_ml.n < UMT_NML; j++)
-            if ((r->ls[j] & 31u) == UMQ_M1 + k && (uint32_t)(r->ls[j] >> 5) < d.nctl) {
+            if ((r->ls[j] & 31u) == UMQ_M1 + k && umx_c(&d, umc_lj(r, j))) {
                 b = umt_ml.ln[umt_ml.n++];
                 str_cpy(b, d.name, 10);
                 str_cpy(b + str_len(b), " ", 2);
-                str_cpy(b + str_len(b), d.ctl[r->ls[j] >> 5].name, 7);
+                str_cpy(b + str_len(b), umx_en(&d, umc_lj(r, j)), 7);
             }
     }
     for (t = 0; t < trk_live * 4u && umt_ml.n < UMT_NML; t++) {
@@ -227,13 +245,7 @@ static void umt_knob(uint32_t k, int32_t d)
 }
 
 /* ------------------------------------------------------------------------------------------ the effects --- */
-static uint32_t umt_rnd(uint32_t *s)                    /* (mulberry32, its own seed: the two strips agree) */
-{
-    uint32_t t = *s += 0x6D2B79F5u;
-    t = (t ^ (t >> 15)) * (t | 1u);
-    t ^= t + (t ^ (t >> 7)) * (t | 61u);
-    return t ^ (t >> 14);
-}
+#define umt_rnd umb_mb32                                /* (mulberry32, its own seed: the two strips agree) */
 /* once a frame: GLITCH's energy, from the notes since (REACT's), falling off in ~0.2 s */
 static void umt_glitch_tick(void)
 {
@@ -344,28 +356,35 @@ static void umt_fig(uint32_t y, uint32_t pl, uint32_t a)
 static void umb_full(void)
 {
     static uint32_t ms;
-    uint32_t y, h, i, mir = umq_o[G_MIR], f = umq_o[G_FADE] * umq_o[G_FADE] * 4000u / 9801u, el = fm1_ms - umt.fms, ba = fm1_ms - ms;
+    uint32_t y, h, i, mir = umq_o[G_MIR], f = umt_fade() / 2u, el = fm1_ms - umt.fms, ba = fm1_ms - ms, g = 256u;
     uint32_t pf = perf_held | perf_latched, tg = fm1_ms - umt.tms;
-    uint16_t la[4] = {0, 0, 256u, 0};
+    uint16_t la[2];
     int32_t ro = (mir & 2u) ? 0 : (int32_t)(pf >> PF_OCTU & 1u) * 64 - (int32_t)(pf >> PF_OCTD & 1u) * 64;   /* (T-B: none) */
     char tn[3] = {'T', (char)('1' + song.sel % NTRK), 0};
     if (sys_load && !ui.force && ba < (sys_load == LOAD_ECO ? 70u : 50u))
         return;
     ms = fm1_ms;
     ba = ba >= 500u ? 256u : ba * 256u / 500u;          /* each layer's fade, half a second (a turn back from where it was) */
-    for (i = 0; i < 3u; i++)
+    for (i = 0; i < 2u; i++)
         umt.ba[i] = (uint16_t)(!(umt.lh >> i & 1u) ? (umt.ba[i] + ba > 256u ? 256u : umt.ba[i] + ba) : (umt.ba[i] > ba ? umt.ba[i] - ba : 0u));
-    la[0] = umt.ba[0], la[1] = umt.ba[1], la[3] = umt.ba[2];
+    la[0] = umt.ba[0], la[1] = umt.ba[1];
     umb_clock();                                        /* (the routes and a cell's transition now: before the gate) */
-    if (umt.fms && el < f)                              /* DISSOLVE: the cells let through so far (gfx.c) */
-        dc_gate = (uint16_t)(el * 256u / f);
+    if (umt.np && el >= f) {                            /* PRESETS: the old ground out, the new one in */
+        umb_plate = umt.np;
+        umt.np = 0;
+        umv_dirty = 1;
+        umv_ms = fm1_ms;
+    }
+    if (umt.fms && el < 2u * f)                         /* (its light: down to none, then up again) */
+        g = el < f ? (f - el) * 256u / f : (el - f) * 256u / f;
     else
         umt.fms = 0;
+    la[0] = (uint16_t)(la[0] * g >> 8);
     if (umv_gt < dc_gate)                               /* (.. a TIMELINE cell's) */
         dc_gate = umv_gt;
     umt_glitch_tick();
     umx_layers();
-    if ((umx_lp[0] >= UMX_BODY || umx_lp[1] >= UMX_BODY || umx_lp[2] >= UMX_BODY))   /* a figure: its track's level, */
+    if (umx_lp[0] >= UMX_BODY)                          /* a figure: its track's level, */
         (void)eco_step();                               /* once a frame (UMB_NONE, no layer, past them: harmless) */
     if (umt.say_ms && fm1_ms - umt.say_ms > 1500u)
         umt.say_ms = 0;
@@ -381,9 +400,8 @@ static void umb_full(void)
         cv_begin(240, h, T_BG);
         umb_scene(0, (mir & 2u) ? 0 : (int32_t)src, la);
         umt_fx(y, mir);
-        for (i = 0; i < 3u; i++)
-            if (umx_lp[i] == UMX_BODY)
-                umt_fig(src, umx_lp[i], i ? la[1u + i] : la[1] * umv_lt[1] >> 8);
+        if (umx_lp[0] == UMX_BODY)
+            umt_fig(src, UMX_BODY, la[1] * umv_lt[1] >> 8);
         if (umt.say_ms) {                               /* the word at the foot (a macro's: what it moves, over it) */
             cv_text(8, 222 - (int32_t)y, &AF_S, umt.say, T_MID);
             for (i = 0; !umt.fx && umt.say[0] == 'K' && umt.say[1] == 'N' && i < umt_ml.n; i++)

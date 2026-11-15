@@ -628,8 +628,9 @@ static void song_poll(void)
             fm6_adopt(k);                             /* (an FM6 track's SLOT: F n or OWN) */
         sync_reload = 1;
         ui.force = 1;
-        if (chain.running && !chain.loop)
-            umv_req = (uint8_t)(chain.row + 1u);      /* ((UMBRA LIVE) TIMELINE's picture tracks: the row's plates) */
+        if (chain.running && (!chain.loop || umv_own == 2u))
+            umv_req = (uint8_t)(chain.row + 1u);      /* ((UMBRA LIVE) TIMELINE's picture tracks: the row's plates; taken
+                                                       * over in TOTALITY: none until handed back, ui_umbra_plate.c) */
     }
     if (chain.running && !sec_stage.ready) {
         uint32_t next = chain.row + !chain.hold;      /* (V10.6o: held, the row again) */

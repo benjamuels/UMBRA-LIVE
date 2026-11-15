@@ -15,7 +15,7 @@
  *            side, a stream; stepped 12 .. 25 times a second and still between steps        (plates/fluid.inc)
  *   veils: BEACON ZODIAC SONAR MOTHS MARSH PACHINKO   line art from UMBRA OBSCURA, the game          (plates/ *.c)
  *          KOI MEDUSA   fish seen from above, jellyfish: made for SEPIA and FATHOM          (plates/fluid.inc)
- * (SAROS, FILAMENT, WAX, RIVULET, BLOT, BOATS, FIZZ, BOKEH, RIDGE, QUILL and MURMUR are plate files no install brings
+ * (SAROS, FILAMENT, WAX, RIVULET, BLOT, BOATS, HELIX (fizz.c), BOKEH, RIDGE, QUILL and MURMUR are plate files no install brings
  * since then: the plates page can still send one.) Built to the FM-1's limits: a byte field or none, a table read and a palette
  * read a pixel, no lighting pass, fades in steps, still between notes, so the blit (gfx.c cv_blit_cells) sends little.
  * Every plate declares its elements (umb_plate.h): LIVE VIZ CTRLS (ui_umbra_mac.c) sets each one, chooses the tracks
@@ -72,6 +72,9 @@ static int16_t umq_s[UMQ_NS] __attribute__((section(".pool")));
 static uint16_t umv_lt[2] = {256u, 256u}, umv_gt = 256u;
 static uint8_t umv_mo;
 static struct { uint8_t tr[2], row; uint32_t t0[2]; } umv_st;   /* (row: the song's row they were laid for) */
+static uint8_t umv_sthi __attribute__((section(".pool")));   /* .. and each track's transition's lengths' high bits, 2 a
+                                                         * track (umv_trv; in the pool: .bss as it was, the audio's
+                                                         * layout kept) */
 BTAPP_FN static void umv_tick(void);
 static const char *const UMV_TN[2] = {"MAIN", "OVER"};   /* the picture tracks */
 /* NOTE MOVEMENT (SCREEN's MOVE): where a track's notes land on a plate moves along a path of the track's
@@ -157,9 +160,9 @@ static void umb_tabs(void)
     for (k = 0; k < 32u * 32u; k++)
         umb_tn[k] = (uint8_t)((umb_oct(k & 31u, k >> 5, 4u, 719u) * 159 + umb_oct(k & 31u, k >> 5, 8u, 720u) * 97) >> 8);
 }
-/* The plates' block (umb's union): the ground's state from its start (CORONA's own, ump_co_t; a module's), LAYER 1..3's
- * plates' from its end down (umb_scene), UMB_BLK bytes in all: TARN's water, the largest ground, and two light plates
- * over it; under a lighter ground, more */
+/* The plates' block (umb's union): the ground's state from its start (CORONA's own, ump_co_t; a module's), OVER's plate's
+ * from its end down (umb_scene), UMB_BLK bytes in all: TARN's water, the largest ground, and two light plates over it
+ * (sized when there were LAYER 1..3; one veil now, 2026-11-15: more room for it) */
 #define UMB_BLK 11776u
 #define UMR_NA 128u                                     /* CORONA: streamers round */
 typedef struct {
@@ -189,8 +192,9 @@ typedef struct {
     uint8_t bare;                                       /* TOTALITY being drawn: the whole screen the plate's, nothing darkened */
 } umb_t;
 static umb_t umb __attribute__((section(".pool")));    /* (V10: in the pool, zeroed at boot; RAM's full) */
-/* a layer: the plate it draws, its part of the block, the notes it has read, its frame. Layer 0 is the ground, 1 .. 3
- * LAYER 1..3 over it */
+/* a layer: the plate it draws, its part of the block, the notes it has read, its frame. Layer 0 is the ground, 1 OVER
+ * (LAYER 1) over it (LAYER 2 and 3: none since 2026-11-13 / 2026-11-15; their two kept, unused: .bss shrunk, every
+ * variable after it moves, and the image grew ~950 B for it, tools/build.py's per-symbol sizes) */
 #define UMB_NLAY 4u
 typedef struct {
     const umb_plate_t *pp;                              /* the plate it last drew (its header; 0: none: it starts afresh) */
@@ -200,13 +204,14 @@ typedef struct {
 } umb_layer_t;
 static umb_layer_t umb_lay[UMB_NLAY];
 
-static uint32_t umb_rnd(void)                          /* mulberry32 */
+static uint32_t umb_mb32(uint32_t *s)                 /* mulberry32 (TOTALITY's umt_rnd too, its own seed) */
 {
-    uint32_t t = umb.rs += 0x6D2B79F5u;
+    uint32_t t = *s += 0x6D2B79F5u;
     t = (t ^ (t >> 15)) * (t | 1u);
     t ^= t + (t ^ (t >> 7)) * (t | 61u);
     return t ^ (t >> 14);
 }
+static uint32_t umb_rnd(void) { return umb_mb32(&umb.rs); }
 static uint32_t umb_isqrt(uint32_t v)
 {
     uint32_t r = 0, b = 1u << 30;
@@ -381,7 +386,7 @@ static const char *umb_bank(uint32_t i, int *cur)
  * INVERT). A record holds each of the page's elements (a plate's controls, umb_plate_t.ctl): its value, the tracks
  * whose notes drive it (0: the plate's own choice), and UMC_NL links, each a source, the element it moves and how far
  * (-99 .. 99 of the element's range with the source at full). An element's value now is its own and its links' moves
- * added (umc_ev). The store also holds which plates lie on LAYER 1..3 */
+ * added (umc_ev). The store also holds which plate lies on OVER */
 #define UMC_NL 12u                                      /* a page's links */
 #define UMC_NREC 36u                                    /* the records kept: a page's own (a full bank's 16, CORONA, the four
                                                          * that are no plate), the rest for presets as they are changed */
@@ -397,27 +402,62 @@ typedef struct {
     uint8_t cur;                                        /* (the page's own record) the preset chosen, 0 .. UMC_NPRE - 1 */
     uint8_t pre;                                        /* the preset this record is (0: the page's own, BASIC) */
 } umc_rec_t;
+/* (2026-11-14, plate API 6: the user, "all the new elements and their attributes editable and controllable in LIVE VIZ
+ * CTRLS") a record's more, in umc.x beside umc.rec (a store from before: all 0, every one its default): its plate's other
+ * elements. A page's element j: 0 .. 7 its eight, 8 + e * 3 + k its other element e's parameter k */
+#define UMC_NX (UMB_NXE * UMB_NXP)
+typedef struct {
+    uint8_t v[UMC_NX];                                  /* each one's value + 1 (0: its default) */
+    uint8_t lh[UMC_NL / 4u];                            /* each link's element's high bits, 2 a link (umc_lj) */
+} umc_x_t;
 typedef struct {                                        /* a cell of SAVE > SONG > TIMELINE's two picture tracks */
     uint16_t key;                                       /* the page shown from this row on (its name's key; 0: as before it,
                                                          * UMC_OFF: none) */
-    uint8_t pre, tr;                                    /* .. its preset; how it comes and goes (umv_tf: 0 comes in a
-                                                         * DISSOLVE of 1 s, goes in a CUT) */
+    uint8_t pre, tr;                                    /* .. its preset (pre's bits 0, 1: UMC_CPRE); how it comes and goes
+                                                         * (tr, and pre's bits 6, 7: IN's and OUT's lengths' high bits, the user
+                                                         * 2026-11-14: up to 16 s; umv_trv, umv_tf: 0 comes in a DISSOLVE of 1 s,
+                                                         * goes in a CUT; a plate chosen: UMV_CUT) */
 } umc_cell_t;
+#define UMC_CPRE(c) ((c)->pre & 3u)                     /* a cell's preset (UMC_NPRE) */
+#define UMV_CUT 3u                                      /* (the user, 2026-11-14) a plate chosen in a cell: no transition, IN
+                                                         * a CUT and OUT a CUT, until its transition is set (umv_tf) */
 typedef struct {
     uint32_t magic;
-    uint16_t lay[3];                                    /* LAYER 1..3: the page lying there (its key; 0: none) */
+    uint16_t lay[3];                                    /* OVER (LAYER 1): the page lying there (its key; 0: none); [1]
+                                                         * LAYER 2, [2] LAYER 3: none any more (umc_load) */
     uint16_t rsv;
     umc_rec_t rec[UMC_NREC];
     umc_cell_t cell[NSONG_USE][CHAIN_ROWS][2];          /* each song's rows: MAIN (the ground), OVER (LAYER 1) */
+    umc_x_t x[UMC_NREC];                                /* (API 6) each record's more (last: an older store reads short) */
 } umc_t;
 static umc_t umc __attribute__((section(".pool")));
+static umc_rec_t umc_tmp;                               /* (umc_pre) */
+static umc_x_t umc_tmpx;
+static umc_x_t *umc_x(const umc_rec_t *r) { return r == &umc_tmp ? &umc_tmpx : &umc.x[r - umc.rec]; }
+static uint8_t *umc_vp(const umc_rec_t *r, uint32_t j) /* element j's value + 1 */
+{
+    return j < UMB_NCTL ? (uint8_t *)&r->v[j] : &umc_x(r)->v[j - UMB_NCTL];
+}
+static uint32_t umc_lj(const umc_rec_t *r, uint32_t i) /* link i's element */
+{
+    return (uint32_t)(r->ls[i] >> 5) | (umc_x(r)->lh[i >> 2] >> 2u * (i & 3u) & 3u) << 3;
+}
+static void umc_lset(umc_rec_t *r, uint32_t i, uint32_t s, uint32_t j)   /* link i: source s (0: none), element j */
+{
+    umc_x_t *x = umc_x(r);
+    uint8_t *h = &x->lh[i >> 2];
+    r->ls[i] = (uint8_t)(s ? s | (j & 7u) << 5 : 0u);
+    *h = (uint8_t)((*h & ~(3u << 2u * (i & 3u))) | (j >> 3) << 2u * (i & 3u));
+}
 static int umc_flash(void *p, uint32_t n, int save);    /* (project.c, after storage.c) the store read (0) or written (1,
                                                          * only with the transport stopped): 0 done */
 static uint8_t umc_gen;                                 /* the layers changed */
 /* the pages that are no plate: their numbers past the plates', their names, their elements */
 /* BUTTONS (the user, 2026-11-13): what SEL, ENV, ARP, LFO and EDIT do in TOTALITY, each one of UMX_BF: a tap shows or
- * hides that layer (MAIN the ground, OVER LAYER 1, LAYER 3), held with ALGORITHM turned the next plate there; TAP: a tap
- * fires its source for the links (SEL TAP .. EDIT TAP), held its layer as ever (ui_umbra_tot.c umt_btns) */
+ * hides that layer (MAIN the ground, OVER its veil), held with ALGORITHM turned the next plate there; BODIES (the user,
+ * 2026-11-15: no third layer any more) a tap lays BODIES on OVER in its veil's place, or hides them, held with ALGORITHM
+ * turned the next track's figure; TAP: a tap fires its source for the links (SEL TAP .. EDIT TAP), held its layer as
+ * ever (ui_umbra_mac.c umt_btns) */
 enum { UMX_BODY = UMB_NPLT, UMX_SCREEN, UMX_FX, UMX_BTN, UMX_N };
 static const char *const UMX_PN[4] = {"BODIES", "SCREEN", "EFFECTS", "BUTTONS"};
 static const umb_ctl_t UMX_C[4][6] = {{{"LIGHT", 99}, {"SIZE", 50}, {"TRACK", 0}},
@@ -425,13 +465,15 @@ static const umb_ctl_t UMX_C[4][6] = {{{"LIGHT", 99}, {"SIZE", 50}, {"TRACK", 0}
                                       {{"MIRROR", 0}, {"MOSAIC", 0}, {"GLITCH", 0}, {"SOLAR", 0}, {"INVERT", 0}},
                                       {{"SEL", 2}, {"ENV", 1}, {"ARP", 0}, {"LFO", 3}, {"EDIT", 3}}};
 static const uint8_t UMX_NC[4] = {3, 6, 5, 5};
-static const char *const UMX_BF[4] = {"MAIN", "OVER", "LAYER 3", "TAP"};
+static const char *const UMX_BF[4] = {"MAIN", "OVER", "BODIES", "TAP"};
 static const uint8_t UMX_BEL[5] = {0x80u, 0x80u, 0x80u, 0x80u, 0x80u};   /* (BUTTONS: SET alone, no links: umx_row) */
 typedef struct {
     const char *name;
     const umb_ctl_t *ctl;                               /* its elements .. */
     const uint8_t *el;                                  /* .. each one's UMB_EL_* (0: none has any) */
     uint32_t nctl;
+    const umb_plate_t *p;                               /* (API 6) its plate (0: none, or older): its other elements .. */
+    uint32_t nx;                                        /* .. their parameters, all told (LIVE VIZ CTRLS' rows past the eight) */
 } umx_desc_t;
 /* page pl: what it is. 0: not there (a plate not loaded) */
 static int umx_desc(uint32_t pl, umx_desc_t *d)
@@ -439,6 +481,8 @@ static int umx_desc(uint32_t pl, umx_desc_t *d)
     const umb_plate_t *p;
     uint32_t k;
     d->el = 0;
+    d->p = 0;
+    d->nx = 0;
     if (pl >= UMX_N)
         return 0;
     if (pl >= UMX_BODY) {
@@ -458,10 +502,49 @@ static int umx_desc(uint32_t pl, umx_desc_t *d)
     d->nctl = p->nctl;
     if (p->api >= 3u)
         d->el = p->el;
+    if (p->api >= 6u) {
+        d->p = p;
+        for (k = 0; k < p->nxe && k < UMB_NXE; k++)
+            d->nx += p->xel[k].np > UMB_NXP ? UMB_NXP : p->xel[k].np;
+    }
     return 1;
 }
-static uint32_t umx_max(uint32_t pl, uint32_t j)       /* page pl's element j's most (MOVE's and MIRROR's four, a track) */
+/* page d's element j (umc_x_t), 0: not there */
+static const umb_ctl_t *umx_c(const umx_desc_t *d, uint32_t j)
 {
+    const umb_xel_t *x;
+    if (j < UMB_NCTL)
+        return j < d->nctl ? &d->ctl[j] : 0;
+    j -= UMB_NCTL;
+    if (!d->p || j / UMB_NXP >= d->p->nxe || j >= UMC_NX)
+        return 0;
+    x = &d->p->xel[j / UMB_NXP];
+    return j % UMB_NXP < x->np ? &x->p[j % UMB_NXP] : 0;
+}
+static int umx_tog(const umx_desc_t *d, uint32_t j)    /* .. an on/off toggle */
+{
+    return j >= UMB_NCTL && d->p && d->p->xel[(j - UMB_NCTL) / UMB_NXP].tog >> (j - UMB_NCTL) % UMB_NXP & 1u;
+}
+static const char *umx_en(const umx_desc_t *d, uint32_t j)   /* .. its name (a toggle: its element's) */
+{
+    return umx_tog(d, j) ? d->p->xel[(j - UMB_NCTL) / UMB_NXP].name : umx_c(d, j)->name;
+}
+static uint32_t umx_jat(const umx_desc_t *d, uint32_t i)   /* LIVE VIZ CTRLS' row i (1 ..): its element */
+{
+    uint32_t j;
+    if (i <= d->nctl)
+        return i - 1u;
+    for (j = UMB_NCTL, i -= d->nctl; j < UMB_NCTL + UMC_NX - 1u; j++)
+        if (umx_c(d, j) && !--i)
+            break;
+    return j;
+}
+static uint32_t umx_max(uint32_t pl, uint32_t j)       /* page pl's element j's most (MOVE's and MIRROR's four, a track; a
+                                                         * toggle 1) */
+{
+    umx_desc_t d;
+    if (j >= UMB_NCTL)
+        return umx_desc(pl, &d) && umx_tog(&d, j) ? 1u : 99u;
     return (pl == UMX_SCREEN && j == G_MOVE) || (pl == UMX_FX && !j) || pl == UMX_BTN ? 3u : pl == UMX_BODY && j == 2u ? NTRK : 99u;
 }
 static uint32_t umx_key(const char *n)                 /* a name's key (never 0) */
@@ -481,7 +564,8 @@ static void umc_load(void)                             /* the store read, once (
     if (umc_flash(&umc, sizeof umc, 0) || umc.magic != UMC_MAGIC)
         memset(&umc, 0, sizeof umc);
     umc.magic = UMC_MAGIC;
-    umc.lay[1] = 0;                                     /* (LAYER 2: dropped for now) */
+    umc.lay[1] = umc.lay[2] = 0;                        /* (LAYER 2: dropped 2026-11-13; LAYER 3 too, the user 2026-11-15:
+                                                         * BODIES a veil on OVER like the others, SEL its button) */
     if (umc.rsv != 1u) {                                /* (a store from before the BUTTONS page, 2026-11-13: ENV toggles OVER
                                                          * now and LFO took its tap, so what ENV TAP moved LFO TAP moves) */
         uint32_t i, k;
@@ -511,6 +595,7 @@ static umc_rec_t *umc_rec(const char *name, uint32_t kind, uint32_t nctl)
     }
     r = &umc.rec[f];                                    /* (a free one; all taken: the last one's place) */
     memset(r, 0, sizeof *r);
+    memset(&umc.x[f], 0, sizeof umc.x[f]);
     r->key = (uint16_t)k;
     for (i = 0; i < 3u; i++)
         if (kind == 3u || (!kind && i < nctl)) {
@@ -527,7 +612,6 @@ static umc_rec_t *umc_rec(const char *name, uint32_t kind, uint32_t nctl)
  * changed yet has no record: it is made up as it comes (a plate's own preset from its file; another: BASIC as it is now)
  * in one place (umc_tmp: good until the next asked for); w: to be written, so it takes a free record (none left: what is
  * written does not stay) */
-static umc_rec_t umc_tmp;
 static umc_rec_t *umc_pre(umc_rec_t *b, const umb_plate_t *p, int w)
 {
     uint32_t pre = b->cur, i;
@@ -543,12 +627,14 @@ static umc_rec_t *umc_pre(umc_rec_t *b, const umb_plate_t *p, int w)
             break;
         }
     *r = *b;
+    *umc_x(r) = *umc_x(b);
     r->pre = (uint8_t)pre;
     r->cur = 0;
     if (p && p->api >= 4u && pre <= p->npre && pre <= UMB_NPRE) {
         const umb_pre_t *f = &p->pre[pre - 1u];
         memset(r->t, 0, sizeof r->t + sizeof r->ls + sizeof r->ld);
         memcpy(r->v, f->v, sizeof r->v);
+        memset(umc_x(r)->lh, 0, sizeof umc_x(r)->lh);  /* (its links the file's: the eight's) */
         for (i = 0; i < 4u; i++)
             if ((f->ls[i] & 31u) < UMQ_NS) {
                 r->ls[i] = f->ls[i];
@@ -568,7 +654,7 @@ static umc_rec_t *umx_recf(uint32_t pl, int w)         /* page pl's record now, 
 /* record r's element j as set (its default def) */
 static uint32_t umc_raw(const umc_rec_t *r, uint32_t j, uint32_t def, uint32_t max)
 {
-    uint32_t v = r->v[j] ? r->v[j] - 1u : def;
+    uint32_t v = *umc_vp(r, j) ? *umc_vp(r, j) - 1u : def;
     return v > max ? max : v;
 }
 /* .. now: moved by its links, each its depth of the range (0 .. max) with its source at full */
@@ -577,14 +663,15 @@ static __attribute__((noinline)) uint32_t umc_ev(const umc_rec_t *r, uint32_t j,
     int32_t a = (int32_t)umc_raw(r, j, def, max) * 25344;   /* (x 256 x 99) */
     uint32_t i;
     for (i = 0; i < UMC_NL; i++)
-        if ((uint32_t)(r->ls[i] >> 5) == j && (r->ls[i] & 31u))
+        if ((r->ls[i] & 31u) && umc_lj(r, i) == j)
             a += r->ld[i] * umq_s[r->ls[i] & 31u] * (int32_t)max;
     return (uint32_t)umb_clamp((a + 12672) / 25344, 0, (int32_t)max);
 }
 static uint32_t umx_raw(uint32_t pl, uint32_t j)       /* page pl's element j as set */
 {
     umx_desc_t d;
-    return umx_desc(pl, &d) && j < d.nctl ? umc_raw(umx_rec(pl), j, d.ctl[j].def, umx_max(pl, j)) : 0u;
+    const umb_ctl_t *c;
+    return umx_desc(pl, &d) && (c = umx_c(&d, j)) ? umc_raw(umx_rec(pl), j, c->def, umx_max(pl, j)) : 0u;
 }
 static void umc_touch(void)                            /* the store changed: saved once the knobs rest */
 {
@@ -594,28 +681,27 @@ static void umc_touch(void)                            /* the store changed: sav
 static void umx_put(uint32_t pl, uint32_t j, int32_t v)
 {
     umx_desc_t d;
-    if (!umx_desc(pl, &d) || j >= d.nctl)
+    if (!umx_desc(pl, &d) || !umx_c(&d, j))
         return;
-    umx_recf(pl, 1)->v[j] = (uint8_t)(1 + umb_clamp(v, 0, (int32_t)umx_max(pl, j)));
+    *umc_vp(umx_recf(pl, 1), j) = (uint8_t)(1 + umb_clamp(v, 0, (int32_t)umx_max(pl, j)));
     umc_touch();
 }
 #define umg_raw(g) umx_raw(UMX_SCREEN + ((g) >> 3), (g) & 7u)   /* SCREEN's and EFFECTS' own (G_*), as set */
 #define umg_put(g, v) umx_put(UMX_SCREEN + ((g) >> 3), (g) & 7u, v)
-/* where page pl lies: 0 nowhere, 1 the ground, 2 .. 4 LAYER 1..3 */
+/* where page pl lies: 0 nowhere, 1 the ground, 2 OVER */
 static uint32_t umx_place(uint32_t pl)
 {
     umx_desc_t d;
-    uint32_t i, k;
     if (pl < UMB_NPLT && umb_pick() == pl)
         return 1;
     if (!umx_desc(pl, &d))
         return 0;
     umc_load();
-    for (i = 0, k = umx_key(d.name); i < 3u; i++)
-        if (umc.lay[i] == k)
-            return 2u + i;
-    return 0;
+    return umc.lay[0] == umx_key(d.name) ? 2u : 0u;
 }
+/* OVER's veil (the user, 2026-11-15): the last page laid on OVER by anything but SEL's BODIES (a row's cell, SELECT, LIVE
+ * VIZ CTRLS); ENV (OVER's button) brings it back after SEL laid BODIES there (ui_umbra_mac.c umt_btns). 0: none */
+static uint16_t umx_vk __attribute__((section(".pool")));
 /* .. laid at w (what lay there: nowhere; the ground left: none, black) */
 static void umx_place_set(uint32_t pl, uint32_t w)
 {
@@ -626,11 +712,11 @@ static void umx_place_set(uint32_t pl, uint32_t w)
     if (at == 1u)
         umb_plate = (uint8_t)(0x80u | UMB_NONE);
     else if (at)
-        umc.lay[at - 2u] = 0;
+        umc.lay[0] = 0;
     if (w == 1u)
         umb_plate = (uint8_t)(0x80u | pl);
     else if (w)
-        umc.lay[w - 2u] = (uint16_t)umx_key(d.name);
+        umc.lay[0] = umx_vk = (uint16_t)umx_key(d.name);
     umv_dirty = 1;
     umc_gen++;
     umc_touch();
@@ -684,7 +770,10 @@ static void umv_apply(uint32_t r)
         if (!c)
             continue;
         umv_st.tr[tk] = c->tr;
+        umv_sthi = (uint8_t)((umv_sthi & ~(3u << 2u * tk)) | (uint32_t)(c->pre >> 6) << 2u * tk);
         if (c->key == UMC_OFF) {
+            if (tk)
+                umx_vk = 0;
             if (tk && umc.lay[0]) {
                 umc.lay[0] = 0;
                 umc_gen++;
@@ -696,7 +785,9 @@ static void umv_apply(uint32_t r)
             }
         } else if ((pl = umx_find(c->key)) != UMB_NONE && umx_can(pl, 1u + tk)) {
             umx_place_set(pl, 1u + tk);
-            umx_pre_set(pl, c->pre);
+            umx_pre_set(pl, UMC_CPRE(c));
+            if (tk)
+                umx_vk = c->key;                        /* (laid already, by SEL: the row's still OVER's veil) */
         }
     }
 }
@@ -715,6 +806,7 @@ static void umv_turn(umc_cell_t *c, uint32_t tk, int32_t s)
         return;
     c->key = (uint16_t)(pl == -2 ? 0u : pl == -1 ? UMC_OFF : umx_key(d.name));
     c->pre = 0;
+    c->tr = UMV_CUT;                                    /* (as the preset: a plate chosen starts with none) */
     umc_touch();
 }
 static void umv_name(const umc_cell_t *c, char *b)     /* a cell's page as words (12 bytes) */
@@ -736,8 +828,8 @@ static void umv_rows(uint32_t d, uint32_t s)
         memset(c, 0, sizeof umc.cell[0][0]);
     umc_touch();
 }
-/* LAYER 1..3's pages as numbers (UMB_NONE: none, or not there), found again when the bank or the layers change */
-static uint8_t umx_lp[3];
+/* OVER's page as a number (UMB_NONE: none, or not there), found again when the bank or the layers change */
+static uint8_t umx_lp[3];                               /* ([1], [2]: unused, .bss kept as it was: UMB_NLAY) */
 static uint32_t umx_find(uint32_t key)                 /* the page whose name's key it is (UMB_NONE: none there) */
 {
     umx_desc_t d;
@@ -755,10 +847,8 @@ static void umx_layers(void)
     if (gen == (uint8_t)(ups_gen * 16u + umc_gen))
         return;
     gen = (uint8_t)(ups_gen * 16u + umc_gen);
-    for (i = 0; i < 3u; i++) {                          /* (a page that may not lie there, from an older store: none) */
-        uint32_t pl = umx_find(umc.lay[i]);
-        umx_lp[i] = (uint8_t)(umx_can(pl, 2u + i) ? pl : UMB_NONE);
-    }
+    i = umx_find(umc.lay[0]);                           /* (a page that may not lie there, from an older store: none) */
+    umx_lp[0] = (uint8_t)(umx_can(i, 2u) ? i : UMB_NONE);
 }
 _Static_assert(UMX_BODY < UMB_NONE, "a layer's page: a byte, UMB_NONE none");
 
@@ -804,7 +894,12 @@ static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0
     c.layer = (uint8_t)li;
     c.level = (uint8_t)(umq_s[UMQ_LEVEL] > 255 ? 255 : umq_s[UMQ_LEVEL]);
     c.beat = (uint8_t)(umq_s[UMQ_BEAT] > 255 ? 255 : umq_s[UMQ_BEAT]);
-    c.rsv = c.rsv2[0] = c.rsv2[1] = c.rsv3[0] = c.rsv3[1] = 0;
+    c.rsv = c.rsv2[0] = c.rsv2[1] = c.rsv3[0] = c.rsv3[1] = c.rsv4[0] = c.rsv4[1] = c.rsv4[2] = 0;
+    for (j = 0; j < UMC_NX; j++) {                      /* (API 6) its other elements, as LIVE VIZ CTRLS sets them */
+        const umb_xel_t *x = &p->xel[j / UMB_NXP];
+        c.xk[j / UMB_NXP][j % UMB_NXP] = (uint8_t)(p->api >= 6u && j / UMB_NXP < p->nxe && j % UMB_NXP < x->np ?
+            umc_ev(r, UMB_NCTL + j, x->p[j % UMB_NXP].def, x->tog >> j % UMB_NXP & 1u ? 1u : 99u) : 0u);
+    }
     umb_lay_tracks(&c);
     if (p != L->pp || st != L->st || L->gen != ups_gen) {   /* another plate in its place, its state moved, or the bank
                                                          * changed under it: it starts afresh, the notes from now */
@@ -853,10 +948,10 @@ static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0
     s.mode = mode;
     p->draw(st, &c, &umb_api, &s);
 }
-/* the canvas as the screen's x0, y0 .. : the ground's plate (none: black), then LAYER 1..3's plates' light added over it,
- * as much as la says (TOTALITY's SEL ENV ARP: hidden, they keep their state). A layer's state lies under the one before it from the
- * block's end; one that does not fit beside the ground's waits, and starts afresh when it does. (BODIES on a
- * layer is figures, not a plate: TOTALITY draws them, ui_umbra_tot.c) */
+/* the canvas as the screen's x0, y0 .. : the ground's plate (none: black), then OVER's plate's light added over it, as
+ * much as la says (TOTALITY's SEL ENV ARP: hidden, they keep their state). OVER's state lies at the block's end; one that
+ * does not fit beside the ground's waits, and starts afresh when it does. (BODIES on OVER is figures, not a plate:
+ * TOTALITY draws them, ui_umbra_tot.c) */
 static int32_t umb_prep(void)                          /* before a frame's plates: the tables, the clock, the layers; LIGHT (Q8) */
 {
     umb_tabs();                                         /* (the noise, once) */
@@ -866,10 +961,10 @@ static int32_t umb_prep(void)                          /* before a frame's plate
     umx_layers();
     return ((int32_t)umq_o[G_LIGHT] * 256 + 49) / 99;   /* (99: 256) */
 }
-static void umb_scene(int32_t x0, int32_t y0, const uint16_t *la)   /* la: the ground's light, LAYER 1..3's (Q8) */
+static void umb_scene(int32_t x0, int32_t y0, const uint16_t *la)   /* la: the ground's light, OVER's (Q8) */
 {
     const umb_plate_t *p = umb_mod(umb_pl());
-    uint32_t i, top = UMB_BLK, g = 0;
+    uint32_t g = 0;
     int32_t lq = umb_prep();
     if (umb_ok(p, UMB_DRAW_REPLACE, UMB_BLK)) {
         g = (p->state + 3u) & ~3u;
@@ -878,18 +973,13 @@ static void umb_scene(int32_t x0, int32_t y0, const uint16_t *la)   /* la: the g
         memset(cv_px, 0, cv_w * cv_h * sizeof *cv_px);
         umb_lay[0].pp = 0;
     }
-    for (i = 0; i < 3u; i++) {
-        p = umx_lp[i] < UMB_NPLT ? umb_mod(umx_lp[i]) : 0;
-        if (!umb_ok(p, UMB_DRAW_ADD, top - g)) {
-            umb_lay[1u + i].pp = 0;
-            continue;
-        }
-        top -= (p->state + 3u) & ~3u;
-        if (la[1u + i])
-            umb_lay_draw(1u + i, p, (uint8_t *)&umb + top, x0, y0, UMB_DRAW_ADD, (((lq * la[1u + i]) >> 8) * (i ? 256 : umv_lt[1])) >> 8);
-    }
+    p = umx_lp[0] < UMB_NPLT ? umb_mod(umx_lp[0]) : 0;  /* OVER: its part of the block from its end down */
+    if (!umb_ok(p, UMB_DRAW_ADD, UMB_BLK - g))
+        umb_lay[1].pp = 0;
+    else if (la[1])
+        umb_lay_draw(1u, p, (uint8_t *)&umb + UMB_BLK - ((p->state + 3u) & ~3u), x0, y0, UMB_DRAW_ADD, (((lq * la[1]) >> 8) * umv_lt[1]) >> 8);
 }
-static const uint16_t UMB_LA1[4] = {256u, 256u, 256u, 256u};
+static const uint16_t UMB_LA1[2] = {256u, 256u};
 static void umb_backdrop(int32_t x0, int32_t y0) { umb_scene(x0, y0, UMB_LA1); }   /* (HOME's pages: all of it) */
 /* (SAVE > SONG > TIMELINE's previews) layer li alone (0 the ground, 1 LAYER 1's plate), as TOTALITY shows it: the screen's
  * middle 2 s x 2 s px at half size, on the canvas at x, y. Each lies where umb_scene keeps it, so the picture goes on as

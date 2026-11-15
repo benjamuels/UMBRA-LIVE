@@ -5,7 +5,10 @@
  * the crests catch a teal sheen; it stills exactly (a dead band). A note a drop (pitch across, track down), the kick a heavy
  * one by the moon, the snare one, the hats a star's glint. Elements: DRAG, BEND, SIZE (the reflection nearer or further);
  * DROP (the notes that are no drum, the snare and the clap), PLUNGE (the kick), GLINT (the rest of the kit): each as hard
- * as its value, its tracks LIVE VIZ CTRLS' to choose. */
+ * as its value, its tracks LIVE VIZ CTRLS' to choose.
+ * (NEW, API 6) DRIZZLE: a steady rain on the water, each drop a ring and a glint, harder as the song is louder (ON, PACE,
+ * HEFT); STARS: stars on a ring round the eclipse, evenly spaced, in the water too: the ripples bend them as they bend the
+ * reflection (ON, COUNT, RADIUS). */
 #include "plate_lib.h"
 
 #define PLT_N 48                                        /* the water 48 x 48 cells of 5 x 5 px */
@@ -22,6 +25,9 @@ typedef struct {
     uint8_t tx[8], ty[8], tv[8], nt;                    /* stars glinting (the hats) */
     uint32_t tt[8];
     uint32_t rs, ms;                                    /* the dice, the steps' clock */
+    uint32_t zt[8], zms, zn;                            /* (NEW, API 6) DRIZZLE: each drop's glint: when; the rain's clock,
+                                                         * the drops */
+    uint8_t zx[8], zy[8];                               /* .. where (px) */
 } plt_t;
 
 static void plt_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
@@ -110,6 +116,20 @@ static void plt_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)   /* t
     plt_t *s = st;
     uint32_t n = 0;
     (void)a;
+    if (cx->xk[0][0]) {                                 /* (NEW, API 6) DRIZZLE: the drops owed (PACE 50: 7 a second) */
+        uint32_t per = 1000u / (1u + cx->xk[0][1] * 13u / 99u), k = 0;
+        if ((uint32_t)(cx->now - s->zms) > 2000u)
+            s->zms = cx->now;
+        while ((uint32_t)(cx->now - s->zms) >= per && k++ < 4u) {
+            uint32_t h = pl_hash(s->zn++ ^ 0x5A17u), j = s->zn % 8u;
+            int32_t X = (int32_t)(3u * 256u + (h >> 8) % 10752u), Y = (int32_t)(3u * 256u + (h >> 18) % 10752u);
+            s->zms += per;
+            plt_drop(s, X, Y, 300 + (int32_t)(h & 127u), (800 + cx->xk[0][2] * 50) * (128 + cx->level) >> 8);
+            s->zx[j] = (uint8_t)((X * 5 + 512) >> 8);
+            s->zy[j] = (uint8_t)((Y * 5 + 512) >> 8);
+            s->zt[j] = cx->now | 1u;
+        }
+    }
     while ((uint32_t)(cx->now - s->ms) >= 42u && n++ < 4u) {
         s->ms += 42u;
         plt_step(s, cx);
@@ -206,6 +226,38 @@ static void plt_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         if (f)
             pl_dot(S, s->tx[i], s->ty[i], (f * (128 + (s->tv[i] >> 1)) * 230) >> 16, PL_WT);
     }
+    if (cx->xk[0][0])                                   /* (NEW, API 6) DRIZZLE: each drop's glint, 0.25 s */
+        for (i = 0; i < 8; i++) {
+            int32_t f = s->zt[i] ? pl_fade(cx->now - s->zt[i], 250u, 5u) : 0;
+            if (f) {
+                pl_dot(S, s->zx[i], s->zy[i], (f * (150 + cx->xk[0][2])) >> 8, PL_WT);
+                pl_arc(S, a, s->zx[i] * 256, s->zy[i] * 256, (9 - f / 36) * 256, 0u, 0xFFFFFFFFu, f * 2 / 3, PLT_SH);
+            }
+        }
+    /* (NEW, API 6) STARS: COUNT of them evenly round the eclipse, RADIUS out (with SIZE, as the reflection), each where the
+     * water's slope there bends it (as the reflection is bent: drawn where the bent water shows it), a star and a faint
+     * streak back to where it would be, its rays drawn out by the tilt; twinkling, and brighter as the water tilts */
+    if (cx->xk[1][0]) {
+        int32_t n = 4 + cx->xk[1][1] * 12 / 99, rr = (36 + cx->xk[1][2] * 64 / 99) * sc, k;
+        const int16_t *h = s->h[s->cur];
+        for (i = 0; i < n; i++) {
+            uint32_t ph = (uint32_t)i * (0xFFFFFFFFu / (uint32_t)n + 1u) + 0x40000000u;
+            int32_t X = PLT_RX * 256 + pl_pol(a, rr, ph + 0x40000000u), Y = PLT_RY * 256 + pl_pol(a, rr, ph),
+                    gx = pl_clamp((X / 256 - 2) / 5, 1, PLT_N - 2), gy = pl_clamp((Y / 256 - 2) / 5, 1, PLT_N - 2), ox, oy, e;
+            k = gy * PLT_N + gx;
+            ox = ((h[k + 1] - h[k - 1]) * m) >> 8;      /* (px, Q8) */
+            oy = ((h[k + PLT_N] - h[k - PLT_N]) * m) >> 8;
+            e = 150 + (pl_sine(a, cx->now * 300000u + pl_hash((uint32_t)i)) >> 10) + pl_clamp((pl_abs(ox) + pl_abs(oy)) >> 6, 0, 70);
+            pl_line(S, X - ox, Y - oy, X - ox / 3, Y - oy / 3, e / 3, PLT_SH);
+            X -= ox;
+            Y -= oy;
+            ox = 3 * 256 + pl_abs(ox) / 2;              /* (its rays drawn out as the water tilts) */
+            oy = 3 * 256 + pl_abs(oy) / 2;
+            pl_glint(S, X, Y, e, PL_WT);
+            pl_line(S, X - ox, Y, X + ox, Y, e / 2, PL_WT);
+            pl_line(S, X, Y - oy, X, Y + oy, e / 2, PL_WT);
+        }
+    }
 }
 
 #include "splash/tarn.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
@@ -219,4 +271,12 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_tarn = {
     {{"STILL", {86, 21, 0, 31, 0, 26, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 1u), 0}, {99, 99, 20, 0}},
      {"RAIN", {36, 0, 0, 96, 31, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u)}, {99, 99, 30, 50}},
      {"SWELL", {0, 81, 0, 0, 91, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 2u), UMB_LINK(UMB_SRC_LEVEL, 1u)}, {99, 99, 20, 40}}},
-    12u, {0, 0, 0}, SPL_TARN};
+    12u, {0, 0, 0}, SPL_TARN,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"DRIZZLE", 3u, 1u, {0, 0}, {{"ON", 0}, {"PACE", 50}, {"HEFT", 50}},
+      "A steady rain on the dark water, each drop a ring and a glint, harder as the song is louder",
+      {"Drizzle on or off", "How many drops a second (1 to 14)", "How heavy the drops are"}},
+     {"STARS", 3u, 1u, {0, 0}, {{"ON", 0}, {"COUNT", 50}, {"RADIUS", 40}},
+      "Stars stand evenly round the eclipse in the water, bent and shaken by the ripples like the reflection",
+      {"Stars on or off", "How many stars (4 to 16)", "How far from the eclipse they stand"}}}};

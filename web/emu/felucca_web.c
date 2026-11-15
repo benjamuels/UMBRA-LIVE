@@ -467,8 +467,8 @@ EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA LIVE) 99: the g
                                                          * 0, 1, 3: its first, second and third element, 2 LIGHT; 10 + j: its
                                                          * element j; 20 + g: SCREEN's and EFFECTS' (ui_umbra.c G_*);
                                                          * 98: TOTALITY, no word at its foot (the projector, emu/?projector);
-                                                         * 97: page (v & 255) laid at v >> 8 (0 off, 1 the ground, 2 .. 4 LAYER
-                                                         * 1..3); 96: page v >> 16's element (v >> 8 & 255)'s tracks v & 255;
+                                                         * 97: page (v & 255) laid at v >> 8 (0 off, 1 the ground, 2 OVER);
+                                                         * 96: page v >> 16's element (v >> 8 & 255)'s tracks v & 255;
                                                          * 95: a link on page v >> 24's element (v >> 16 & 255): source
                                                          * v >> 8 & 255, depth (v & 255) - 128 */
 {
@@ -490,7 +490,7 @@ EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA LIVE) 99: the g
         else {
             umc_cell_t *c = umv_cell(v >> 24, v >> 16 & 1u);
             c->key = (uint16_t)((v & 255u) == 254u ? 0u : (v & 255u) == 255u ? UMC_OFF : umx_desc(v & 255u, &d) ? umx_key(d.name) : 0u);
-            c->pre = (uint8_t)(v >> 8 & 3u);
+            c->pre = (uint8_t)((c->pre & ~3u) | (v >> 8 & 3u));   /* (pre's high bits: the transition's lengths') */
         }
     } else if (i == 97u)
         umx_place_set(v & 255u, v >> 8);
@@ -506,7 +506,7 @@ EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA LIVE) 99: the g
         else
             for (k = 0; k < UMC_NL; k++)
                 if (!(r->ls[k] & 31u)) {
-                    r->ls[k] = (uint8_t)((v >> 8 & 31u) | j << 5);
+                    umc_lset(r, k, v >> 8 & 31u, j);
                     r->ld[k] = (int8_t)((int32_t)(v & 255u) - 128);
                     break;
                 }
@@ -532,9 +532,10 @@ EXPORT uint32_t web_umb_get(uint32_t i)                /* (UMBRA LIVE) 99: the g
         return i == 70u ? chain_config.count : (uint32_t)(uint8_t)umx_rec(i == 71u ? UMX_SCREEN : UMX_FX)->ld[UMV_GL + (i == 73u)];
     if (i == 80u || i == 81u)                           /* (80: LAYER 1's page (63: none); 81: the ground's preset) */
         return i == 80u ? (umx_layers(), umx_lp[0]) : pl != UMB_NONE ? umx_pre(pl) : 0u;
-    if (i == 82u || i == 83u)                           /* (82: TOTALITY's hidden layers (bits: MAIN OVER LAYER 3), its buttons'
-                                                         * lights << 4 (SEL ENV ARP LFO EDIT); 83: LAYER 3's page) */
-        return i == 83u ? (umx_layers(), umx_lp[2]) : umt.lh | (uint32_t)umt_blit(0) << 4 | (uint32_t)umt_blit(1) << 5 |
+    if (i == 82u)                                       /* (82: TOTALITY's hidden layers (bits: MAIN OVER), its buttons' lights
+                                                         * << 4 (SEL ENV ARP LFO EDIT); 83, LAYER 3's page: none since
+                                                         * 2026-11-15) */
+        return umt.lh | (uint32_t)umt_blit(0) << 4 | (uint32_t)umt_blit(1) << 5 |
                (uint32_t)umt_blit(2) << 6 | (uint32_t)umt_blit(3) << 7 | (uint32_t)umt_blit(4) << 8;
     return i == 99u ? pl : i == 90u ? UMX_N : i >= 100u ? (uint32_t)umx_desc(i - 100u, &d) : i == 2u ? umg_raw(G_LIGHT)
            : i < 18u && pl != UMB_NONE ? umx_raw(pl, i >= 10u ? i - 10u : i == 3u ? 2u : i) : 0u;
@@ -550,6 +551,15 @@ EXPORT const char *web_umb_name(uint32_t pl)           /* .. page pl's name ("":
 EXPORT void web_umx(uint32_t pl, uint32_t j, uint32_t v) { umx_put(pl, j, (int32_t)v); }
 EXPORT uint32_t web_umx_get(uint32_t pl, uint32_t j) { return j == 100u ? umx_pre(pl) : umx_raw(pl, j); }
 EXPORT const void *web_umx_mod(uint32_t pl) { return pl < UMB_NPLT && umb_has(pl) ? umb_mod(pl) : 0; }
+/* (API 6) the plates page's player: plate pl's new element parameter j (element j / 3, its parameter j % 3)
+ * set; read back; where the new elements lie in umb_plate_t, and each one's size (the page reads them from the module) */
+EXPORT void web_umx_x(uint32_t pl, uint32_t j, uint32_t v) { umx_put(pl, UMB_NCTL + j, (int32_t)v); }   /* (LIVE VIZ CTRLS' record) */
+EXPORT uint32_t web_umx_xget(uint32_t pl, uint32_t j) { return umx_raw(pl, UMB_NCTL + j); }
+EXPORT uint32_t web_umx_xoff(uint32_t i)
+{
+    return i == 0u ? (uint32_t)__builtin_offsetof(umb_plate_t, nxe) : i == 1u ? (uint32_t)sizeof(umb_xel_t)
+           : i == 2u ? (uint32_t)__builtin_offsetof(umb_xel_t, what) : (uint32_t)__builtin_offsetof(umb_xel_t, pw);
+}
 /* a channel message from Web MIDI, as a USB-MIDI packet arrives (usb.c midi_enqueue): 0 = the ring was full */
 EXPORT uint32_t web_midi(uint32_t status, uint32_t d1, uint32_t d2)
 {

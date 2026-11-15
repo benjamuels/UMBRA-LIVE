@@ -8,7 +8,10 @@
  * (TILT): the far side of the round is higher and its boats smaller. Line art only: its light is added to the strip, so
  * it lies on a layer as well as it stands alone (REPLACE: black under it).
  * Elements: DRIFT (how fast they go round), PULL (how fast they are drawn in), SIZE (theirs), BOATS (the notes that are
- * no drum), SWELL (the kick), LAMPS (the rest of the kit), TILT (0: from straight above), WAKE (their wakes' light). */
+ * no drum), SWELL (the kick), LAMPS (the rest of the kit), TILT (0: from straight above), WAKE (their wakes' light).
+ * (NEW, API 6) SPIRAL (on/off; ARMS: two .. six; TWIST: how far round each winds): lines of foam winding in to the
+ * middle the way the boats go round, trailing like a whirlpool's, turning with the water, brighter on the beat. FISH (on/off; LEAP: how high; SCHOOL: how many a kick): a kick
+ * throws fish up out of the water, each an arc and a splash where it falls back. */
 #include "plate_lib.h"
 
 #define OBO_N 12                                        /* boats at once .. */
@@ -21,10 +24,15 @@ typedef struct {
     uint32_t kt, rs;                                    /* the swell: since when (0: none); the dice */
     uint16_t lamp;                                      /* the lamps' flare (Q8) */
     uint8_t kv, n;                                      /* the swell: how hard; the next boat */
+    uint32_t xr, ft[6], sp;                             /* (NEW, API 6) FISH: its own dice; each one since when (0: none);
+                                                         * SPIRAL: how far round (Q16 of a turn ..) */
+    uint8_t fa[6], fr[6], fd[6], nf;                    /* .. where it leaps from: round, out (px); its dice; the next */
 } obo_t;
 static const int8_t OBO_P[7][2] = {{-16, 0}, {16, 0}, {9, 8}, {-9, 8}, {-8, 0}, {0, -15}, {8, 0}};   /* a boat: the hull's
                                                          * four corners, the peak's three (16: half its length) */
 static const uint8_t OBO_L[6][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}};   /* .. and its lines */
+static const int8_t OBO_FP[6][2] = {{10, 0}, {0, -4}, {-7, 0}, {0, 4}, {-12, -4}, {-12, 4}};   /* (NEW, API 6) a fish: nose,
+                                                         * back, tail, belly, the fin's two tips (half px) */
 
 static void obo_let(obo_t *s, uint32_t i, uint32_t ang, int32_t v, uint32_t c)   /* a boat in at the rim */
 {
@@ -42,6 +50,7 @@ static void obo_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
     uint32_t i;
     (void)a;
     s->rs = 2203u + cx->now;
+    s->xr = 4517u + cx->now;                            /* (NEW, API 6) FISH's dice, apart from the plate's own */
     for (i = 0; i < OBO_NO; i++) {
         obo_let(s, i, pl_rnd(&s->rs), 150, 7u);
         s->r[i] = (int16_t)((48u + 30u * i) * 64u);
@@ -54,6 +63,14 @@ static void obo_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     (void)a;
     if (!nt->vel)
         return;
+    if (cx->xk[1][0] && nt->drum && !nt->lane)          /* (NEW, API 6) FISH: a kick throws up one .. three */
+        for (v = 0; v < 1 + cx->xk[1][2] * 3 / 100; v++) {
+            uint32_t i = s->nf++ % 6u;
+            s->fa[i] = (uint8_t)pl_rnd(&s->xr);
+            s->fr[i] = (uint8_t)(36u + pl_rnd(&s->xr) % 70u);
+            s->fd[i] = (uint8_t)pl_rnd(&s->xr);
+            s->ft[i] = (cx->now - (uint32_t)v * 90u) | 1u;
+        }
     if ((v = pl_drive(cx, 4u, nt, nt->drum && !nt->lane)) != 0) {   /* SWELL (the kick) */
         s->kt = cx->now | 1u;
         s->kv = (uint8_t)v;
@@ -89,6 +106,7 @@ static void obo_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
         s->r[i] = (int16_t)pl_clamp(r, 64, 118 * 64);
     }
     s->lamp = pl_dec(s->lamp, dt * 164);                /* (0.4 s) */
+    s->sp += (uint32_t)(dt * cx->k[0] * 3);             /* (NEW, API 6) SPIRAL: it turns with DRIFT (50: round in 7 s) */
 }
 static void obo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
 {
@@ -96,6 +114,24 @@ static void obo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     int32_t X = 120 * 256, Y = (cx->bare ? 120 : 142) * 256, fl = 256 - cx->k[6] * 154 / 99, sz = 5 + cx->k[2] * 5 / 50, sw = obo_swell(s, cx), i,
             k;
     pl_clear(S);
+    /* (NEW, API 6) SPIRAL: ARMS lines of foam, each from the rim in to the middle, winding TWIST (a quarter .. one and a
+     * half turns) the way the water goes: each arm the path a boat takes in, its inner end ahead the way they go round, so
+     * the arms trail like a whirlpool's; the whole turning that way as fast as a boat half way in; faint, brighter on the
+     * beat, going out toward the middle */
+    if (cx->xk[0][0]) {
+        int32_t na = 2 + cx->xk[0][1] * 5 / 100, tw = 64 + cx->xk[0][2] * 320 / 99, al = 110 + cx->beat / 2, j, r;
+        for (k = 0; k < na; k++) {
+            int32_t ox = 0, oy = 0;
+            for (j = 0, r = 114; r >= 10; r -= 2, j++) {
+                uint32_t ph = (uint32_t)k * (0xFFFFFFFFu / (uint32_t)na) + (s->sp << 12) + (uint32_t)((114 - r) * tw / 104) * 16777216u;
+                int32_t x = X + pl_pol(a, r * 256, ph + 0x40000000u), y = Y + ((pl_pol(a, r * 256, ph) * fl) >> 8);
+                if (j)
+                    pl_line(S, ox, oy, x, y, (al * (r - 4)) / 110, PL_INK);
+                ox = x;
+                oy = y;
+            }
+        }
+    }
     if (sw)                                             /* the swell: a ring from the middle to the rim */
         for (k = 0; k < 48; k++) {
             int32_t R = (int32_t)(cx->now - s->kt) * 64;
@@ -130,6 +166,36 @@ static void obo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             pl_splat(S, X + pl_pol(a, r, ph - (uint32_t)k * dth + 0x40000000u), Y + ((pl_pol(a, r, ph - (uint32_t)k * dth) * fl) >> 8) + 9 * u,
                      cx->k[7] * 2 * (5 - k) / 5, PL_INK);
     }
+    /* (NEW, API 6) FISH: each leaps in an arc (0.7 s; LEAP its height), head along its way, a tail fin behind; a ring of
+     * splash where it falls back in */
+    for (i = 0; cx->xk[1][0] && i < 6; i++)
+        if (s->ft[i] && cx->now - s->ft[i] < 1000u) {
+            uint32_t ph = (uint32_t)s->fa[i] << 24;
+            int32_t age = (int32_t)(cx->now - s->ft[i]), t = age * 256 / 700, H = 10 + cx->xk[1][1] * 30 / 99, w = s->fd[i] & 1 ? 50 : -50,
+                    bx = X + pl_pol(a, s->fr[i] * 256, ph + 0x40000000u), by = Y + ((pl_pol(a, s->fr[i] * 256, ph) * fl) >> 8), fx, fy, ux, uy, n,
+                    q[6][2];
+            if (age >= 700) {                            /* (the splash: a ring, out and gone) */
+                int32_t R = (age - 700) * 40, e = pl_out(150, (uint32_t)(age - 700), 300u);
+                pl_arc(S, a, bx + w * 256, by, R + 512, 0u, 0xFFFFFFFFu, e, PL_WT);
+                continue;
+            }
+            fx = bx + w * t;                             /* (across: w px over the leap; up: 4 H t (1 - t)) */
+            fy = by - ((4 * H * t * (256 - t)) >> 8);
+            ux = w * 4;
+            uy = -2 * H * (256 - 2 * t) / 64;                 /* (its slope halved: a fish leaps flatter than it flies) */
+            n = (int32_t)pl_isqrt((uint32_t)(ux * ux + uy * uy)) + 1;
+            ux = ux * 256 / n;
+            uy = uy * 256 / n;
+            for (k = 0; k < 6; k++) {
+                q[k][0] = fx + (OBO_FP[k][0] * ux - OBO_FP[k][1] * uy) / 2;
+                q[k][1] = fy + (OBO_FP[k][0] * uy + OBO_FP[k][1] * ux) / 2;
+            }
+            for (k = 0; k < 4; k++)
+                pl_line(S, q[k][0], q[k][1], q[(k + 1) & 3][0], q[(k + 1) & 3][1], 220, PL_WT);
+            pl_line(S, q[2][0], q[2][1], q[4][0], q[4][1], 180, PL_WT);
+            pl_line(S, q[2][0], q[2][1], q[5][0], q[5][1], 180, PL_WT);
+            pl_line(S, q[4][0], q[4][1], q[5][0], q[5][1], 120, PL_WT);
+        }
 }
 
 #include "splash/boats.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
@@ -143,4 +209,10 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_boats = {
     {{"REGATTA", {0, 31, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 50, 40}},
      {"LANTERN", {21, 16, 71, 0, 26, 100, 81, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u), 0}, {99, 99, 60, 0}},
      {"WRECK", {91, 96, 0, 0, 100, 0, 1, 91}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 0u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 40, 30}}},
-    25u, {0, 0, 0}, SPL_BOATS};
+    25u, {0, 0, 0}, SPL_BOATS,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"SPIRAL", 3u, 1u, {0, 0}, {{"ON", 0}, {"ARMS", 40}, {"TWIST", 50}}, "Lines of foam wind in to the middle, turning with the water, brighter on the beat",
+      {"Spiral on or off", "How many arms (two .. six)", "How far round each winds (a quarter .. one and a half turns)"}},
+     {"FISH", 3u, 1u, {0, 0}, {{"ON", 0}, {"LEAP", 50}, {"SCHOOL", 30}}, "A kick throws fish up out of the whirlpool; each splashes back in",
+      {"Fish on or off", "How high they leap", "How many each kick throws (one .. three)"}}}};

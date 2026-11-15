@@ -787,9 +787,10 @@ static int transport_busy(void)
     fm1_irq_on();
     return busy;
 }
-static void chain_play_ui(void)
+static void chain_play_ui(uint32_t r0)                 /* the song from row r0 ((UMBRA LIVE, the user 2026-11-14) ARRANGE's
+                                                         * PLAY: the row selected; else 0, the first) */
 {
-    uint32_t rc = chain_prepare();
+    uint32_t rc = chain_prepare_at(r0);
     if (!rc) {
         ui.force = 1;
     } else if (rc >= 3u) {

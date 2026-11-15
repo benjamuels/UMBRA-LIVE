@@ -2265,7 +2265,6 @@ static void draw_graph(void)
             else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && trk_eng(t) == ENGI_DIGITAL)
                 graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */
 #endif
-            else if (pg->scope == SC_ENGINE) { cv_oy = 0; graph_being(t); }   /* (JIANT 0.5: the being, was the scope) */
             else {                                   /* the FX, DEST, VOICE, GLOBAL pages: their graphs (else the scope) */
                 cv_oy = 0;
                 if (!graph_tech(t, pg))

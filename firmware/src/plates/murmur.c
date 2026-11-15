@@ -9,7 +9,10 @@
  * a second. Line art only: its light is added to the strip, so it lies on a layer as well as it stands alone (REPLACE:
  * black under it).
  * Elements: SPEED (how fast they fly), FADE (how long a bird keeps a note's colour), SIZE (the wings'), SWOOP (the notes
- * that are no drum), SCATTR (the kick), WHEEL (the rest of the kit), FLOCK (how many: 8 .. 40), SPREAD (how loose). */
+ * that are no drum), SCATTR (the kick), WHEEL (the rest of the kit), FLOCK (how many: 8 .. 40), SPREAD (how loose).
+ * (NEW, API 6) HAWK (ON, STOOP, SHY): a hawk soaring round the whole frame near its edges, slow strong beats and long
+ * glides, tipped into its turns; on the kick it stoops in toward the middle, into the flock; the birds near it shy away.
+ * (NEW, API 6) CALLS (ON, REACH, ECHOES): rings of sound spreading from where a note calls the flock, in its colour. */
 #include "plate_lib.h"
 
 #define OMU_N 40                                        /* birds at most */
@@ -23,6 +26,12 @@ typedef struct {
     uint32_t wp, ms, rs;                                /* where their point is on its round; the steps' clock; the dice */
     int8_t dir;                                         /* which way they wheel */
     uint8_t nn;
+    /* (NEW, API 6) HAWK: its stoop, since when (0: none), how hard; CALLS: each ring since when, where (px, Q6), how
+     * hard, whose */
+    uint8_t hv, nc;
+    uint32_t ht, ct[4];
+    int16_t rx[4], ry[4];
+    uint8_t cv[4], cc[4];
 } omu_t;
 
 static int32_t omu_len(int32_t x, int32_t y)            /* how long x, y is, near enough (never 0) */
@@ -30,6 +39,22 @@ static int32_t omu_len(int32_t x, int32_t y)            /* how long x, y is, nea
     x = pl_abs(x);
     y = pl_abs(y);
     return (x > y ? x + y / 2 : y + x / 2) + 1;
+}
+/* (NEW, API 6) HAWK: where it is at t (px, Q6): soaring round the whole frame near its edges, a lap in 22 s, on a loop
+ * squared off toward the corners; as it stoops (1.2 s) drawn in toward the middle, into the flock, and out again */
+static void omu_hawk(const omu_t *s, const umb_lctx_t *cx, const umb_api_t *a, uint32_t t, int32_t *x, int32_t *y)
+{
+    uint32_t ph = t * 195000u, age = t - s->ht;
+    int32_t mid = (PL_TOP(cx) + 240) / 2, ry = (240 - PL_TOP(cx)) / 2 - 12, dx, dy, am;
+    *x = 120 * 64 + pl_pol(a, 112 * 64, ph + 0x40000000u) - pl_pol(a, 12 * 64, ph * 3u + 0x40000000u);
+    *y = mid * 64 + pl_pol(a, ry * 64, ph) + pl_pol(a, ry * 64 / 9, ph * 3u);
+    if (s->ht && age < 1200u) {
+        am = (pl_sine(a, age * 1789569u) >> 7) * (30 + cx->xk[0][1]) * s->hv >> 10;
+        dx = 120 * 64 - *x;
+        dy = mid * 64 - *y;
+        *x += dx * am / omu_len(dx, dy);
+        *y += dy * am / omu_len(dx, dy);
+    }
 }
 static void omu_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 {
@@ -64,6 +89,11 @@ static void omu_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             s->vy[i] = (int16_t)(s->vy[i] + dy * to / d);
         }
     }
+    /* (NEW, API 6) HAWK: the kick sends it down (1.2 s), then it soars at least 2.4 s before the next */
+    if (cx->xk[0][0] && nt->drum && !nt->lane && (!s->ht || cx->now - s->ht >= 3600u)) {
+        s->ht = cx->now | 1u;
+        s->hv = (uint8_t)(128 + nt->vel);
+    }
     if ((v = pl_drive(cx, 5u, nt, nt->drum && nt->lane)) != 0) {   /* WHEEL */
         if (nt->lane < 3u)
             s->dir = (int8_t)-s->dir;
@@ -79,6 +109,14 @@ static void omu_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     for (i = s->nn % 3u; i < OMU_N; i += 3) {
         s->e[i] = (uint8_t)v;
         s->c[i] = nt->track;
+    }
+    if (cx->xk[1][0]) {                                 /* (NEW, API 6) CALLS: a ring from where the note called them */
+        i = s->nc++ % 4u;
+        s->ct[i] = cx->now | 1u;
+        s->rx[i] = s->ax;
+        s->ry[i] = s->ay;
+        s->cv[i] = (uint8_t)v;
+        s->cc[i] = nt->track;
     }
 }
 static void omu_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
@@ -119,6 +157,17 @@ static void omu_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
             s->e[i] = (uint8_t)pl_dec(s->e[i], 25 * 65536 / (300 + k1 * k1 * 4 / 5));   /* (FADE 50: 2.3 s) */
         }
         s->wh = pl_dec(s->wh, 3277);                    /* (0.5 s) */
+        if (cx->xk[0][0]) {                             /* (NEW, API 6) HAWK: the birds within SHY of it pushed away */
+            int32_t hx, hy, r = (16 + cx->xk[0][2] * 3 / 4) * 64;
+            omu_hawk(s, cx, a, cx->now, &hx, &hy);
+            for (i = 0; i < cnt; i++) {
+                int32_t dx = s->x[i] - hx, dy = s->y[i] - hy, d = omu_len(dx, dy);
+                if (d < r) {
+                    s->vx[i] = (int16_t)(s->vx[i] + dx * (r - d) / d / 6);
+                    s->vy[i] = (int16_t)(s->vy[i] + dy * (r - d) / d / 6);
+                }
+            }
+        }
     }
 }
 static void omu_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
@@ -141,6 +190,51 @@ static void omu_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         pl_line(S, X, Y, X - bx + ox, Y - by + oy, e, col);
         pl_line(S, X, Y, X - bx - ox, Y - by - oy, e, col);
     }
+    if (cx->xk[0][0]) {   /* (NEW, API 6) HAWK, seen from below along its way: broad wings, fingered tips, a fanned tail;
+                           * three slow strong beats then a long glide (3.6 s), wings held out, tipped into the turn
+                           * (the inner wing foreshortened), folded half in as it stoops; warm */
+        int32_t p[6], ux, uy, l, tl, f = 0, sf = 0, k, j, sp;
+        uint32_t cy = cx->now % 3600u, age = cx->now - s->ht;
+        static const int8_t HW[9][4] = {{2, 8, 4, 45}, {4, 45, -4, 100}, {-4, 100, -10, 50}, {-10, 50, -5, 8},   /* (a wing: along
+                                                         * px, out % of its span; the fingers, the tail: out px) */
+                                        {-5, 84, -11, 104}, {-2, 92, -6, 110}, {-5, 3, -15, 6}, {-15, 6, -15, 0}, {2, 2, 8, 0}};
+        for (k = 0; k < 3; k++)
+            omu_hawk(s, cx, a, cx->now + (uint32_t)k * 160u - 160u, &p[k * 2], &p[k * 2 + 1]);
+        ux = p[4] - p[0];
+        uy = p[5] - p[1];
+        l = omu_len(ux, uy);
+        tl = pl_clamp(((p[2] - p[0]) * (p[5] - p[3]) - (p[3] - p[1]) * (p[4] - p[2])) / (l * l / 4 / 256 + 1) * 3, -64, 64);
+        ux = ux * 256 / l;
+        uy = uy * 256 / l;
+        if (cy < 1500u)
+            f = pl_sine(a, cy * 8589934u) >> 7;         /* (the beats: 0.5 s each) */
+        if (s->ht && age < 1200u)
+            sf = pl_sine(a, age * 1789569u) >> 8;
+        for (k = -1; k <= 1; k += 2) {
+            sp = (26 * 256 * (256 - pl_abs(f) / 3 - sf) >> 8) * (256 - k * tl) >> 8;   /* (k 1: its right wing) */
+            for (j = 0; j < 9; j++) {                   /* (a wing's points out by its span, swung forward and back by
+                                                         * the beat the further out; the tail, the head out in px) */
+                int32_t a0 = HW[j][0] * 256 + (j < 6 ? f * HW[j][1] / 25 : 0), a1 = HW[j][2] * 256 + (j < 6 ? f * HW[j][3] / 25 : 0),
+                        c0 = k * HW[j][1] * (j < 6 ? sp / 100 : 256), c1 = k * HW[j][3] * (j < 6 ? sp / 100 : 256);
+                pl_line(S, p[2] * 4 + ((ux * a0 - uy * c0) >> 8), p[3] * 4 + ((uy * a0 + ux * c0) >> 8),
+                        p[2] * 4 + ((ux * a1 - uy * c1) >> 8), p[3] * 4 + ((uy * a1 + ux * c1) >> 8), j < 4 ? 230 : 180, PL_WARM[0]);
+            }
+        }
+        pl_glint(S, p[2] * 4 + ux * 8, p[3] * 4 + uy * 8, 255, PL_WT);
+    }
+    if (cx->xk[1][0])                                   /* (NEW, API 6) CALLS: each ring and its echoes behind it */
+        for (i = 0; i < 4; i++) {
+            uint32_t age = cx->now - s->ct[i];
+            int32_t life = 1400, R = (20 + cx->xk[1][1]) * 256, ne = 1 + cx->xk[1][2] * 3 / 99, k, r, e;
+            if (!s->ct[i] || age >= (uint32_t)life)
+                continue;
+            for (k = 0; k < ne; k++) {
+                r = (int32_t)age * (R / life) - k * 9 * 256;
+                e = pl_out(90 + s->cv[i], age, (uint32_t)life) * (ne - k) / ne;
+                if (r > 256)
+                    pl_arc(S, a, s->rx[i] * 4, s->ry[i] * 4, r, 0u, 0xFFFFFFFFu, e, pl_ncol(a, s->cc[i]));
+            }
+        }
 }
 
 #include "splash/murmur.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
@@ -154,4 +248,12 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_murmur = {
     {{"DUSK", {31, 81, 0, 0, 0, 31, 100, 71}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 7u), 0}, {99, 99, 30, 0}},
      {"STARTLE", {81, 0, 0, 0, 100, 100, 0, 31}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 4u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 50, 40}},
      {"RIBBON", {61, 100, 71, 100, 21, 0, 100, 1}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 2u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 30, 40}}},
-    60u, {0, 0, 0}, SPL_MURMUR};
+    60u, {0, 0, 0}, SPL_MURMUR,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"HAWK", 3u, 1u, {0, 0}, {{"ON", 0}, {"STOOP", 50}, {"SHY", 50}},
+      "A hawk soars round the edges of the frame with slow wingbeats and long glides, stooping into the flock on every kick; the birds near it shy away",
+      {"Hawk on or off", "How far in it dives on the kick", "How far the birds keep from it"}},
+     {"CALLS", 3u, 1u, {0, 0}, {{"ON", 0}, {"REACH", 50}, {"ECHOES", 50}},
+      "Rings of sound spread from where each note calls the flock, in the note's colour",
+      {"Calls on or off", "How far the rings spread", "How many rings follow each call (1 to 4)"}}}};

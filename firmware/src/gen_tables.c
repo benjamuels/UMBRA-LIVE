@@ -802,6 +802,31 @@ static const ggenre_t GENRE[] = {
      {BA_WOBBLE, BA_PH808, BA_JUNGLE}, 29, KM_DOUBLE, 110, {PR_I_VI, PR_MINOR4, PR_AEOL}, 2, CS_SPARSE, VM_RICH,
      {AP_BROKEN, AP_UPDOWN}, LD_HOOK, AMT(95, 100, 50, 40, 45), {KIT_808, SR_808, SR_PAD, SR_PLUCK, SR_BELL}, SR_TEXTURE,
      0, 1, 35, 0, FM_PARTS, 0, HF_POP | HX_RAISE, 0},
+    /* ---- (UMBRA LIVE, the user 2026-11-14: more ambient) last, so a project's genre keeps its place */
+    /* Eliane Radigue, Stars of the Lid, Brian Eno's Discreet Music: no drums, one chord held for long, a pedal under it,
+     * a few glassy notes, a wall of texture, the longest reverb */
+    {"DRONE", 60, 76, 0, {SC_MAJ, SC_LYD, SC_DOR, SC_MIX}, DM_NONE, 0, KIT_SOFT, 0, HC_FLAT, FL_NONE, 0,
+     {BA_PEDAL, BA_FIFTHS, BA_PEDAL}, 31, KM_SUSTAIN, 120, {PR_ONE, PR_SUS, PR_I_IV}, 8, CS_DRONE, VM_PAD,
+     {AP_GLASS, AP_GLASS}, LD_SPARSE, AMT(0, 50, 95, 30, 15), {KIT_SOFT, SR_SUB, SR_DRONE, SR_SINEKEY, SR_BELL}, SR_WALL,
+     4, 4, 90, 2, FM_ARC, 30, HF_LOOP, GSP_WOW},
+    /* Lustmord, Raime: a low minor drone, the phrygian's second, a choir in the dark, noise in the room, a bell now and
+     * then */
+    {"DARK AMBIENT", 58, 72, 0, {SC_PHRY, SC_MIN, SC_PHRY, SC_HARM}, DM_NONE, 0, KIT_SOFT, 0, HC_FLAT, FL_NONE, 0,
+     {BA_PEDAL, BA_DUST, BA_PEDAL}, 28, KM_SUSTAIN, 120, {PR_PHRY, PR_ONE, PR_AEOL}, 8, CS_DRONE, VM_PAD,
+     {AP_GLASS, AP_WALK}, LD_SPARSE, AMT(0, 70, 90, 20, 25), {KIT_SOFT, SR_SUB, SR_CHOIR, SR_BELL, SR_DRONE}, SR_NOISE,
+     4, 5, 85, 0, FM_ARC, 30, HF_CINE, GSP_WOW},
+    /* Basic Channel, Deepchord, Monolake: a muffled four on the floor, one minor chord stabbed into a long ping-pong
+     * delay, a sub on the root, hiss under it */
+    {"DUB TECHNO", 116, 124, 10, {SC_MIN, SC_DOR, SC_MIN, SC_DOR}, DM_DEEP, 100, KIT_SOFT, 0, HC_HOUSE, FL_NONE, 0,
+     {BA_PEDAL, BA_DUST, BA_OFFBEAT}, 29, KM_ANSWER, 90, {PR_ONE, PR_DEEP4, PR_I_VII}, 4, CS_DUB, VM_RICH,
+     {AP_GLASS, AP_PULSE}, LD_NONE, AMT(85, 80, 95, 25, 0), {KIT_SOFT, SR_SUB, SR_DUBCHORD, SR_BELL, SR_PAD}, SR_NOISE,
+     1, 3, 70, 3, FM_CLUB, 10, HF_LOOP, 0},
+    /* Tangerine Dream, Klaus Schulze, Steve Roach: the sequencer's sixteenths round one chord, strings swelling,
+     * a lead slow over it, no drums */
+    {"BERLIN SCHOOL", 108, 124, 0, {SC_MIN, SC_DOR, SC_PHRY, SC_MIN}, DM_NONE, 0, KIT_SOFT, 0, HC_FLAT, FL_NONE, 0,
+     {BA_SEQ16, BA_ACID, BA_SEQ16}, 31, KM_SUSTAIN, 60, {PR_ONE, PR_I_VII, PR_AEOL}, 4, CS_SWELL, VM_PAD,
+     {AP_SEQ, AP_UPDOWN}, LD_SPARSE, AMT(0, 90, 80, 75, 40), {KIT_SOFT, SR_ACID, SR_STRINGS, SR_PLUCK, SR_LEAD}, SR_DRONE,
+     2, 4, 75, 2, FM_ARC, 10, HF_LOOP | HX_BOR, 0},
 };
 #define NGENRE (sizeof GENRE / sizeof GENRE[0])
 /* (0.9.9-gen1) each genre's PATTERN GRAMMAR past its maps and archetypes (GENRE's order): on the bass, how many ACCENTs
@@ -830,6 +855,8 @@ static const uint16_t GGRAM[] = {   /* (gen3: + LIFT, 2 = none; V10.6n: the owne
     GG(2, 0, 0, 2, 0, 0, 6), GG(1, 0, 1, 1, 1, 0, 4),   /* ELECTRO METAL TECHNO ROCK */
     GG(0, 1, 0, 0, 0, 1, 2), GG(1, 2, 0, 2, 1, 0, 5), GG(2, 1, 0, 2, 0, 0, 4),   /* DREAM POP PHONK BAILE FUNK */
     GG(0, 0, 0, 0, 0, 0, 4), GG(1, 2, 0, 1, 1, 0, 5),   /* JAZZ HIP HOP */
+    GG(0, 0, 0, 0, 0, 1, 2), GG(0, 0, 0, 0, 0, 1, 2), GG(0, 0, 0, 1, 0, 1, 4), GG(1, 0, 1, 0, 0, 1, 3),   /* DRONE DARK
+                                                         * AMBIENT DUB TECHNO BERLIN SCHOOL */
 };
 _Static_assert(sizeof GGRAM / sizeof GGRAM[0] == NGENRE, "GGRAM: a grammar a genre");
 /* (the GENE mix pass, the owner: "it sounds unprofessional, previous versions better mixed") each genre's mix, a role's
@@ -869,6 +896,10 @@ static const uint8_t GMIX[][3] = {
     GMX(-3, -1, -3, 7, 7, 4),   /* BAILE FUNK */
     GMX(0, 0, 0, 1, 0, -2),   /* JAZZ */
     GMX(-3, -2, -1, 7, 5, 4),   /* HIP HOP */
+    GMX(0, 0, 4, 2, 3, 2),   /* DRONE (as NEO CLASSIC's, the texture up) */
+    GMX(0, 0, 4, 2, 3, 3),   /* DARK AMBIENT */
+    GMX(-2, 3, 3, 0, 5, 2),   /* DUB TECHNO (the chord's stab up, as DEEP HOUSE's bass) */
+    GMX(0, 2, 4, 3, 3, 3),   /* BERLIN SCHOOL */
 };
 _Static_assert(sizeof GMIX / sizeof GMIX[0] == NGENRE, "GMIX: a mix a genre");
 /* (V10.6z10, the owner: "every throw of a genre the same song") each genre's groove DNA (GENRE's order, EXPLORE last):
@@ -904,7 +935,9 @@ static const uint16_t GDNA[NGENRE + 1u] = {
                                                          * CLASSIC FUGA */
     GD(5, 9, GPL_HAT | GPL_OH | GPL_TM), GD(3, 7, GPL_HAT | GPL_OH | GPL_TM) | GPL_SWAP,   /* ELECTRO METAL TECHNO ROCK */
     GD(3, 14, GPL_HAT | GPL_OH | GPL_RS), GD(3, 13, GPL_RS | GPL_TM), GD(10, 13, GPL_RS),   /* DREAM POP PHONK BAILE FUNK */
-    GD(3, 11, 0), GD(3, 13, GPL_OH | GPL_RS | GPL_CB), GD(6, 11, GPL_ALL) | GPL_SWAP,   /* JAZZ (its bombs) HIP HOP EXPLORE */
+    GD(3, 11, 0), GD(3, 13, GPL_OH | GPL_RS | GPL_CB),   /* JAZZ (its bombs) HIP HOP */
+    0, 0, GD(3, 10, GPL_HAT | GPL_RS), 0,               /* DRONE DARK AMBIENT DUB TECHNO BERLIN SCHOOL */
+    GD(6, 11, GPL_ALL) | GPL_SWAP,                      /* EXPLORE */
 };
 /* (V10.6z10) the IDM throws' breaks (GSP_EDIT 1 .. 3: AMBIENT, WEIRD, GLITCH): half the throws one of three others */
 static const uint8_t IDM_ALT[3][3] = {{DM_BOOMBAP, DM_FUNKY, DM_THINK}, {DM_AMEN, DM_FUNKY, DM_THINK}, {DM_BREAKS, DM_FUNKY, DM_THINK}};

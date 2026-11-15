@@ -6,7 +6,11 @@
  * over the water. Line art only: its light is added to the strip, so it lies on a layer as well as it stands alone
  * (REPLACE: black under it).
  * Elements: WIND (the reeds' sway at rest), FADE (how long the water stays lit), SIZE (the horizon: low .. high),
- * WATER (the notes that are no drum), GUST (the kick), FLIES (the rest of the kit), REEDS and MOON (their own light). */
+ * WATER (the notes that are no drum), GUST (the kick), FLIES (the rest of the kit), REEDS and MOON (their own light).
+ * (NEW, API 6) HERON (ON, WADE, STRIKE): a heron standing in the shallows, its reflection under it; on the beat it
+ * stabs at the water.
+ * (NEW, API 6) STARS (ON, COUNT, GLEAM): stars over the marsh, each fading in, shining and fading out on its own clock
+ * (only some lit at once), twinkling, brighter on the beat, their light broken on the water. */
 #include "plate_lib.h"
 
 #define PLW_ND 44                                       /* the water's dashes */
@@ -74,6 +78,39 @@ static void plw_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
         m->d[i] = (uint8_t)pl_dec(m->d[i], f);
     m->gust = pl_dec(m->gust, (int32_t)cx->dt * 82);    /* (0.8 s) */
 }
+/* (NEW, API 6) HERON: a line of it from x0, y0 to x1, y1 (px x 4 from its feet), drawn, or mirrored in the water (dim,
+ * wavering) */
+static void plw_hl(const umb_strip_t *S, const umb_api_t *a, const umb_lctx_t *cx, int32_t X, int32_t W, int32_t x0, int32_t y0,
+                   int32_t x1, int32_t y1, int mir)
+{
+    int32_t d0 = 0, d1 = 0;
+    y0 *= 64;
+    y1 *= 64;
+    if (mir) {
+        d0 = pl_sine(a, cx->now * 900000u + (uint32_t)y0 * 40000u) >> 13;
+        d1 = pl_sine(a, cx->now * 900000u + (uint32_t)y1 * 40000u) >> 13;
+        y0 = -y0 / 2;
+        y1 = -y1 / 2;
+    }
+    pl_line(S, X + (x0 + d0) * 64, W + y0, X + (x1 + d1) * 64, W + y1, mir ? 120 : 190, mir ? PL_DEEP : PL_INK);
+}
+/* its body and legs (px x 4 from its feet, facing left), then its neck and beak: standing .. stabbing (st 0 .. 256) */
+static const int16_t PLW_HB[9][4] = {{-12, 0, -2, -96},     {12, 0, 2, -96},      {-2, -96, -40, -108}, {-40, -108, -24, -126},
+                                     {-24, -126, 24, -122}, {24, -122, 64, -96}, {64, -96, 28, -100},  {28, -100, -2, -96},
+                                     {24, -122, 54, -112}};
+static void plw_heron(const umb_strip_t *S, const umb_api_t *a, const umb_lctx_t *cx, int32_t X, int32_t W, int32_t st)
+{
+    int32_t m, k, hx = -40 + ((-104 + 40) * st >> 8), hy = -186 + ((-14 + 186) * st >> 8), nx = -24 + ((-72 + 24) * st >> 8),
+                  ny = -150 + ((-90 + 150) * st >> 8), bx = -40 + ((-20 + 40) * st >> 8), by = 2 + ((36 - 2) * st >> 8);
+    for (m = 0; m < 2; m++) {
+        for (k = 0; k < 9; k++)
+            plw_hl(S, a, cx, X, W, PLW_HB[k][0], PLW_HB[k][1], PLW_HB[k][2], PLW_HB[k][3], m);
+        plw_hl(S, a, cx, X, W, -40, -108, nx, ny, m);   /* (the neck, in two) */
+        plw_hl(S, a, cx, X, W, nx, ny, hx, hy, m);
+        plw_hl(S, a, cx, X, W, hx, hy, hx + bx, hy + by, m);   /* (the beak, the crest) */
+        plw_hl(S, a, cx, X, W, hx, hy, hx + 22, hy - 6, m);
+    }
+}
 static void plw_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
 {
     const plw_t *m = st;
@@ -117,6 +154,31 @@ static void plw_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             pl_glint(S, m->fx[i] * 256 + pl_pol(a, 4 * 256, age * 5000000u), (hy - 8 - m->fy[i]) * 256, m->fv[i] * (int32_t)(700u - age) / 700,
                      PL_WARM[0]);
     }
+    /* (NEW, API 6) STARS: over the marsh (COUNT of them), each on its own clock: it fades in somewhere, shines a while,
+     * twinkling, fades out and stays dark, then comes back elsewhere, so only some are lit at once; GLEAM: how much the
+     * music brightens them (the beat, the mix); under each a broken streak of its light on the water */
+    if (cx->xk[1][0])
+        for (i = 0; i < 4 + cx->xk[1][1] * 36 / 99; i++) {
+            uint32_t h0 = pl_hash((uint32_t)i + 201u), per = 5000u + (h0 >> 20) % 7000u, t = cx->now + h0 % per, on = per * 2 / 5,
+                     h = pl_hash((uint32_t)i * 977u + t / per), h2 = (h ^ (h >> 15)) * 0x2C1B3C6Du;
+            int32_t x = (int32_t)((h >> 8) % 236u) + 2, y = PL_TOP(cx) + 4 + (int32_t)((h2 >> 8) % (uint32_t)pl_clamp(hy - 16 - PL_TOP(cx), 1, 240)),
+                    tw = (pl_sine(a, cx->now * (200000u + (h >> 24) * 6000u) + h2) + 32768) >> 9, ev,
+                    al = 40 + (tw * 3 >> 1) + ((cx->beat + cx->level) * cx->xk[1][2] >> 9);
+            t %= per;                                   /* (its life: 0.8 s in, shining, 0.8 s out, then dark) */
+            if (t >= on)
+                continue;
+            ev = (int32_t)(t < on - t ? t : on - t);
+            al = al * (ev < 800 ? ev : 800) / 800;
+            if (h2 & 1u)
+                pl_star(S, x * 256, y * 256, (1 + (al >> 7)) * 256, al, PL_WT);
+            else
+                pl_glint(S, x * 256, y * 256, al, PL_WT);
+            pl_line(S, (x - 2) * 256, (2 * hy - y + 4) * 256, (x + 2) * 256, (2 * hy - y + 4) * 256, al / 3, PL_INK);
+        }
+    /* (NEW, API 6) HERON: standing in the shallows (WADE: where across), on the beat it stabs at the water, STRIKE: how hard;
+     * its reflection under it */
+    if (cx->xk[0][0])
+        plw_heron(S, a, cx, (34 + cx->xk[0][1] * 172 / 99) * 256, (hy + 30) * 256, (cx->beat * cx->beat >> 8) * cx->xk[0][2] / 99);
 }
 
 #include "splash/marsh.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
@@ -130,4 +192,12 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_marsh = {
     {{"CALM", {16, 0, 0, 31, 0, 36, 0, 91}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 0u), 0}, {99, 99, 20, 0}},
      {"GALE", {91, 0, 0, 0, 96, 0, 81, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 0u), UMB_LINK(UMB_SRC_LEVEL, 3u)}, {99, 99, 40, 50}},
      {"FIREFLY", {0, 81, 0, 0, 0, 100, 31, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 2u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 25, 30}}},
-    18u, {0, 0, 0}, SPL_MARSH};
+    18u, {0, 0, 0}, SPL_MARSH,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"HERON", 3u, 1u, {0, 0}, {{"ON", 0}, {"WADE", 30}, {"STRIKE", 60}},
+      "A heron stands in the shallows over its reflection, stabbing at the water on the beat",
+      {"Heron on or off", "Where it stands, left to right", "How far it stabs on the beat (0 it stands still)"}},
+     {"STARS", 3u, 1u, {0, 0}, {{"ON", 0}, {"COUNT", 40}, {"GLEAM", 50}},
+      "Stars over the marsh come and go, each fading in and out on its own, brighter on the beat, their light broken on the water",
+      {"Stars on or off", "How many stars (4 to 40)", "How much the music brightens them"}}}};

@@ -7,7 +7,9 @@
  * stone let fall where its pitch lies (C2 left .. C7 right): a dent, its ripples both ways, a little spray; the kick heaves
  * a wave in from one side, then the other; the rest of the kit throws spray off the top.
  * Elements: SWELL (the swell's height), CALM (how soon the ripples die), LEVEL (the sea's: low .. high), DROP (the notes
- * that are no drum), HEAVE (the kick), SPRAY (the rest of the kit), SHAFT (how much the waves gather the light). */
+ * that are no drum), HEAVE (the kick), SPRAY (the rest of the kit), SHAFT (how much the waves gather the light).
+ * (NEW, API 6) BOLT (on/off; STRIKE: how many kicks bring one; FORKS: its branches): lightning out of the black onto the
+ * sea, the sky flashing with it. */
 #include "plate_lib.h"
 
 #define FFA_N 120                                       /* the string's points: one to two pixels */
@@ -21,6 +23,8 @@ typedef struct {
     uint8_t sl[FFA_NS];                                 /* .. the steps left to it (0: none) */
     uint8_t ns, side, lv;                               /* the next drop of spray; the kick's side; the sea's level (row) */
     uint32_t rs, ms;                                    /* the dice, the steps' clock */
+    uint32_t xr, bt, bs;                                /* (NEW, API 6) BOLT: its own dice; since when (0: none), its shape */
+    uint8_t bx;                                         /* .. where it strikes */
 } ffa_t;
 
 static void ffa_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
@@ -29,6 +33,7 @@ static void ffa_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
     (void)a;
     s->rs = 733u + cx->now;
     s->ms = cx->now;
+    s->xr = 6007u + cx->now;                            /* (NEW, API 6) BOLT's dice, apart from the plate's own */
 }
 static void ffa_spray(ffa_t *s, int32_t x, int32_t v)  /* a drop of spray off the surface at column x */
 {
@@ -46,6 +51,11 @@ static void ffa_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     (void)a;
     if (!nt->vel)
         return;
+    if (cx->xk[0][0] && nt->drum && !nt->lane && pl_rnd(&s->xr) % 100u < 8u + cx->xk[0][1] * 92u / 99u) {   /* (NEW, API 6) BOLT */
+        s->bt = cx->now | 1u;
+        s->bs = pl_rnd(&s->xr);
+        s->bx = (uint8_t)(30u + s->bs % 180u);
+    }
     if ((v = pl_drive(cx, 4u, nt, nt->drum && !nt->lane)) != 0) {   /* HEAVE (the kick): a wave from one side */
         s->side ^= 1u;
         for (j = 0; j < 24; j++)                        /* (up by the wall, down beside it: no water added) */
@@ -106,8 +116,9 @@ static void ffa_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 static void ffa_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
 {
     const ffa_t *s = st;
-    int32_t cxx, cy, i;
-    (void)cx;
+    int32_t cxx, cy, i, fl = 0;
+    if (cx->xk[0][0] && s->bt && cx->now - s->bt < 400u)   /* (NEW, API 6) BOLT: the sky flashes, twice, going out */
+        fl = pl_out(cx->now - s->bt < 60u || (cx->now - s->bt > 120u && cx->now - s->bt < 170u) ? 44 : 16, cx->now - s->bt, 400u);
     for (cy = 0; cy < S->h; cy++) {
         int32_t py = S->y0 + cy, vg = S->vg[cy], sl = ((py - s->lv) * 24) >> 6;
         const uint16_t *L = a->pal[(py & 1) << 1];
@@ -115,7 +126,7 @@ static void ffa_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         for (cxx = 0; cxx < S->w; cxx++) {
             int32_t px = S->x0 + cxx, d = py - s->ys[px], b;
             if (d < -1) {
-                row[cxx] = 0;
+                row[cxx] = fl ? L[(px & 1) * 256 + PL_IX(fl, vg)] : 0;
                 continue;
             }
             b = d < 0 ? 60 : !d ? 255 : d < 2 ? 190   /* the line; under it its glow, and the shafts, going out with the depth */
@@ -126,6 +137,31 @@ static void ffa_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     for (i = 0; i < FFA_NS; i++)
         if (s->sl[i])
             pl_splat(S, s->sx[i] * 16, s->sy[i] * 16, 60 + s->sl[i] * 5, PL_WT);
+    /* (NEW, API 6) BOLT: from the top of the sky down to the sea in ten jagged steps, FORKS branches off it; it flickers
+     * and is gone in 0.4 s */
+    if (fl) {
+        int32_t top = PL_TOP(cx), bot = s->ys[s->bx], al = fl * 4, x = s->bx * 256, y = top * 256, j, nf = cx->xk[0][2] * 4 / 100;
+        uint32_t h = s->bs;
+        for (j = 1; j <= 10; j++) {
+            int32_t nx, ny = (top + (bot - top) * j / 10) * 256;
+            h = pl_hash(h);
+            nx = x + (int32_t)(h >> 20) % 4096 - 2048;
+            pl_line(S, x, y, nx, ny, al, PL_WT);
+            pl_line(S, x + 256, y, nx + 256, ny, al / 3, PL_WT);
+            if (j < 8 && (int32_t)(h >> 28) < nf * 4) {   /* (a fork: four steps off to a side, fainter) */
+                int32_t fx = nx, fy = ny, q, sd = h & 1u ? 1 : -1;
+                for (q = 0; q < 4; q++) {
+                    uint32_t g = pl_hash(h + (uint32_t)q);
+                    int32_t gx = fx + sd * (int32_t)(1024 + (g >> 22) % 2048), gy = fy + (int32_t)(1024 + (g >> 24) % 1536);
+                    pl_line(S, fx, fy, gx, gy, al / 2, PL_WT);
+                    fx = gx;
+                    fy = gy;
+                }
+            }
+            x = nx;
+            y = ny;
+        }
+    }
 }
 
 #include "splash/fathom.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
@@ -139,4 +175,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_fathom = {
     {{"TIDE", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 50, 20}},
      {"GLASS", {6, 91, 0, 31, 0, 21, 91, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 15, 0}},
      {"GALE", {96, 11, 0, 81, 96, 96, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 0u), UMB_LINK(UMB_SRC_LEVEL, 6u)}, {99, 99, 30, 40}}},
-    26u, {0, 0, 0}, SPL_FATHOM};
+    26u, {0, 0, 0}, SPL_FATHOM,
+    /* (API 6, the test) its new elements */
+    1u, {0, 0, 0},
+    {{"BOLT", 3u, 1u, {0, 0}, {{"ON", 0}, {"STRIKE", 40}, {"FORKS", 50}}, "Lightning strikes the sea on the kick, the night sky flashing with it",
+      {"Lightning on or off", "How many kicks bring a strike", "How often it forks (never .. at most steps)"}}}};

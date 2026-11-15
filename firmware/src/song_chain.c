@@ -78,6 +78,9 @@ static uint8_t umv_tk, umv_ed;                /* (UMBRA LIVE) TIMELINE: the pict
                                               * its cell open (ui_umbra_mac.c) */
 static uint8_t umv_req;                       /* (UMBRA LIVE) for TIMELINE's picture tracks (ui_umbra_plate.c umv_poll): a
                                               * song's row gone in + 1; 0xFF: the song made new, its cells emptied */
+static uint8_t umv_own;                       /* (UMBRA LIVE, the user 2026-11-14) the picture taken over in TOTALITY while
+                                              * the song plays: 1 the rows' cells let be (GLO lit), 2 handed back by GLO,
+                                              * the next row (or its next round) brings them again (GLO blinking); 0 none */
 static uint8_t song_draft;                    /* Generated workspace: never auto-written to project slots. */
 static uint8_t song_cur;                      /* the song whose sections proj_slot holds (0: the four project slots) */
 /* track k of the current song's row r: the section it plays (the row's own unless ARRANGE 2 gave it another) */

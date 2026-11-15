@@ -7,8 +7,11 @@
  * darts to it, its line taking the note's colour. The kick frightens them all: each starts aside and bolts a little way.
  * The rest of the kit are rings on the water. Line art only: its light is added to the strip, so it lies on a layer as well as it
  * stands alone (REPLACE: black under it).
- * Elements: SWIM (how fast they go), FADE (how long a fish keeps a note's colour), SIZE (theirs), LURE (the notes that
- * are no drum), FRIGHT (the kick), RIPPLE (the rest of the kit), SHOAL (how many: 1 .. 7), GLOW (their own light). */
+ * Elements: SWIM (how fast they go: 0 a slow drift), FADE (how long a fish keeps a note's colour), SIZE (theirs), LURE (the notes that
+ * are no drum), FRIGHT (the kick), RIPPLE (the rest of the kit), SHOAL (how many: 1 .. 7), GLOW (their own light).
+ * (NEW, API 6) LILIES (ON, PADS, BLOOM): lily pads drifting on the pond, bobbing on the beat, lotus flowers opening
+ * with the mix.
+ * (NEW, API 6) WAKE (ON, TRAIL, FAN): a V of ripples behind each fish, longer the faster it goes, flaring at a fright. */
 #include "plate_lib.h"
 
 #define OKO_N 7                                         /* fish at once */
@@ -84,14 +87,15 @@ PL_SMALL static void oko_note(void *st, const umb_lctx_t *cx, const umb_api_t *a
 PL_SMALL static void oko_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 {
     oko_t *s = st;
-    int32_t dt = (int32_t)cx->dt, k1 = cx->k[1], n = 1 + cx->k[6] * 6 / 99, i;
-    s->wp += (uint32_t)dt * (30000u + cx->k[0] * 900u);
+    int32_t dt = (int32_t)cx->dt, k0 = cx->k[0], k1 = cx->k[1], n = 1 + cx->k[6] * 6 / 99, i;
+    int32_t sp0 = k0 < 50 ? 3 + k0 * 29 / 50 : 12 + k0 * 2 / 5;   /* (SWIM: px a second, 3 at 0 .. 32 at 50 .. 51) */
+    s->wp += (uint32_t)dt * (uint32_t)(sp0 * 2300);
     for (i = 0; i < n; i++) {
-        int32_t cs = PL_COS(a, s->h[i]) >> 3, sn = PL_SIN(a, s->h[i]) >> 3, tx, ty, cr, dot, sp = 12 + cx->k[0] * 2 / 5, turn = 40, mv;
+        int32_t cs = PL_COS(a, s->h[i]) >> 3, sn = PL_SIN(a, s->h[i]) >> 3, tx, ty, cr, dot, sp = sp0, turn = 10 + sp0, mv;
         if (s->lt[i]) {                          /* after a note: it darts */
             tx = s->lx[i];
             ty = s->ly[i];
-            sp = sp * 2 + 30;
+            sp = sp * 2 + 10 + sp0 * 5 / 8;           /* (SWIM 50: 94 px a second) */
             turn = 110;
             s->lt[i] = (uint16_t)(s->lt[i] > dt ? s->lt[i] - dt : 0);
         } else {                                        /* its own way: after a point that goes round the pond */
@@ -124,6 +128,26 @@ static void oko_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             pl_arc(S, a, s->rx[i] * 256, s->ry[i] * 256, (3 + (int32_t)age / 28) * 256, 0u, 0xFFFFFFFFu, pl_out(s->rv[i], age, 700u) / 2,
                    s->rc[i] < UMB_NTRK ? pl_ncol(a, s->rc[i]) : PL_WT);
     }
+    /* (NEW, API 6) LILIES: pads (a ring with its notch) drifting slowly, each its own turn, swelling on the beat; on some a
+     * lotus, its petals open with BLOOM and the mix's level */
+    if (cx->xk[0][0])
+        for (i = 0; i < 1 + cx->xk[0][1] * 9 / 99; i++) {
+            uint32_t h = pl_hash((uint32_t)i + 11u), h2 = (h ^ (h >> 15)) * 0x2C1B3C6Du, ph = h + cx->now * (40000u + (h >> 26) * 4000u);
+            int32_t R = (8 + (int32_t)(h >> 29) * 2) * 256 + cx->beat * 3, top = PL_TOP(cx) + 14,
+                    X = (int32_t)(((h2 >> 8) % 280u + cx->now / (90u + (h >> 27))) % 280u) * 256 - 20 * 256,
+                    Y = (top + (int32_t)((h2 >> 20) % (uint32_t)(226 - top))) * 256 + pl_pol(a, 3 * 256, cx->now * 200000u + h);
+            pl_arc(S, a, X, Y, R, ph + 0x0C000000u, 0xE8000000u, 110, PL_INK);
+            pl_line(S, X, Y, X + pl_pol(a, R, ph + 0x4C000000u), Y + pl_pol(a, R, ph + 0x0C000000u), 80, PL_INK);
+            pl_line(S, X, Y, X + pl_pol(a, R, ph + 0x34000000u), Y + pl_pol(a, R, ph - 0x0C000000u), 80, PL_INK);
+            if (h & 0x100u && cx->xk[0][2]) {           /* (its lotus: six petals, opening) */
+                int32_t l = (2 + (cx->xk[0][2] * (64 + cx->level) >> 11)) * 256;
+                for (k = 0; k < 6; k++) {
+                    uint32_t q = ph * 3u + (uint32_t)k * 715827883u;
+                    pl_line(S, X, Y, X + pl_pol(a, l, q + 0x40000000u), Y + pl_pol(a, l, q), 200, a->colour[6]);
+                }
+                pl_dot(S, X >> 8, Y >> 8, 230, PL_WARM[0]);
+            }
+        }
     for (i = 0; i < n; i++) {
         int32_t X = s->x[i] * 4, Y = s->y[i] * 4, cs = PL_COS(a, s->h[i]) >> 3, sn = PL_SIN(a, s->h[i]) >> 3, px[6], py[6], sx[2], sy[2], e,
                 ox, oy;
@@ -155,6 +179,21 @@ static void oko_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             }
         }
         pl_dot(S, px[2] >> 8, py[2] >> 8, e, PL_WARM[i & 1]);   /* its patch */
+        /* (NEW, API 6) WAKE: from its tail a V of ripples, four pairs of arcs left behind and widening, bright (TRAIL: how
+         * far back, FAN: how wide), longer and brighter the faster it goes: after a note, frightened */
+        if (cx->xk[1][0]) {
+            int32_t len = L * (2 + cx->xk[1][1] / 8) * (3 + (s->lt[i] != 0) * 2 + (s->fr >> 6)) / 6,
+                    fan = 60 + cx->xk[1][2] * 4, al = 200 + (s->fr >> 1) + (s->lt[i] ? 60 : 0);
+            for (k = 0; k < 4; k++) {                   /* (four ripples, left behind it and widening as they fade: on each
+                                                         * side an arc, swept back) */
+                int32_t f = (int32_t)(((uint32_t)s->wg[i] >> 7) + (uint32_t)k * 256u) % 1024, d = len * f >> 10,
+                        bx = px[5] - ((cs * d) >> 12), by = py[5] - ((sn * d) >> 12), r = L / 4 + ((d * fan) >> 8),
+                        a2 = pl_clamp(al, 0, 255) * (1024 - f) >> 10;
+                uint32_t hh = (uint32_t)s->h[i] << 16;
+                pl_arc(S, a, bx, by, r, hh + 0x34000000u, 0x30000000u, a2, PL_WT);
+                pl_arc(S, a, bx, by, r, hh - 0x64000000u, 0x30000000u, a2, PL_WT);
+            }
+        }
     }
 }
 
@@ -169,4 +208,12 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_koi = {
     {{"POND", {21, 81, 0, 0, 26, 0, 36, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 7u), 0}, {99, 99, 30, 0}},
      {"FEED", {71, 41, 0, 100, 0, 0, 100, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 4u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 50, 40}},
      {"GHOST", {0, 91, 71, 0, 0, 81, 0, 6}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 7u), 0}, {99, 99, 25, 0}}},
-    45u, {0, 0, 0}, SPL_KOI};
+    45u, {0, 0, 0}, SPL_KOI,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"LILIES", 3u, 1u, {0, 0}, {{"ON", 0}, {"PADS", 40}, {"BLOOM", 50}},
+      "Lily pads drift on the pond, bobbing on the beat; lotus flowers on some open with the mix",
+      {"Lily pads on or off", "How many pads (1 to 10)", "How far the lotus flowers open (0 none)"}},
+     {"WAKE", 3u, 1u, {0, 0}, {{"ON", 0}, {"TRAIL", 50}, {"FAN", 40}},
+      "Each fish leaves a V of ripples behind it, longer and brighter when it darts or takes fright",
+      {"Wakes on or off", "How far back the ripples run", "How wide the V opens"}}}};

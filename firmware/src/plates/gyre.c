@@ -9,7 +9,11 @@
  * spray.
  * Elements: SPIN (how fast it turns), PULL (how fast it draws in), EYE (the eye's size), FOAM (the notes that are no
  * drum), SURGE (the kick), SPRAY (the rest of the kit), FADE (how long the foam lasts), REST (its own three arms and
- * the spray that falls on it unasked). */
+ * the spray that falls on it unasked).
+ * (NEW, API 6) FRAME (ON, GROW, FLASH): a line round the plate's whole edge: bright traces chase round it from its four
+ * corners, longer with the mix (the whole edge lit when it is loud), and lines within it the louder; the beat and the
+ * kick's surge flash it.
+ * (NEW, API 6) RIPPLE (ON, RINGS, WARP): rings running out from the eye with every beat, wavering as they go. */
 #include "plate_lib.h"
 
 #define FGY_NP 40                                       /* streaks at once */
@@ -27,6 +31,7 @@ typedef struct {
     uint8_t np;                                         /* the next streak */
     uint16_t arm;                                       /* where its own arms begin (65536 a turn) */
     uint32_t rs, ms;                                    /* the dice, the steps' clock */
+    uint8_t fl;                                         /* (NEW, API 6) FRAME: the mix's level, eased */
 } fgy_t;
 
 PL_SMALL static void fgy_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
@@ -154,6 +159,25 @@ PL_SMALL static void fgy_frame(void *st, const umb_lctx_t *cx, const umb_api_t *
     uint32_t n = pl_owed(cx->now, &s->ms, 50u);
     while (n--)
         fgy_step(s, cx, a);
+    s->fl = (uint8_t)(s->fl + ((int32_t)cx->level - s->fl) / 6);   /* (NEW, API 6) FRAME */
+}
+/* (NEW, API 6) FRAME: of the edge in px (Q8) by i px, from t (px round it, clockwise from the top left) for l, a of c */
+static __attribute__((noinline)) void fgy_edge(const umb_strip_t *S, int32_t top, int32_t i, int32_t t, int32_t l, int32_t a, const uint8_t *c)
+{
+    int32_t x0 = (1 + i) * 256, y0 = (top + 1 + i) * 256, x1 = (238 - i) * 256, y1 = (238 - i) * 256, w = x1 - x0, h = y1 - y0,
+            P = 2 * (w + h), k;
+    t = ((t % P) + P) % P;
+    while (l > 0) {
+        int32_t e = t < w ? w : t < w + h ? w + h : t < 2 * w + h ? 2 * w + h : P, n = e - t < l ? e - t : l, X[2], Y[2];
+        for (k = 0; k < 2; k++) {                       /* (the two ends' places) */
+            int32_t u = t + k * n;
+            X[k] = u <= w ? x0 + u : u <= w + h ? x1 : u <= 2 * w + h ? x1 - (u - w - h) : x0;
+            Y[k] = u <= w ? y0 : u <= w + h ? y0 + (u - w) : u <= 2 * w + h ? y1 : y1 - (u - 2 * w - h);
+        }
+        pl_line(S, X[0], Y[0], X[1], Y[1], a, c);
+        l -= n;
+        t = e % P;
+    }
 }
 static void fgy_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
 {
@@ -171,6 +195,40 @@ static void fgy_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         for (k = 1; k < 4; k += 2)                      /* (dim its whole length, bright its last third) */
             pl_arc(S, a, C, C, s->pr[i] << 2, ((uint32_t)s->pa[i] - sp / (uint32_t)k) << 16, (sp / (uint32_t)k) << 16, s->pv[i] >> (k == 1), c);
     }
+    /* (NEW, API 6) RIPPLE: rings running out from the eye on the beat (cx->beat's fall: how far out), RINGS of them, one a
+     * beat behind the next, dimmer; WARP: how much each wavers round */
+    if (cx->xk[1][0]) {
+        int32_t n = 1 + cx->xk[1][1] * 4 / 99, w = cx->xk[1][2] * 21, j;
+        for (j = 0; j < n; j++) {
+            int32_t f = (255 - cx->beat) + 255 * j, R = re * 3 / 4 + f * (100 * 256 - re * 3 / 4) / (255 * n),
+                    al = (255 * n - f) * 255 / (255 * n), pX = 0, pY = 0;
+            for (k = 0; k <= 48; k++) {
+                uint32_t ph = (uint32_t)k * 89478485u;
+                int32_t r = R + ((w * pl_sine(a, ph * 5u + cx->now * 1500000u + (uint32_t)j * 0x30000000u)) >> 15),
+                        nX = C + pl_pol(a, r, ph + 0x40000000u), nY = C + pl_pol(a, r, ph);
+                if (k)
+                    pl_line(S, pX, pY, nX, nY, al, j ? PL_INK : PL_WT);
+                pX = nX;
+                pY = nY;
+            }
+        }
+    }
+    /* (NEW, API 6) FRAME: the edge dim, flashing with the beat and the surge (FLASH); four bright traces chasing round it
+     * from the corners, each a quarter of the way round at most (GROW of the eased level); within it up to three more lines,
+     * the louder the more */
+    if (cx->xk[0][0]) {
+        int32_t top = PL_TOP(cx), P = 2 * (237 * 256 + (237 - top) * 256), g = s->fl * cx->xk[0][1] / 99,
+                fa = (cx->beat * cx->xk[0][2] / 99 + (s->surge >> 1) * cx->xk[0][2] / 50) >> 1, t = (int32_t)(cx->now % 12000u) * (P >> 8) / 47;
+        fgy_edge(S, top, 0, 0, P, 90 + fa, PL_WT);
+        for (k = 0; k < 4; k++) {                       /* (each trace two lines thick, its head brightest) */
+            int32_t L = (P >> 2) * (40 + g) / 296;
+            fgy_edge(S, top, 0, t + k * (P >> 2), L, 200 + fa, PL_WT);
+            fgy_edge(S, top, 1, t + k * (P >> 2), L, 160 + fa, PL_INK);
+            fgy_edge(S, top, 0, t + k * (P >> 2) + L - 2048, 2048, 255, PL_WT);
+        }
+        for (k = 1; k <= g / 64; k++)
+            fgy_edge(S, top, 1 + 3 * k, 0, P, (g - 64 * k + 64) * (110 + fa) >> 8, k & 1 ? PL_INK : PL_WT);
+    }
 }
 
 #include "splash/gyre.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
@@ -184,4 +242,12 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_gyre = {
     {{"VORTEX", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 50, 25}},
      {"DRAIN", {41, 91, 21, 0, 0, 31, 31, 71}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 30, 0}},
      {"GALAXY", {26, 11, 31, 81, 0, 91, 96, 100}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 5u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 60, 30}}},
-    55u, {0, 0, 0}, SPL_GYRE};
+    55u, {0, 0, 0}, SPL_GYRE,
+    /* (API 6, the test) its new elements */
+    2u, {0, 0, 0},
+    {{"FRAME", 3u, 1u, {0, 0}, {{"ON", 0}, {"GROW", 60}, {"FLASH", 50}},
+      "A line round the plate's edge: traces chase round it, growing with the mix, and it flashes on the beat",
+      {"Frame on or off", "How far the traces grow round the edge, and lines within it, with the mix", "How much the beat and the kick flash it"}},
+     {"RIPPLE", 3u, 1u, {0, 0}, {{"ON", 0}, {"RINGS", 40}, {"WARP", 30}},
+      "Rings run out from the eye with every beat, wavering as they go",
+      {"Ripples on or off", "How many rings follow each other out (1 to 5)", "How much they waver"}}}};
