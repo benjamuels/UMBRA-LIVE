@@ -1362,7 +1362,7 @@ static void draw_columns(void)
         }
         return;
     }
-    if (umk_on() && ui.hset[0] != 3u) {                 /* (UMBRA LIVE) MACROS - AUDIO / VISUALS: the route's columns (PLATES:
+    if (umk_on() && ui.hset[0] != HOME_PLATES) {                 /* (UMBRA LIVE) MACROS - AUDIO / VISUALS: the route's columns (PLATES:
                                                          * no knob row, as WELCOME) */
         if (bt_hw_seg())                                /* (in the segment: the app slot is full) */
             umk_cards();

@@ -11445,16 +11445,19 @@ static int test_skin(void)
         macro_v[2] = 0;
         bad += check("(UMBRA LIVE) TOTALITY: HOME on HOME; PRESETS the MAIN plates round, SELECT OVER's, KNOBs the macros, FX effects; LEDs dark; HOME back; EDIT a tap, TOTALITY stays", ok);
     }
-    {   /* (UMBRA LIVE, the user 2026-11-13) TOTALITY's SEL ENV ARP (LIVE VIZ CTRLS' BUTTONS, at first LAYER 3, OVER, MAIN):
-         * tapped, the layer hidden or back over half a second, lit while it shows something (LAYER 3 empty: BODIES laid on
-         * it); held with ALGORITHM turned, the next plate there (a veil), no tap; LFO's tap its link, INVERT (the strobe);
-         * kept on leaving */
-        uint32_t a;
+    {   /* (UMBRA LIVE, the user 2026-11-13, 2026-11-15) TOTALITY's SEL ENV ARP (LIVE VIZ CTRLS' BUTTONS, at first BODIES,
+         * OVER, MAIN): ENV and ARP tapped hide their layer or show it again over half a second, lit while it shows; SEL lays
+         * BODIES on OVER in the veil's place (no third layer: never both), ENV brings the veil back, SEL again hides BODIES;
+         * held with ALGORITHM turned, the next plate there (SEL: the next track's figure), no tap; LFO's tap its link,
+         * INVERT (the strobe); kept on leaving */
+        uint32_t a, v;
         ui_power_on(); frame();
         memset(&umc, 0, sizeof umc);
+        umx_vk = 0;
         umt.lh = 0;
-        umt.ba[0] = umt.ba[1] = umt.ba[2] = 256u;
+        umt.ba[0] = umt.ba[1] = 256u;
         umb_plate = 0x80u;                                         /* (CINDER) */
+        track_select(0);
         memset(led_pos, 0xFF, sizeof led_pos);
         led_pos[panel.btn[B_SCL]] = 0u << 3 | 5u;
         led_pos[panel.btn[B_ENV]] = 0u << 3 | 3u;
@@ -11464,66 +11467,79 @@ static int test_skin(void)
         press(B_HOME); frames(32); ui_leds();
         ok = umt.on && !umt.lh && !led_of(fm1_led, panel.btn[B_SCL]) && !led_of(fm1_led, panel.btn[B_ENV]) &&
              led_of(fm1_led, panel.btn[B_ARP]) && !led_of(fm1_led, panel.btn[B_LFO]);   /* (MAIN shows: ARP lit) */
-        umt.ba[2] = 0;
         press(B_SCL); frames(160); ui_leds();
-        a = umt.ba[2];                                             /* (BODIES laid on LAYER 3: part way in) */
-        ok &= umt.on && ui.home && !umt.lh && umx_place(UMX_BODY) == 4u && a > 40u && a < 200u && led_of(fm1_led, panel.btn[B_SCL]);
+        a = umt.ba[1];                                             /* (BODIES laid on OVER: part way in) */
+        ok &= umt.on && ui.home && !umt.lh && umx_place(UMX_BODY) == 2u && a > 40u && a < 200u &&
+              led_of(fm1_led, panel.btn[B_SCL]) && !led_of(fm1_led, panel.btn[B_ENV]);
         frames(400);
-        ok &= umt.ba[2] == 256u;
+        ok &= umt.ba[1] == 256u;
         press(B_SCL); frames(160); ui_leds();
-        a = umt.ba[2];                                             /* (part way out) */
-        ok &= umt.on && umt.lh == 4u && a > 56u && a < 216u && !led_of(fm1_led, panel.btn[B_SCL]);
+        a = umt.ba[1];                                             /* (hidden: part way out) */
+        ok &= umt.on && umt.lh == 2u && a > 56u && a < 216u && !led_of(fm1_led, panel.btn[B_SCL]);
         frames(400);
-        ok &= !umt.ba[2] && umt.ba[0] == 256u;
-        press(B_SCL); frames(600);
-        btn_down(B_SCL); frames(48); turn(EN_ALGO, 1); frames(48); btn_up(B_SCL); frames(32);   /* (held, ALGORITHM: the next
-                                                                    * on LAYER 3, a veil; shown; let go: no tap) */
-        ok &= umt.on && !umt.lh && umx_place(UMX_BODY) != 4u && umc.lay[2] && umx_veil(umx_find(umc.lay[2]));
-        btn_down(B_ENV); frames(48); turn(EN_ALGO, 1); frames(48); btn_up(B_ENV); frames(32); ui_leds();   /* (ENV: a veil on
-                                                                    * OVER, ENV lit; no page) */
-        ok &= umt.on && ui.home && umc.lay[0] && umx_veil(umx_find(umc.lay[0])) && !umt.lh && led_of(fm1_led, panel.btn[B_ENV]);
+        ok &= !umt.ba[1] && umt.ba[0] == 256u;
+        if (!ok) printf("  buttons a: lh %u ba %u %u\n", umt.lh, umt.ba[0], umt.ba[1]);
+        btn_down(B_ENV); frames(48); turn(EN_ALGO, 1); frames(48); btn_up(B_ENV); frames(32); ui_leds();   /* (ENV held,
+                                                                    * ALGORITHM: a veil on OVER, shown, ENV lit; no tap) */
+        v = umc.lay[0];
+        ok &= umt.on && ui.home && v && v != umx_key("BODIES") && umx_veil(umx_find(v)) && umx_vk == v && !umt.lh &&
+              led_of(fm1_led, panel.btn[B_ENV]) && !led_of(fm1_led, panel.btn[B_SCL]);
+        press(B_SCL); frames(32); ui_leds();                       /* (SEL with the veil showing: BODIES in its place) */
+        ok &= umx_place(UMX_BODY) == 2u && umx_vk == v && !umt.lh && led_of(fm1_led, panel.btn[B_SCL]) &&
+              !led_of(fm1_led, panel.btn[B_ENV]);
+        press(B_ENV); frames(32); ui_leds();                       /* (ENV: the veil back) */
+        ok &= umc.lay[0] == v && !umt.lh && led_of(fm1_led, panel.btn[B_ENV]) && !led_of(fm1_led, panel.btn[B_SCL]);
+        if (!ok) printf("  buttons b: lh %u lay %u v %u vk %u\n", umt.lh, umc.lay[0], v, umx_vk);
         hold(B_ENV); frames(32);                                   /* (held long, nothing turned: no tap either) */
         ok &= umt.on && !umt.lh;
         press(B_ENV); frames(32); ui_leds();
-        ok &= umt.on && umt.lh == 2u && !led_of(fm1_led, panel.btn[B_ENV]);
-        press(B_ENV); press(B_ARP); frames(32); ui_leds();         /* (ARP: the ground hidden, ARP dark; no page) */
-        ok &= umt.on && ui.home && umt.lh == 1u && !led_of(fm1_led, panel.btn[B_ARP]) && umb_pl() == 0u;
+        ok &= umt.on && umt.lh == 2u && !led_of(fm1_led, panel.btn[B_ENV]) && umc.lay[0] == v;
+        btn_down(B_SCL); frames(48); turn(EN_ALGO, 1); frames(48); btn_up(B_SCL); frames(32);   /* (SEL held, ALGORITHM: the
+                                                                    * next track, its figure: BODIES on OVER, shown; no tap) */
+        ok &= song.sel == (trk_live > 1u ? 1u : 0u) && umx_place(UMX_BODY) == 2u && umx_vk == v && !umt.lh;
+        if (!ok) printf("  buttons c: lh %u sel %u lay %u\n", umt.lh, song.sel, umc.lay[0]);
+        press(B_ENV); press(B_ARP); frames(32); ui_leds();         /* (ENV: the veil back; ARP: the ground hidden, ARP dark; no page) */
+        ok &= umt.on && ui.home && umt.lh == 1u && umc.lay[0] == v && !led_of(fm1_led, panel.btn[B_ARP]) && umb_pl() == 0u;
         press(B_LFO); ui_leds();                                   /* (LFO: TAP, INVERT at once, lit while it lasts) */
         ok &= umt.on && umq.tap[1] > 200u && led_of(fm1_led, panel.btn[B_LFO]) && umq_o[G_INV] >= 50u;
         frames(600);
         press(B_HOME); frame(); press(B_HOME); frames(32); ui_leds();
         ok &= umt.on && umt.lh == 1u && !umt.ba[0];                /* (entered again: as it was) */
         memset(&umc, 0, sizeof umc);
+        umx_vk = 0;
         umt.lh = 0;
+        track_select(0);
         press(B_HOME); frame();
-        bad += check("(UMBRA LIVE) TOTALITY: SEL ENV ARP show or hide LAYER 3, OVER, MAIN (lit, half a second's fade), held the next plate; LFO's tap the strobe; kept on leaving", ok);
+        bad += check("(UMBRA LIVE) TOTALITY: SEL BODIES, ENV OVER's veil, taking turns on OVER; ARP MAIN (lit, half a second's fade); held the next plate / track; LFO's tap the strobe; kept on leaving", ok);
     }
     {   /* (UMBRA LIVE, the user 2026-11-09) HOME: WELCOME . UMBRA (MACROS - AUDIO, MACROS - VISUALS, BEING, ROUTES) . GEN
          * (GEN 1..3), one chain by SELECT, WELCOME at power-on; WELCOME and the MACROS pages: no knobs (KNOB 1..4 turn
          * nothing, the knob row bare), the plate behind (AIR: the whole screen), WELCOME its words; BEING its HOME knobs,
          * ROUTES M1..M4 as before; a HOME tap on WELCOME: TOTALITY */
-        static const char *const CR[7] = {"HOME \xB7 WELCOME \xB7 WELCOME", "HOME \xB7 UMBRA \xB7 LIVE AUDIO CTRLS",
-                                          "HOME \xB7 UMBRA \xB7 LIVE VIZ CTRLS", "HOME \xB7 UMBRA \xB7 PLATES", "HOME \xB7 UMBRA \xB7 BEING",
-                                          "HOME \xB7 UMBRA \xB7 ROUTES", "HOME \xB7 GENE \xB7 GENE 1"};   /* (V10.6d: GEN is GENE; 2026-11-13: PLATES) */
-        static const uint8_t TAB[7] = {0, 1, 1, 1, 1, 1, 2};
+        static const char *const CR[8] = {"HOME \xB7 WELCOME \xB7 WELCOME", "HOME \xB7 UMBRA \xB7 LIVE AUDIO CTRLS",
+                                          "HOME \xB7 UMBRA \xB7 PLATES - GROUND", "HOME \xB7 UMBRA \xB7 PLATES - VEILS",
+                                          "HOME \xB7 UMBRA \xB7 PLATES", "HOME \xB7 UMBRA \xB7 BEING",
+                                          "HOME \xB7 UMBRA \xB7 ROUTES", "HOME \xB7 GENE \xB7 GENE 1"};   /* (V10.6d: GEN is GENE; 2026-11-13: PLATES;
+                                                         * 2026-11-15: LIVE VIZ CTRLS two pages, GROUND and VEILS) */
+        static const uint8_t TAB[8] = {0, 1, 1, 1, 1, 1, 1, 2};
         char cn[8];
         uint32_t k, j, c0, w0, w1, y, x;
         uint8_t m0, pl0 = umb_plate;
         ui_power_on(); ui.hlv = 0; frame();                       /* (the device's power-on: ui all 0, WELCOME) */
         ok = ui.home && !ui.hset[0] && nav_cur() == 0u && lz_tabs() == 3u;
-        for (k = 0; k < 7u; k++) {
+        for (k = 0; k < 8u; k++) {
             fmt_int(cn, (int32_t)k + 1);
-            str_cpy(cn + str_len(cn), "/9", 3);
-            ok &= lz_crumb_is(CR[k]) && lz_count_is(cn) && lz_tab_lit(TAB[k]) && home_bare() == (k < 4u) &&
+            str_cpy(cn + str_len(cn), "/10", 4);
+            ok &= lz_crumb_is(CR[k]) && lz_count_is(cn) && lz_tab_lit(TAB[k]) && home_bare() == (k < 5u) &&
                   (!k ? skin_ink(LZ_CARD_Y, LZ_CARD_Y + LZ_CARD_H) == 0 : 1);
-            if (k < 6u) {                                          /* (the MACROS pages: their routes', ui_umbra_mac.c) */
+            if (k < 7u) {                                          /* (the MACROS pages: their routes', ui_umbra_mac.c) */
                 c0 = (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]];
                 m0 = macro_v[0];
                 for (j = 0; j < 4u; j++) turn(EN_K1 + j, 2);
                 frame();
-                ok &= k < 3u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] == c0 && macro_v[0] == m0 && !ui.hot_t == !k :
-                      k == 3u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] == c0 && macro_v[0] != m0 :   /* (PLATES: the macros, 2026-11-13) */
-                      k == 4u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] != c0 : macro_v[0] != m0;
+                ok &= k < 4u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] == c0 && macro_v[0] == m0 && !ui.hot_t == !k :
+                      k == 4u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] == c0 && macro_v[0] != m0 :   /* (PLATES: the macros, 2026-11-13) */
+                      k == 5u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] != c0 : macro_v[0] != m0;
             }
             if (!ok) { printf("  HOME entry %u\n", k); break; }
             turn(EN_SELECT, 1); frame();
@@ -11601,9 +11617,32 @@ static int test_skin(void)
         turn(EN_ALGO, 1);                                          /* (ALGORITHM: the next page, GRANULE; a ground lying nowhere,
                                                                     * it is the ground now (2026-11-13); the track kept) */
         ok &= umx_pg == 3u && umb_pl() == 3u && !umx_place(0u) && song.sel == s0;
-        umx_pg = (uint8_t)(UMP_NPL + 7u);                          /* (RAPIDS, the last ground; then BEACON, a veil: on OVER) */
+        umx_pg = (uint8_t)(UMP_NPL + 7u);                          /* (RAPIDS, the last ground: PLATES - GROUND has no veil after
+                                                                    * it, SCREEN) */
         turn(EN_ALGO, 1);
-        ok &= umx_pg == UMP_NPL + 8u && umx_place(UMP_NPL + 8u) == 2u && umb_pl() == 3u;
+        ok &= umx_pg == UMX_SCREEN && umb_pl() == 3u;
+        {   /* (the user, 2026-11-15) a round of each: PLATES - GROUND the grounds, PLATES - VEILS the veils and BODIES (each
+             * laid on OVER), both SCREEN EFFECTS BUTTONS */
+            uint32_t n, gr = 0, ve = 0, wrong = 0;
+            for (n = 0; n < UMX_N; n++) {
+                turn(EN_ALGO, 1);
+                gr |= umx_pg == 3u;
+                wrong |= umx_pg <= UMX_BODY && umx_veil(umx_pg);
+            }
+            nav_go(SEC_HOME, 3, 0); frame();                       /* PLATES - VEILS: at first OVER's (none: BODIES) */
+            umx_pg = 0xFFu;
+            ok &= umx_cur() <= UMX_BODY && umx_veil(umx_cur());
+            for (n = 0; n < UMX_N; n++) {
+                turn(EN_ALGO, 1);
+                ve |= umx_pg == UMP_NPL + 8u;
+                wrong |= umx_pg <= UMX_BODY && (!umx_veil(umx_pg) || umx_place(umx_pg) != 2u);
+            }
+            ok &= gr && ve && !wrong;
+            if (!ok) printf("  ctrls split: gr %u ve %u wrong %u\n", gr, ve, wrong);
+            umx_pg = (uint8_t)(UMP_NPL + 8u);                      /* (BEACON, a veil: on OVER) */
+            umx_place_set(UMP_NPL + 8u, 2u);
+        }
+        ok &= umx_pg == UMP_NPL + 8u && umx_place(UMP_NPL + 8u) == 2u;
         {
             char b[4][12];
             turn(EN_K4, 1);                                        /* (no WHERE: KNOB 4 there moves nothing; its KIND shown) */
@@ -11611,6 +11650,7 @@ static int test_skin(void)
             ok &= umx_place(UMP_NPL + 8u) == 2u && str_eq(b[3], "VEIL") && !umx_can(UMP_NPL + 8u, 1u) && !umx_can(0u, 2u);
         }
         umx_place_set(UMP_NPL + 8u, 0u);
+        nav_go(SEC_HOME, 2, 0); frame();                           /* (PLATES - GROUND again) */
         umx_pg = 0u; umx_el = umx_ct = 0;
         umx_place_set(0u, 1u);
         ok &= umx_place(0u) == 1u;
@@ -11733,10 +11773,15 @@ static int test_skin(void)
             nav_go(SEC_HOME, k, 0); frame();
             umx_pg = 5;
             turn(EN_ALGO, trk_live > 1u && sel0 + 1u < trk_live ? 1 : -1);
-            if (k == 2u || k == 3u)                                /* (LIVE VIZ CTRLS, PLATES: the page, its plate the ground now;
+            if (k == 2u || k == HOME_PLATES)                       /* (PLATES - GROUND, PLATES: the page, its plate the ground now;
                                                                     * the track kept) */
                 ok &= umb_pl() == umx_pg && umx_pg != 5u && song.sel == sel0;
-            else
+            else if (k == 3u) {                                    /* (PLATES - VEILS, 2026-11-15: the page, never a ground; the
+                                                                    * ground and the track kept) */
+                ok &= umb_pl() == 5u && umx_pg != 5u && !(umx_pg < UMB_NPLT && !umx_veil(umx_pg)) && song.sel == sel0;
+                umc.lay[0] = 0;
+                umc_gen++;
+            } else
                 ok &= umb_pl() == 5u && (trk_live < 2u || song.sel != sel0);
             umb_plate = 0x85u;
             track_select(sel0);
@@ -11870,23 +11915,25 @@ static int test_skin(void)
         ok &= umb_pl() == 0u;
         bad += check("(UMBRA LIVE) plate modules: the six by name and number, built in; a plate not there: CORONA", ok);
     }
-    {   /* (UMBRA LIVE, the user 2026-11-12) the layers: up to three plates over the ground, each in its own part of the
-         * block from its end down, none inside the ground's; one that does not fit beside a large ground waits; LAYER 2
-         * (an older store's) and a ground on a layer are let be. An element's tracks: CORONA's PULSE given track 2, a note of track 2's flares the chromosphere */
+    {   /* (UMBRA LIVE, the user 2026-11-12, 2026-11-15) the layers: one plate over the ground (OVER), in its own part of the
+         * block from its end down, none inside the ground's; one that does not fit beside a large ground waits; LAYER 2 and
+         * LAYER 3 (an older store's) and a ground on OVER are let be. An element's tracks: CORONA's PULSE given track 2, a
+         * note of track 2's flares the chromosphere */
         ui_power_on(); frame();
         memset(&umc, 0, sizeof umc);
         memset(macro_v, 0, sizeof macro_v);
         umt.lh = 0;
         umb_plate = 0x84u;                                         /* (CORONA) */
-        umx_place_set(UMP_NPL + 10u, 2u);                          /* (SONAR on LAYER 1, ZODIAC on 3; GRANULE on 2: not there) */
-        umx_place_set(UMP_NPL + 9u, 4u);
+        umx_place_set(UMP_NPL + 10u, 2u);                          /* (SONAR on OVER; ZODIAC on LAYER 3, GRANULE on 2: not there) */
         umc.lay[1] = (uint16_t)umx_key("GRANULE");
+        umc.lay[2] = (uint16_t)umx_key("ZODIAC");
+        umc_gen++;
         nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(700);
-        ok = umt.on && umb_lay[0].pp == &umb_plate_corona && umb_lay[1].pp == &umb_plate_sonar && !umb_lay[2].pp &&
-             umb_lay[3].pp == &umb_plate_zodiac && umx_lp[1] == UMB_NONE && umx_place(UMP_NPL + 10u) == 2u;
+        ok = umt.on && umb_lay[0].pp == &umb_plate_corona && umb_lay[1].pp == &umb_plate_sonar && umx_lp[0] == UMP_NPL + 10u &&
+             umx_place(UMP_NPL + 10u) == 2u && !umx_place(UMP_NPL + 9u) && !umx_can(UMP_NPL + 9u, 4u) && !umx_can(UMX_BODY, 4u) &&
+             umx_can(UMX_BODY, 2u);
         ok &= (uint8_t *)umb_lay[1].st + umb_plate_sonar.state <= (uint8_t *)&umb + UMB_BLK &&
-              (uint8_t *)umb_lay[3].st + umb_plate_zodiac.state <= (uint8_t *)umb_lay[1].st &&
-              (uint8_t *)umb_lay[3].st >= (uint8_t *)&umb + sizeof(ump_co_t);
+              (uint8_t *)umb_lay[1].st >= (uint8_t *)&umb + sizeof(ump_co_t);
         umx_rec(4u)->t[4] = 2u;                                    /* (PULSE: track 2's) */
         umb_q.c[umb_q.w % UMB_NQ] = 1; umb_q.note[umb_q.w % UMB_NQ] = 60; umb_q.vel[umb_q.w % UMB_NQ] = 127; umb_q.w++;
         frame();
@@ -11894,13 +11941,13 @@ static int test_skin(void)
         umx_rec(4u)->t[4] = 0;
         umb_plate = 0x85u; frames(100);                            /* (TARN, the largest ground: what still fits lies on) */
         ok &= umb_lay[0].pp == &umb_plate_tarn && (umb_lay[1].pp != 0) == (umb_plate_tarn.state + umb_plate_sonar.state <= UMB_BLK);
-        umb_plate = (uint8_t)(0x80u | UMB_NONE); frames(100);      /* (no ground: black, the layers alone) */
-        ok &= umt.on && !umb_lay[0].pp && umb_lay[1].pp == &umb_plate_sonar && umb_lay[3].pp == &umb_plate_zodiac;
+        umb_plate = (uint8_t)(0x80u | UMB_NONE); frames(100);      /* (no ground: black, the layer alone) */
+        ok &= umt.on && !umb_lay[0].pp && umb_lay[1].pp == &umb_plate_sonar;
         press(B_HOME); frame();
-        if (!ok) printf("  layers: %p %p %p, lp %u %u %u\n", (void *)umb_lay[0].pp, (void *)umb_lay[1].pp, (void *)umb_lay[2].pp, umx_lp[0], umx_lp[1], umx_lp[2]);
+        if (!ok) printf("  layers: %p %p, lp %u\n", (void *)umb_lay[0].pp, (void *)umb_lay[1].pp, umx_lp[0]);
         memset(&umc, 0, sizeof umc);
         umb_plate = 0x80u;
-        bad += check("(UMBRA LIVE) layers: three over the ground, their state apart; a large ground: what fits; no ground; an element's tracks", ok);
+        bad += check("(UMBRA LIVE) layers: one over the ground (LAYER 2, LAYER 3: none), its state apart; a large ground: what fits; no ground; an element's tracks", ok);
     }
     {   /* (UMBRA LIVE, the user 2026-11-13) presets: a page's four (BASIC, then the plate's own three from its file); one
          * not changed keeps no record, one changed its own; BASIC as it was. TIMELINE's picture tracks: a cell a row for
@@ -11992,7 +12039,7 @@ static int test_skin(void)
         turn(EN_ALGO, -1);
         ok &= !umv_tk;
         if (!ok) printf("  timeline: tk %u ed %u pg %u ground %u\n", umv_tk, umv_ed, umx_pg, umb_pl());
-        nav_go(SEC_HOME, 3, 0); frame();                            /* (PLATES) */
+        nav_go(SEC_HOME, HOME_PLATES, 0); frame();                  /* (PLATES) */
         umx_pg = 0;
         macro_v[0] = 0;
         turn(EN_ALGO, 1); turn(EN_K1, 4); frame();                 /* (2026-11-13: ALGORITHM the plate, KNOB 1..4 the macros) */
@@ -14539,6 +14586,108 @@ static int test_timeline_fade_16(void)
     return bad;
 }
 
+/* (UMBRA LIVE, the user 2026-11-15) a TIMELINE row's OVER veil set IN ON ENV (OVER alone; MAIN stops at CUT): laid
+ * hidden at its row's start, ENV in TOTALITY shows it; a veil not so set shows at its row's start. LOOP ROW (TIMELINE's
+ * PLAY): the row's next rounds lay nothing anew, so its fade goes on and what ENV showed stays; a cell set meanwhile is
+ * laid at once */
+static void bar_play(void)                              /* (a bar of the song and a bit, then the main loop's turn) */
+{
+    uint32_t b;
+    for (b = 0; b < chain_bar() / CTL + 4u; b++)
+        events_block(CTL);
+}
+static int test_over_on_env_loop(void)
+{
+    int bad = 0, ok = 1;
+    uint32_t j, b = 0x2D7u, t0, sonar, zodiac, gran, lp = 0;
+    umc_cell_t *c;
+    ui_power_on(); frame();
+    for (j = 1; j < 4u; j++)
+        ok &= umv_tf(umv_ts(b, 0u, 4u), j) == umv_tf(b, j);
+    ok &= umv_tf(umv_ts(b, 0u, 4u), 0u) == 4u && (umv_ts(b, 0u, 4u) & 3u) == 3u && umv_tf(umv_ts(umv_ts(b, 0u, 4u), 0u, 1u), 0u) == 1u &&
+          str_eq(UMV_TY[4], "ON ENV");
+    if (!ok) printf("  on env: the field\n");
+    project_save(0);                                    /* (a section to play) */
+    memset(&umc, 0, sizeof umc);
+    umx_vk = 0;
+    umt.lh = 0;
+    umt.ba[0] = umt.ba[1] = 256u;
+    sonar = umx_key("SONAR"); zodiac = umx_key("ZODIAC"); gran = umx_key("GRANULE");
+    chain_config.count = 2;
+    chain_config.row[0] = (chain_row_t){0, 1}; chain_config.row[1] = (chain_row_t){0, 1};
+    go_title("TIMELINE"); frame();
+    ui.song_row = 0; umv_tk = umv_ed = 0;
+    track_select(trk_live - 1u);
+    turn(EN_ALGO, 1); turn(EN_ALGO, 1);                 /* (OVER's cell, row 1: KNOB 4 a veil, then its transition) */
+    turn(EN_K4, 1); turn(EN_K4, 1);
+    press(B_OCTUP); frame(); press(B_OCTUP); frame();
+    turn(EN_K1, 3);                                     /* (CUT, one further: ON ENV, OVER's alone, not past it) */
+    ok &= umv_ed == 2u && umv_tk == 2u && umv_tf(umv_trd, 0u) == 4u;
+    press(B_OCTUP); frame();
+    c = umv_cell(0, 1);
+    ok &= !umv_on() && c->key && umv_tf(umv_trv(c), 0u) == 4u && (c->pre >> 5 & 1u) && !UMC_CPRE(c);
+    c->key = (uint16_t)sonar;                           /* (SONAR, ON ENV; MAIN GRANULE, a FADE of 16 s; row 2 ZODIAC, as chosen) */
+    c = umv_cell(0, 0);
+    c->key = (uint16_t)gran;
+    umv_trput(c, umv_ts(umv_ts(UMV_CUT, 0u, 1u), 1u, 5u));
+    umv_cell(1, 1)->key = (uint16_t)zodiac;
+    umv_cell(1, 1)->tr = UMV_CUT;
+    turn(EN_ALGO, -1); turn(EN_ALGO, -1);               /* (off the picture tracks: TIMELINE's PLAY loops the row) */
+    ok &= !umv_tk;
+    if (!ok) printf("  on env: set ed %u tk %u tr %u pre %u\n", umv_ed, umv_tk, umv_cell(0, 1)->tr, umv_cell(0, 1)->pre);
+    press(B_PLAY);
+    if (!chain.armed && !chain.running) printf("  on env: PLAY: %s\n", ui.msg);
+    for (j = 0; j < 400u && !chain.running; j++)
+        events_block(CTL);
+    song_poll(); frame();
+    t0 = umv_st.t0[0];
+    ok &= chain.running && chain.hold && chain.row == 0u && umx_place(umx_find(sonar)) == 2u && (umt.lh & 2u) && t0 &&
+          umb_pick() == umx_find(gran);                 /* (SONAR laid, hidden) */
+    press(B_HOME); frame(); press(B_HOME); frame();     /* (TOTALITY) */
+    ok &= umt.on && (umt.lh & 2u) && !led_of(fm1_led, panel.btn[B_ENV]);
+    if (!ok) printf("  on env: start run %u hold %u lh %u t0 %u on %u\n", chain.running, chain.hold, umt.lh, t0, umt.on);
+    frames(1000);
+    bar_play();                                         /* (the row's next round) */
+    lp = chain.applied;
+    song_poll(); frame();
+    ok &= lp && chain.running && chain.row == 0u && umv_st.t0[0] == t0 && (umt.lh & 2u);   /* (its fade going on; still hidden) */
+    press(B_ENV); frames(32);                           /* (ENV: SONAR shown) */
+    ok &= !(umt.lh & 2u) && umx_place(umx_find(sonar)) == 2u;
+    bar_play(); song_poll(); frame();
+    ok &= chain.row == 0u && umv_st.t0[0] == t0 && !(umt.lh & 2u);   /* (another round: still shown) */
+    press(B_SCL); frames(32);                           /* (SEL: BODIES in SONAR's place) */
+    bar_play(); song_poll(); frame();
+    ok &= umx_place(UMX_BODY) == 2u && !(umt.lh & 2u) && umx_vk == sonar;   /* (.. kept through the round) */
+    if (!ok) printf("  on env: rounds applied %u row %u t0 %u/%u lh %u lay %u\n", lp, chain.row, umv_st.t0[0], t0, umt.lh, umc.lay[0]);
+    umv_cell(0, 1)->key = (uint16_t)zodiac;             /* (a cell set while it loops: laid at once) */
+    umv_sync();
+    ok &= umx_place(umx_find(zodiac)) == 2u;
+    umv_cell(0, 1)->key = (uint16_t)sonar;
+    umv_sync();
+    press(B_ENV); frames(32);                           /* (SONAR laid again by its cell; ENV hides it) */
+    ok &= umx_place(umx_find(sonar)) == 2u && (umt.lh & 2u);
+    if (!ok) printf("  on env: edit %u lh %u\n", umc.lay[0], umt.lh);
+    chain.hold = 0;                                     /* (the song goes on, as tl_play: row 2's ZODIAC, as chosen: shown) */
+    sec_stage.ready = 0;
+    song_poll();
+    bar_play(); song_poll(); frame();
+    ok &= chain.row == 1u && umx_place(umx_find(zodiac)) == 2u && !(umt.lh & 2u) && umv_st.t0[1] != 0u;
+    if (!ok) printf("  on env: row 2 %u lh %u lay %u t0 %u own %u\n", chain.row, umt.lh, umc.lay[0], umv_st.t0[1], umv_own);
+    bad += check("(UMBRA LIVE) TIMELINE: OVER's IN ON ENV hidden at its row's start, ENV shows it; LOOP ROW's rounds lay nothing anew (fade, ENV, SEL kept)", ok);
+    seq_stop();
+    for (j = 0; j < 8u; j++) events_block(CTL);
+    song_poll();
+    press(B_HOME); frame();
+    memset(&umc, 0, sizeof umc);
+    umc_flash(&umc, sizeof umc, 1);
+    umx_vk = 0;
+    umt.lh = 0;
+    chain_defaults(&chain_config);
+    umb_plate = 0x80u;
+    ui_power_on();
+    return bad;
+}
+
 /* (UMBRA LIVE, the user 2026-11-14) SAVE > PROJECT > ARRANGE: PLAY starts the song from the row selected, not always the
  * first; the cursor on + ADD or END: the first. Run last: it plays a song, and the UMBRA tests before it start from what
  * the ones before them left (LIVE VIZ CTRLS' page) */
@@ -14714,6 +14863,7 @@ int main(void)
     bad += test_power_on_099();
     bad += test_engine_order_099();
     bad += test_timeline_fade_16();
+    bad += test_over_on_env_loop();
     bad += test_arrange_play_row();                     /* ((UMBRA LIVE) last: it plays a song) */
 
     if (getenv("UI_SCREEN_DIR")) chain_screens(getenv("UI_SCREEN_DIR"));

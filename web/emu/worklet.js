@@ -104,8 +104,8 @@ if (typeof registerProcessor === "function") {
         const genres = []; for (let i = 0; i < ex.web_gen_count(); i++) genres.push(str(ex.web_gen_name(i)));
         this.port.postMessage({ type: "umxinfo", pages, genres });
       } else if (m.type === "gen" && ex.web_gen) {                     // .. a song made and played (the generator's)
-        const lie = () => [ex.web_umb_get(99), ex.web_umb_get(80), ex.web_umb_get(83)];   // (the ground, LAYER 1, LAYER 3: 63 none)
-        const was = lie(), W = [1, 2, 4];
+        const lie = () => [ex.web_umb_get(99), ex.web_umb_get(80)];   // (the ground, OVER: 63 none)
+        const was = lie(), W = [1, 2];
         ex.web_gen(m.genre | 0, m.seed | 0, m.energy | 0, m.form | 0);
         for (let r = 0; r < ex.web_umb_get(70); r++)                  // (the plates GENE gave its song: its rows' taken out, what
           for (const tk of [0, 1]) ex.web_umb(94, (r << 24 | tk << 16 | 254) >>> 0);   //  it laid taken off, the page's own laid again)

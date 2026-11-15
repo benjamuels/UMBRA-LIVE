@@ -92,7 +92,7 @@ static uint32_t oct_leds(void)
         return umw_pg == UMW_NP - 1u ? OCT_BREATH_DN : OCT_BREATH;   /* (the last page: OCT- alone, which held takes it away) */
     if (UMB_ON && umk_on())                             /* (LIVE AUDIO / VIZ CTRLS: OCT+ adds a control, OCT- removes one;
                                                          * PLATES: neither) */
-        return ui.hset[0] == 3u ? 0u : 1u | OCT_BREATH;
+        return ui.hset[0] == HOME_PLATES ? 0u : 1u | OCT_BREATH;
     if (name_on() && !ui.confirm && !ui.menu)           /* NAME: OCT- cancels, OCT+ (breathing) writes */
         return 1u | OCT_BREATH;
     if (layer_set_open())                               /* a SET layer: OCT± do nothing (TONIC: no put back); */

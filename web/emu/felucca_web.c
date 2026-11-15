@@ -467,8 +467,8 @@ EXPORT void web_umb(uint32_t i, uint32_t v)            /* (UMBRA LIVE) 99: the g
                                                          * 0, 1, 3: its first, second and third element, 2 LIGHT; 10 + j: its
                                                          * element j; 20 + g: SCREEN's and EFFECTS' (ui_umbra.c G_*);
                                                          * 98: TOTALITY, no word at its foot (the projector, emu/?projector);
-                                                         * 97: page (v & 255) laid at v >> 8 (0 off, 1 the ground, 2 .. 4 LAYER
-                                                         * 1..3); 96: page v >> 16's element (v >> 8 & 255)'s tracks v & 255;
+                                                         * 97: page (v & 255) laid at v >> 8 (0 off, 1 the ground, 2 OVER);
+                                                         * 96: page v >> 16's element (v >> 8 & 255)'s tracks v & 255;
                                                          * 95: a link on page v >> 24's element (v >> 16 & 255): source
                                                          * v >> 8 & 255, depth (v & 255) - 128 */
 {
@@ -532,9 +532,10 @@ EXPORT uint32_t web_umb_get(uint32_t i)                /* (UMBRA LIVE) 99: the g
         return i == 70u ? chain_config.count : (uint32_t)(uint8_t)umx_rec(i == 71u ? UMX_SCREEN : UMX_FX)->ld[UMV_GL + (i == 73u)];
     if (i == 80u || i == 81u)                           /* (80: LAYER 1's page (63: none); 81: the ground's preset) */
         return i == 80u ? (umx_layers(), umx_lp[0]) : pl != UMB_NONE ? umx_pre(pl) : 0u;
-    if (i == 82u || i == 83u)                           /* (82: TOTALITY's hidden layers (bits: MAIN OVER LAYER 3), its buttons'
-                                                         * lights << 4 (SEL ENV ARP LFO EDIT); 83: LAYER 3's page) */
-        return i == 83u ? (umx_layers(), umx_lp[2]) : umt.lh | (uint32_t)umt_blit(0) << 4 | (uint32_t)umt_blit(1) << 5 |
+    if (i == 82u)                                       /* (82: TOTALITY's hidden layers (bits: MAIN OVER), its buttons' lights
+                                                         * << 4 (SEL ENV ARP LFO EDIT); 83, LAYER 3's page: none since
+                                                         * 2026-11-15) */
+        return umt.lh | (uint32_t)umt_blit(0) << 4 | (uint32_t)umt_blit(1) << 5 |
                (uint32_t)umt_blit(2) << 6 | (uint32_t)umt_blit(3) << 7 | (uint32_t)umt_blit(4) << 8;
     return i == 99u ? pl : i == 90u ? UMX_N : i >= 100u ? (uint32_t)umx_desc(i - 100u, &d) : i == 2u ? umg_raw(G_LIGHT)
            : i < 18u && pl != UMB_NONE ? umx_raw(pl, i >= 10u ? i - 10u : i == 3u ? 2u : i) : 0u;
