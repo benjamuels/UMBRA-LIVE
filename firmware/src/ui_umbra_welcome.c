@@ -56,22 +56,24 @@ static void umw_input(uint32_t oct)
     }
 }
 /* the pages, a line each (a '\n' ends one; an empty one a gap); "\001KEY\001" a key of the FM-1, framed as its button.
- * (2026-11-10, the user's words) a few large lines a page, every page set as the power-on title is: AF_M's capitals (it
- * has no lowercase), pale on the plate */
+ * (2026-11-10, the user's words) a few large lines a page, every page set as the power-on title is, pale on the plate;
+ * (2026-11-15, the user's words) in capitals and lowercase: AF_M's capitals, AF_W's lowercase (ui_font_w.h, AF_M's face,
+ * a..z only, in the Bluetooth segment) */
 /* ((UMBRA LIVE) on V10.7.6: in the Bluetooth segment, bt.c BTAPP_RO, as JIANT's own ABOUT texts: the app slot is
  * full; read once it is this build's, bt_hw_seg) the pages one after the other, each ended by its '\0' */
+#include "ui_font_w.h"                                 /* AF_W: WELCOME's lowercase */
 static const char UMW_TX[] BTAPP_RO =
-    "W E L C O M E"
+    "Welcome to\nUmbra Live"
     "\0"
-    "THIS IS JIANT WITH A\nLIVE VISUALS SYSTEM"
+    "A fork of JIANT FM\npreserving its audio\nwhile adding visuals"
     "\0"
-    "ENTER/EXIT TOTALITY\n(FULLSCREEN MODE)\nBY TAPPING \001HOME\001"
+    "Enter/exit TOTALITY\n(fullscreen mode)\nby tapping \001HOME\001"
     "\0"
-    "EDIT CONTROLS FOR\nTOTALITY IN UMBRA\n\nSCROLL WITH SELECT KNOB"
+    "Edit TOTALITY's live\ncontrols in UMBRA\n\nScroll with SELECT knob"
     "\0"
-    "MORE INFO IN\nSETTINGS MENU\nLONG PRESS HOME"
+    "More info in\nsettings menu\nlong press HOME"
     "\0"
-    "FINISH WELCOME BY\nLONG PRESSING \001OCT -\001";
+    "Finish WELCOME by\nlong pressing \001OCT -\001";
 BTAPP_FN static const char *umw_page(uint32_t n)   /* the n-th page */
 {
     const char *s = UMW_TX;
@@ -92,20 +94,22 @@ BTAPP_FN static int32_t umw_run(int32_t x, int32_t y, const char *s, uint32_t n,
     uint32_t i = 0, key = 0;
     while (i < n) {
         uint32_t j = 0;
-        while (i < n && s[i] != '\001' && j < sizeof b - 1u)
+        int lc = big && s[i] >= 'a' && s[i] <= 'z';     /* (a run of lowercase: AF_W, AF_M's own lowercase) */
+        const aafont_t *g = lc ? &AF_W : f;
+        while (i < n && s[i] != '\001' && j < sizeof b - 1u && (!big || (s[i] >= 'a' && s[i] <= 'z') == lc))
             b[j++] = s[i++];
         b[j] = 0;
         if (j) {
-            int32_t sw = text_w(f, b) + (key ? 8 : 0);
+            int32_t sw = text_w(g, b) + (key ? 8 : 0);
             if (draw && key) {                          /* (a key: the button, its name in it, no outline: on its own */
                 uint8_t ha = cv_halo;                   /* ground) */
                 cv_rect(x + w - 1, y - 4, sw + 2, caph + 10, T_BG);
                 cv_frame(x + w, y - 3, sw, caph + 8, ink);
                 cv_halo = 0;
-                cv_text(x + w + 4, y - capy, f, b, ink);
+                cv_text(x + w + 4, y - capy, g, b, ink);
                 cv_halo = ha;
             } else if (draw)
-                cv_text(x + w, y - capy, f, b, ink);
+                cv_text(x + w, y - capy, g, b, ink);
             w += sw;
         }
         if (i < n && s[i] == '\001') {

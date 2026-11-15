@@ -108,7 +108,7 @@ static PL_SMALL void plq_pose(plq_t *m, const umb_api_t *a, uint32_t d, int32_t 
     plq_seg(a, j[PLQ_REL], j[PLQ_RSH], 28 * S, c[4] - c[0]);
     plq_seg(a, j[PLQ_RHA], j[PLQ_REL], 30 * S, c[4] + c[5] - c[0]);
     /* (the lower foot on the floor; a rise onto the toes, a hop above it) */
-    base = F - (j[PLQ_LFT][1] > j[PLQ_RFT][1] ? j[PLQ_LFT][1] : j[PLQ_RFT][1]) + c[10] * S / 256 + (m->hy[d] >> 8) * S / 256;
+    base = F - (j[PLQ_LFT][1] > j[PLQ_RFT][1] ? j[PLQ_LFT][1] : j[PLQ_RFT][1]) + (c[10] * S >> 8) + ((m->hy[d] >> 8) * S >> 8);
     for (k = 0; k < PLQ_NJ; k++) {
         m->p[d][k][0] = (int16_t)((X + ((j[k][0] >> 3) * (cs >> 3) >> 9)) >> 4);
         m->p[d][k][1] = (int16_t)((base + j[k][1]) >> 4);
@@ -165,7 +165,7 @@ static PL_SMALL void plq_note(void *st, const umb_lctx_t *cx, const umb_api_t *a
     m->lit[d][1 + s] = (uint8_t)(v > m->lit[d][1 + s] ? v : m->lit[d][1 + s]);
     h = pl_drive(cx, 3u, nt, nt->drum && nt->lane == 0u);   /* (LEAP: a kit's kick, unless chosen otherwise) */
     if (h && m->hy[d] > -2 * 65536)
-        m->hv[d] = -16450 * h / 255;                    /* (full: 22 px up and down in 0.35 s) */
+        m->hv[d] = -(16515 * h >> 8);                    /* (full: 22 px up and down in 0.35 s) */
     if (pl_drive(cx, 6u, nt, !nt->drum))                /* (IMPROV: the note's pitch picks the next pose) */
         m->pend[d] = (uint8_t)(1 + (pl_pk(nt->note) * 11 >> 8));
 }
@@ -174,7 +174,7 @@ static PL_SMALL void plq_step(plq_t *m, const umb_lctx_t *cx, uint32_t d, uint32
 {
     uint32_t h = pl_hash(si * 3u + d), q = PLQ_PH[(si >> 3) & 3u][si & 7u], k;
     m->si[d] = si;
-    if (m->pend[d] && h % 100u < cx->k[6] + 1u)
+    if (m->pend[d] && ((h & 0xFFFFu) * 100u >> 16) < cx->k[6] + 1u)
         q = PLQ_PITCH[pl_clamp(m->pend[d] - 1, 0, 10)];
     m->pend[d] = 0;
     if (q == m->pose[d])
@@ -182,27 +182,27 @@ static PL_SMALL void plq_step(plq_t *m, const umb_lctx_t *cx, uint32_t d, uint32
     for (k = 0; k < PLQ_NA; k++)
         m->from[d][k] = m->cur[d][k];
     m->tr0[d] = m->turn[d];
-    m->amt[d] = (uint8_t)(q == 6u ? (cx->k[4] >= 10u) + (cx->k[4] >= 70u) : (h >> 8) % 300u < cx->k[4]);
+    m->amt[d] = (uint8_t)(q == 6u ? (cx->k[4] >= 10u) + (cx->k[4] >= 70u) : ((h >> 8 & 0xFFFFu) * 300u >> 16) < cx->k[4]);
     m->pose[d] = (uint8_t)q;
 }
 static PL_SMALL void plq_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 {
     plq_t *m = st;
-    uint32_t d, k, n = 1u + cx->k[0] * 3u / 100u, sh = cx->k[1] < 33u ? 2u : cx->k[1] < 66u ? 1u : 0u, sb = 1u << sh;
-    int32_t w = 8192 + cx->k[2] * 24576 / 99, F = (cx->bare ? 198 : 206) * 256,
-            fp = pl_clamp((int32_t)cx->dt * 65536 / 900, 0, 65536), fs = (int32_t)cx->dt * 65536 / 700, dt = (int32_t)cx->dt;
+    uint32_t d, k, n = 1u + (cx->k[0] * 31u >> 10), sh = cx->k[1] < 33u ? 2u : cx->k[1] < 66u ? 1u : 0u, sb = 1u << sh;
+    int32_t w = 8192 + cx->k[2] * 248, F = (cx->bare ? 198 : 206) * 256,
+            fp = pl_clamp((int32_t)cx->dt * 73, 0, 65536), fs = (int32_t)cx->dt * 94, dt = (int32_t)cx->dt;
     if (cx->beat > m->lb + 40u) {                       /* (a beat: the tempo learnt slowly, the dance nudged toward it) */
         uint32_t gap = cx->now - m->on, nb = (m->bp + 0x8000u) & 0xFFFF0000u;
         if (gap >= 200u && gap <= 2000u)
-            m->per = (uint32_t)((int32_t)m->per + ((int32_t)gap - (int32_t)m->per) / 4);
+            m->per = (uint32_t)((int32_t)m->per + (((int32_t)gap - (int32_t)m->per) >> 2));
         m->on = cx->now;
-        m->bp += (uint32_t)((int32_t)(nb - m->bp) / 4);
+        m->bp += (uint32_t)((int32_t)(nb - m->bp) >> 2);
     }
     m->lb = cx->beat;
     m->bp += cx->dt * 65536u / m->per;
     m->n = (uint8_t)n;
     for (d = 0; d < PLQ_ND; d++) {
-        uint32_t pos = m->bp - d * (cx->k[7] * (sb << 16) / 99u), si = pos >> (16u + sh);
+        uint32_t pos = m->bp - d * (cx->k[7] * 662u * sb), si = pos >> (16u + sh);
         int32_t f, tf, e, X = (PLQ_X[n - 1u][d] + (cx->mo[d][0] * 6 >> 8)) * 256;
         /* (where it stands, how large, there or not: gliding) */
         if (!m->ok)
@@ -233,7 +233,7 @@ static PL_SMALL void plq_frame(void *st, const umb_lctx_t *cx, const umb_api_t *
             m->lit[d][k] = (uint8_t)pl_dec(m->lit[d][k], fs);
         plq_pose(m, a, d, F);
         if (d != 1u) {                                  /* (the skirt's threads: springs, the hem softer, so it trails) */
-            int32_t ns = (dt + 15) >> 4, h = dt / (ns ? ns : 1), i, q, x, it;
+            int32_t ns = (dt + 8) >> 4, h = 16, i, q, x, it;   /* (16 ms steps, the nearest count) */
             for (it = 0; it < ns; it++)
                 for (i = 0; i < PLQ_NK; i++)
                     for (q = 0; q < 2; q++)
@@ -249,9 +249,9 @@ static PL_SMALL void plq_frame(void *st, const umb_lctx_t *cx, const umb_api_t *
                         }
         }
     }
-    if (cx->now - m->rms >= 8u + cx->k[5] * 32u / 99u) {   /* (the ribbons: the hands' path, a point every 8 .. 40 ms) */
+    if (cx->now - m->rms >= 8u + (cx->k[5] * 331u >> 10)) {   /* (the ribbons: the hands' path, a point every 8 .. 40 ms) */
         m->rms = cx->now;
-        m->rw = (uint8_t)((m->rw + 1u) % PLQ_NR);
+        m->rw = (uint8_t)(m->rw + 1u < PLQ_NR ? m->rw + 1u : 0u);
         for (d = 0; d < PLQ_ND; d++)
             for (k = 0; k < 2u; k++) {
                 m->rib[d][k][m->rw][0] = m->p[d][PLQ_LHA + k][0];
@@ -266,7 +266,7 @@ static PL_SMALL void plq_frame(void *st, const umb_lctx_t *cx, const umb_api_t *
  * the two: an arm across the body shows as its outline); mirrored, faint, below the floor */
 static __attribute__((noinline)) void plq_fill(plq_t *m, const umb_strip_t *S, uint32_t d, int32_t Fy, int32_t al, const uint8_t *col)
 {
-    int32_t y, x, i, xa = 240, xb = -1, ya = 999, yb = -999, rim = 210 + m->lit[d][0] / 6, fill = 72 + m->lit[d][0] / 4;
+    int32_t y, x, i, xa = 240, xb = -1, ya = 999, yb = -999, rim = 210 + (m->lit[d][0] * 43 >> 8), fill = 72 + (m->lit[d][0] >> 2);
     for (i = 0; i < PLQ_NC; i++) {
         const plq_cap_t *q = &m->c[d][i];
         if (q->y0 > q->y1)
@@ -279,7 +279,7 @@ static __attribute__((noinline)) void plq_fill(plq_t *m, const umb_strip_t *S, u
         int32_t yy = y, g = al, p4;
         if (y >= Fy) {                                  /* (the floor's reflection: faint, gone 36 px down) */
             yy = 2 * Fy - 1 - y;
-            g = al * (36 - (y - Fy)) / 160;
+            g = al * (36 - (y - Fy)) * 205 >> 15;
             if (g <= 0)
                 continue;
         }
@@ -298,11 +298,8 @@ static __attribute__((noinline)) void plq_fill(plq_t *m, const umb_strip_t *S, u
             for (x = x0; x <= x1; x++) {
                 int32_t ux = x * 16 + 8 - q->ax, t = ux * q->dx + uy * q->dy, fq, ex, ey, d2, r, v;
                 fq = !q->inv || t <= 0 ? 0 : ((t >> 6) * q->inv) >> 12;
-                if (fq > 4096) {
-                    if (i == PLQ_NB - 1)                /* (the skirt's hem: cut straight) */
-                        continue;
+                if (fq > 4096)
                     fq = 4096;
-                }
                 ex = ux - (q->dx * fq >> 12), ey = uy - (q->dy * fq >> 12);
                 d2 = ex * ex + ey * ey;
                 r = q->r0 + ((q->r1 - q->r0) * fq >> 12);
@@ -328,7 +325,7 @@ static PL_SMALL void plq_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a
 {
     plq_t *m = st;
     uint32_t d, s, i;
-    int32_t Fy = cx->bare ? 198 : 206, A = cx->k[5];
+    int32_t k, Fy = cx->bare ? 198 : 206, A = cx->k[5];
     pl_clear(S);
     for (d = 0; d < PLQ_ND; d++) {
         int32_t al = m->fa[d] >> 8;
@@ -340,11 +337,11 @@ static PL_SMALL void plq_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a
             int32_t px = m->p[d][PLQ_LHA + s][0], py = m->p[d][PLQ_LHA + s][1],
                     b = pl_clamp(90 + A + m->lit[d][1 + s] / 2, 0, 255) * al >> 8;
             for (i = 0; i + 1u < m->rn; i++) {
-                const int16_t *q = m->rib[d][s][(m->rw + PLQ_NR - i) % PLQ_NR];
-                int32_t I = (int32_t)i + 1, wv = (pl_sine(a, cx->now * 0x400000u + (uint32_t)I * 0x14000000u) >> 9) * I / PLQ_NR,
-                        qx = q[0] + wv, qy = q[1] + (I * I * 7 >> 4), bb = b * (PLQ_NR - I) / PLQ_NR;
-                pl_line(S, px * 16, py * 16, qx * 16, qy * 16, bb, rc);
-                pl_line(S, px * 16 + 128, py * 16 + 256, qx * 16 + 128, qy * 16 + 256, bb >> 1, rc);
+                const int16_t *q = m->rib[d][s][m->rw >= i ? m->rw - i : m->rw + PLQ_NR - i];
+                int32_t I = (int32_t)i + 1, wv = (pl_sine(a, cx->now * 0x400000u + (uint32_t)I * 0x14000000u) >> 9) * I * 683 >> 14,
+                        qx = q[0] + wv, qy = q[1] + (I * I * 7 >> 4), bb = b * (PLQ_NR - I) * 683 >> 14;
+                for (k = 0; k < 2; k++)                 /* (and again, fainter, half a px over: a ribbon's width) */
+                    pl_line(S, px * 16 + k * 128, py * 16 + k * 256, qx * 16 + k * 128, qy * 16 + k * 256, bb >> k, rc);
                 px = qx, py = qy;
             }
         }

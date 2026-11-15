@@ -103,6 +103,10 @@ def generate():
     tools = SRC / "tools"
     cmds = [[tools / "gen_aa_font.py", GEN / "ui_fonts.h", "--preset", "jiant-lab", "--kern-min", "4"],   # (snd7: pairs under 1/4 px dropped)   # (gen_aa_font.UI_PRESET),
             [tools / "gen_px_font.py", GEN / "ui_font_x.h"],
+            # (UMBRA LIVE, 2026-11-15) WELCOME's lowercase: AF_M's face, a..z only, in the Bluetooth segment (the app slot is
+            # full; the rest of the UI keeps its capitals, gfx.c fold)
+            [tools / "gen_aa_font.py", GEN / "ui_font_w.h", "--face", f"W={SRC / 'assets' / 'fonts' / 'InterTight[wght].ttf'}@600:15:97-122",
+             "--kern-min", "4", "--huff", "W", "--attr", "BTAPP_RO"],
             [tools / "gen_about.py", GEN / "about_notices.h", FW / "src" / "ui_menu.c"],
             [tools / "gen_aa_icons.py", GEN / "ui_icons.h"],
             [tools / "gen_aa_keycaps.py", GEN / "ui_keycaps.h"],

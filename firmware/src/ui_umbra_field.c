@@ -481,7 +481,7 @@ static void umb_welcome(uint32_t ms)
             a = umw_in(t, 2150, 650);
             cv_text_in(0, 60 - (a * 6 >> 8), 240, &AF_M, "U M B R A   L I V E", swap16(ump_lut[1][(((a * 215) >> 8) * g) >> 8]), 0);
             a = umw_in(t, 2550, 650);
-            cv_text_in(0, 100, 240, &AF_X, "live visuals system built on Jiant", ux_gray((uint32_t)((((a * 150) >> 8) * g) >> 11)), 0);
+            cv_text_in(0, 100, 240, &AF_X, "a pocket AV machine", ux_gray((uint32_t)((((a * 150) >> 8) * g) >> 11)), 0);
         }
         cv_blit(0, (uint32_t)y);
     }

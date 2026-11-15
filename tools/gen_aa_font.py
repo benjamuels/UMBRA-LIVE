@@ -29,6 +29,7 @@ Output (a C header; the glyph / font types live in the renderer, firmware/src/gf
 Prints the byte cost of every face.
 """
 import argparse
+import re
 import heapq
 import os
 import sys
@@ -261,7 +262,7 @@ def emit(face, tracking, gamma, kern_min):
         lines.append(f"#define AF_{name}_CAP_H {cap[5]}")
     cost = {"data": len(data) + len(hc), "glyph_table": gsize, "kern": len(kp) + 2 * len(ki), "extras": len(extras),
             "glyphs": len(chars), "phases": phases, "pairs": len(keys), "h": r["h"], "asc": r["asc"], "px": px,
-            "font": os.path.basename(font.split("#")[0]), "adv_digit": r["glyphs"]["0"][0] / 16}
+            "font": os.path.basename(font.split("#")[0]), "adv_digit": r["glyphs"]["0"][0] / 16 if "0" in r["glyphs"] else 0}
     cost["total"] = cost["data"] + cost["glyph_table"] + cost["kern"] + cost["extras"]
     return "\n".join(lines) + "\n", cost
 
@@ -275,6 +276,7 @@ def main():
     ap.add_argument("--gamma", type=float, default=1.0, help="coverage curve; <1 thickens light-on-dark text")
     ap.add_argument("--kern-min", type=int, default=1, help="smallest kerning pair kept, in 1/16 px (0 pairs = no kerning)")
     ap.add_argument("--huff", default=",".join(HUFF[0]), help="faces stored Huffman-coded (comma list, '' = none)")
+    ap.add_argument("--attr", default="", help="a macro put on every table (UMBRA LIVE: BTAPP_RO, the Bluetooth segment)")
     a = ap.parse_args()
     HUFF[0] = tuple(x for x in a.huff.split(",") if x)
     faces = ([parse_face(s) for s in a.face] if a.face else []) or (preset(a.preset) if a.preset else None)
@@ -291,7 +293,10 @@ def main():
         print(f"face {f[0]}: {c['font']} {c['px']}px h{c['h']} base{c['asc']}  {c['glyphs']} glyphs x {c['phases']}  "
               f"data {c['data']} B + table {c['glyph_table']} B + kern {c['kern']} B ({c['pairs']} pairs) "
               f"= {c['total']} B   digit adv {c['adv_digit']:.2f}px")
-    Path(a.out).write_text("\n".join(out))
+    text = "\n".join(out)
+    if a.attr:                                         # (UMBRA LIVE) every table in a section of its own
+        text = re.sub(r"^(static const [^=\n]*?) = ", lambda m: f"{m.group(1)} {a.attr} = ", text, flags=re.M)
+    Path(a.out).write_text(text)
     print(f"fonts total {total} B  -> {a.out}")
 
 
