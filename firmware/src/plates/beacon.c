@@ -3,16 +3,15 @@
 /* BEACON, a plate module (umb_plate.h): the lighthouse of UMBRA OBSCURA, the game, in its line art. A tower on its rock,
  * six windows up it, the lamp room under its roof; the lamp turns all the way round, and its beam (a fan of rays) reaches
  * out to one side, swings toward you (wider and brighter, the lamp flaring into a burst as it faces you), out to the other
- * side, and round behind the tower (narrow and dim, the lamp room hiding its root). Over the whole sky, top to bottom,
- * sixteen constellations of the sky's own (the kit's and the tracks' shapes) rest faint and light in turn: each its stars
- * one by one, then the lines between them, then out; where in its round each stands follows a wave whose way across the
- * sky turns slowly, mixed with a dice of its own that grows and shrinks, so the pattern keeps changing and never all are
- * lit at once (the beat and the level push it on). Line art only: its light is added to the strip, so it
- * lies on a layer as well as it stands alone (REPLACE: black under it).
+ * side, and round behind the tower (narrow and dim, the lamp room hiding its root). Over the sky (the user, 2026-11-15:
+ * no more the constellations' shapes and lines) stars strewn as stars are, denser along a band that rises across it and
+ * thinner away from it, none over the tower: most faint, a few bright with four short rays, white, warm or cool, each
+ * twinkling slowly at a pace of its own (the beat and the level quicken it). Line art only: its light is added to the
+ * strip, so it lies on a layer as well as it stands alone (REPLACE: black under it).
  * Elements: TURN (how fast the lamp turns: 0 still), FADE (how long a window or a star stays lit);
- *   STARS   (the user, 2026-11-13) a note puts its instrument's constellation in the sky, high or low and left or right
- *           by its pitch: held, its stars come out one by one, then the lines between them; let go, it fades. Each track
- *           its own shape, a drum's lane its own, the whole of it at once (at first: every note)
+ *   STARS   (the user, 2026-11-13, 2026-11-15) a note lights a scatter of stars in its track's colour, high or low and
+ *           left or right by its pitch: held, they come out one by one; let go, they fade. Each track its own scatter, a
+ *           drum's lane its own, the whole of it at once (at first: every note)
  *   BEAM    the beam flares (at first: the kick)
  *   WINDOW  a track's window lights in its colour, track 1's the lowest (at first: every note that is no drum)
  *   LAMP    the lamp flashes, a star (at first: the rest of the kit)
@@ -38,22 +37,16 @@ typedef struct {
 static const uint8_t PLB_RAY[3] = {200, 240, 236};
 static const uint8_t PLB_RAIN[3] = {110, 150, 210};    /* (NEW) the rain's grey-blue */
 #define PLB_ST 170                                      /* a star comes out every 170 ms a note is held */
-/* the shapes, five stars each (px from the note's place): a track's 0 .. 5, the kit's lanes 6 .. 13 by lane */
-static const int8_t PLB_PAT[14][5][2] = {
-    {{-14, 4}, {-7, -2}, {0, 0}, {7, -2}, {14, 4}},     /* a bow */
-    {{-10, 8}, {0, -10}, {10, 8}, {-10, 8}, {0, 2}},    /* a triangle, its heart */
-    {{-16, -4}, {-8, 6}, {0, -4}, {8, 6}, {16, -4}},    /* a W */
-    {{0, -12}, {0, 0}, {0, 12}, {-10, 0}, {10, 0}},     /* a cross */
-    {{-14, -6}, {-6, -8}, {2, -4}, {8, 4}, {16, 2}},    /* a dipper */
-    {{0, -11}, {10, -3}, {6, 9}, {-6, 9}, {-10, -3}},   /* a ring */
-    {{-12, 6}, {-4, 2}, {4, 2}, {12, 6}, {0, -8}},      /* KICK: an arch and its keystone */
-    {{-8, -8}, {8, 8}, {0, 0}, {-8, 8}, {8, -8}},       /* SNARE: an X */
-    {{-6, 0}, {6, 0}, {-3, -6}, {3, -6}, {0, 6}},       /* CLAP */
-    {{0, -6}, {4, 0}, {0, 6}, {-4, 0}, {0, -6}},        /* HAT: a diamond */
-    {{-12, 0}, {-6, 0}, {0, 0}, {6, 0}, {12, 0}},       /* OPEN HAT: a belt */
-    {{-9, 5}, {-3, -5}, {3, 5}, {9, -5}, {15, 5}},      /* TOM: a zigzag */
-    {{-3, -3}, {3, 3}, {-3, 3}, {3, -3}, {0, 0}},       /* RIM: a knot */
-    {{0, -9}, {3, -3}, {9, 0}, {3, 3}, {0, 9}}};        /* BELL: a sickle */
+#define PLB_NF 84                                       /* the sky's own stars (some fall on the tower or off the sky: fewer) */
+static const uint8_t PLB_SC[3][3] = {{236, 240, 255}, {255, 232, 196}, {196, 214, 255}};   /* a star's light: white, warm, cool */
+static uint32_t plb_mix(uint32_t x)                     /* a dice from a number, well stirred (pl_hash's lie in lines) */
+{
+    x ^= x >> 16;
+    x *= 0x7FEB352Du;
+    x ^= x >> 15;
+    x *= 0x846CA68Bu;
+    return x ^ x >> 16;
+}
 
 PL_SMALL static void plb_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 {
@@ -117,44 +110,42 @@ static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     int32_t tw = 96 * cx->k[6] / 50, sea = cx->k[7], c = pl_sine(a, m->ang + 0x40000000u), ac = pl_abs(c), dir = c < 0 ? -1 : 1,
             L = (168 * ac) >> 15, fw = pl_sine(a, m->ang) >> 7, j, i, X = PLB_X * 256, y;
     pl_clear(S);
-    /* the sky's constellations: 4 x 4 (none over the tower), each in its round of 5.2 s (its stars out 0.2 s apart, the
-     * lines at 1 s, out from 2 s to 2.6 s, then resting faint); where in it each stands: the wave (its way turning once in
-     * 80 s) and its dice (as much as 0.4 .. 0.9 of a round, in 50 s) */
-    for (i = 0; i < 16; i++) {
-        uint32_t h = pl_hash((uint32_t)i + 31u);
-        int32_t cx0 = ((int32_t[]){26, 70, 170, 214})[i & 3] + (int32_t)(h >> 28) - 8,
-                cy0 = PL_TOP(cx) + 18 + (i >> 2) * (166 - PL_TOP(cx)) / 3 + (int32_t)(h >> 24 & 15u) - 8,
-                w = (pl_sine(a, cx->now * 53687u) * (cy0 - 110) + pl_sine(a, cx->now * 53687u + 0x40000000u) * (cx0 - 120)) >> 15,
-                u = (int32_t)((m->sk + (uint32_t)(w * 5200 / 220 + 15600) + (h >> 8 & 255u) * (uint32_t)(166 + (pl_sine(a, cx->now * 85899u) >> 9)) * 5200u / 65536u) % 5200u),
-                fl = (h & 1u) ? -320 : 320, px = 0, py = 0, o = u < 2000 ? 256 : u < 2600 ? (2600 - u) * 256 / 600 : 0;
-        const int8_t (*pt)[2] = PLB_PAT[(i * 5 + (int32_t)(h >> 20)) % 14];
-        for (j = 0; j < 5; j++) {
-            int32_t tx = cx0 * 256 + pt[j][0] * fl, ty = cy0 * 256 + pt[j][1] * 320,
-                    e = 22 + ((u >= j * 200 ? o : 0) * (200 + (pl_sine(a, cx->now * 90000u + h * (uint32_t)(j + 1)) >> 9)) >> 8);
-            if (j && u >= 1000)
-                pl_line(S, px, py, tx, ty, (o * pl_clamp(u - 1000, 0, 400) / 400) >> 1, PL_INK);
-            pl_glint(S, tx, ty, e > 255 ? 255 : e, PL_WT);
-            px = tx, py = ty;
-        }
+    /* the sky's own stars (the user, 2026-11-15: elegant, strewn as stars are): half of them along a band rising from the
+     * lower left to the upper right (a triangle's spread either side, so they thicken toward its middle), half anywhere in
+     * the sky; none over the tower and its lamp room. Each one's brightness its dice cubed (most faint, a few bright: those
+     * with four short rays), its light white, warm or cool, twinkling a quarter at most, slowly (2.4 .. 4.8 s) on the
+     * sky's clock (the beat and the level quicken it) */
+    for (i = 0; i < PLB_NF; i++) {
+        uint32_t h = plb_mix((uint32_t)i * 2u + 977u), g = plb_mix(h ^ 0x9E3779B9u), q = h >> 24;
+        int32_t x = (int32_t)(h % 236u) + 2, top = PL_TOP(cx) + 4, y,
+                b = 16 + (int32_t)(((q * q >> 8) * q >> 8) * 216u >> 8), e;
+        if (i & 1)
+            y = top + (int32_t)(g % (uint32_t)(196 - top));
+        else
+            y = 150 - x * 100 / 240 + ((int32_t)(g & 63u) + (int32_t)(g >> 6 & 63u) - 63) * 26 / 63;
+        if (y < top || y > 196 || (pl_abs(x - PLB_X) < 30 && y > PLB_TY - 52))
+            continue;
+        e = b * (224 + (pl_sine(a, m->sk * (900000u + (g >> 22) * 880u) + g) >> 10)) >> 8;
+        pl_glint(S, x * 256, y * 256, e, PLB_SC[g >> 30 == 3u ? 0u : g >> 30]);
+        if (b > 150)
+            pl_star(S, x * 256, y * 256, (b > 200 ? 3 : 2) * 256, e >> 2, PLB_SC[g >> 30 == 3u ? 0u : g >> 30]);
     }
-    /* the stars: each constellation as far out as its note has been held, the lines once all five are */
+    /* the notes' stars: each a scatter of five round its note's place, its own for each track or lane (pat), as far out as
+     * its note has been held, the first white, the rest its track's colour, twinkling */
     for (i = 0; i < PLB_NS; i++) {
         const plb_s_t *q = &m->sky[i];
         const uint8_t *tc = a->colour[(q->tr * 3u) % 8u];
         int32_t sx = (24 + (q->note % 12) * 16 + (q->note / 12 % 2) * 8) * 256, sy = (22 + (q->note / 24 % 3) * 18) * 256;
-        int32_t px = 0, py = 0;
         for (j = 0; q->lit && j < 5; j++) {
-            int32_t e = pl_clamp((q->held - j * PLB_ST) * 256 / PLB_ST + (j ? 0 : 256), 0, 256) * q->lit >> 8,
-                    ln = pl_clamp((q->held - 5 * PLB_ST) * 256 / 400, 0, 256) * q->lit >> 9,
-                    tx = sx + PLB_PAT[q->pat][j][0] * 384, ty = sy + PLB_PAT[q->pat][j][1] * 384;
+            uint32_t h = plb_mix((uint32_t)q->pat * 8u + (uint32_t)j + 501u);
+            int32_t r = j ? (5 + (int32_t)(h >> 28)) * 320 : 0,
+                    e = pl_clamp((q->held - j * PLB_ST) * 256 / PLB_ST + (j ? 0 : 256), 0, 256) * q->lit >> 8,
+                    tx = sx + pl_pol(a, r, h + 0x40000000u), ty = sy + pl_pol(a, r * 3 / 4, h);
             e = e * (420 + (pl_sine(a, cx->now * 60000u + (uint32_t)(i * 5 + j) * 0x2F000000u) >> 9)) >> 8;   /* (twinkling) */
-            if (j && ln)
-                pl_line(S, px, py, tx, ty, ln, tc);
             if (e)
                 pl_glint(S, tx, ty, e > 255 ? 255 : e, j ? tc : PL_WT);
             if (e > 96)
-                pl_star(S, tx, ty, (j ? 2 : 4) * 256, e > 255 ? 127 : e >> 1, j ? tc : PL_WT);
-            px = tx, py = ty;
+                pl_star(S, tx, ty, (j ? 2 : 3) * 256, e > 255 ? 127 : e >> 1, j ? tc : PL_WT);
         }
     }
     /* the sea: the horizon behind the tower, dashes under it that shimmer (more with the level) */
