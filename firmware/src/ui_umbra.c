@@ -296,7 +296,7 @@ static uint8_t ups_gen;                                 /* the bank changed (umb
 #include "plates/pachinko.c"
 #include "plates/fluid.inc"                           /* the fluid grounds and the two veils made for them */
 #if UMB_RES_ALL                                         /* (the plates page's player, web/emu/build.sh plates.wasm: every
-                                                         * plate there is, the eleven no install brings after the sixteen) */
+                                                         * plate there is, the twelve no install brings after the sixteen) */
 #include "plates/saros.c"
 #include "plates/filament.c"
 #include "plates/wax.c"
@@ -308,8 +308,10 @@ static uint8_t ups_gen;                                 /* the bank changed (umb
 #include "plates/ridge.c"
 #include "plates/quill.c"
 #include "plates/murmur.c"
+#include "plates/troupe.c"
 #define UMB_RES_MORE , &umb_plate_saros, &umb_plate_filament, &umb_plate_wax, &umb_plate_rivulet, &umb_plate_blot, \
-                     &umb_plate_boats, &umb_plate_fizz, &umb_plate_bokeh, &umb_plate_ridge, &umb_plate_quill, &umb_plate_murmur
+                     &umb_plate_boats, &umb_plate_fizz, &umb_plate_bokeh, &umb_plate_ridge, &umb_plate_quill, &umb_plate_murmur, \
+                     &umb_plate_troupe
 #else
 #define UMB_RES_MORE
 #endif

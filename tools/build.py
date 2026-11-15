@@ -603,10 +603,12 @@ PLATES = [("cinder", "cinder", []), ("granule", "granule", []), ("tarn", "tarn",
           ("rapids", "rapids", []),
           ("beacon", "beacon", []), ("zodiac", "zodiac", []), ("sonar", "sonar", []), ("moths", "moths", []),
           ("marsh", "marsh", []), ("pachinko", "pachinko", []), ("koi", "koi", []), ("medusa", "medusa", []),
-          # (the plates page's browser, 2026-11-13) the eleven no install brings: plate files to pick from, in no bank
+          # (the plates page's browser, 2026-11-13) the twelve no install brings: plate files to pick from, in no bank
           ("saros", "saros", []), ("filament", "filament", []), ("wax", "wax", []), ("rivulet", "rivulet", []),
           ("blot", "blot", []), ("boats", "boats", []), ("fizz", "fizz", []), ("bokeh", "bokeh", []),
           ("ridge", "ridge", []), ("quill", "quill", []), ("murmur", "murmur", []),
+          # (2026-11-14) dancers in silhouette (ribbons, skirts, turns): a veil, a plate file in no bank yet
+          ("troupe", "troupe", []),
           ("filament-ember", "filament", ["-DPLF_REST_RGB=150,70,26", '-DPLF_NAME="FIL EMBER"'])]
 
 

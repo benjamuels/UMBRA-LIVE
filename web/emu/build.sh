@@ -20,7 +20,7 @@ emcc ${EMU_OPT:--O2} -ffp-contract=off -std=gnu99 -w ${EMU_CFLAGS:-} \
     --no-entry -sSTANDALONE_WASM -sSTACK_SIZE=1048576 -sINITIAL_MEMORY=33554432 -sFILESYSTEM=0 \
     -o build/emu/felucca.wasm web/emu/felucca_web.c
 # (UMBRA LIVE) the plates page's player (web/plates.html): the same firmware with every plate there is built in, the
-# eleven no install brings too (ui_umbra.c UMB_RES_ALL), in a bank wide enough for them
+# twelve no install brings too (ui_umbra.c UMB_RES_ALL), in a bank wide enough for them
 mkdir -p build/player
 # shellcheck disable=SC2086
 emcc ${EMU_OPT:--O2} -ffp-contract=off -std=gnu99 -w ${EMU_CFLAGS:-} \

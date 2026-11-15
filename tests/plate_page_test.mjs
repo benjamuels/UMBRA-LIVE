@@ -43,8 +43,8 @@ const check = (ok, what) => { console.log(`plate page: ${what.padEnd(72)} ${ok ?
 const E = '- - - - - - - - - - - - - - - -';
 ctx.__bytes = bytes;
 await run('library([])');
-check(run('LIB.size') === 28 && run('LIB.get("CORONA").builtin') && run('LIB.get("KOI").kind') === 'v' && run('LIB.get("WAX").ctl[0].what.length') > 5,
-      `the library with no files: 28 plates known, their kinds and controls from the page`);
+check(run('LIB.size') === 29 && run('LIB.get("CORONA").builtin') && run('LIB.get("KOI").kind') === 'v' && run('LIB.get("WAX").ctl[0].what.length') > 5,
+      `the library with no files: 29 plates known, their kinds and controls from the page`);
 ctx.navigator.requestMIDIAccess = access(['IAC Driver Bus 1', 'Launchkey MK3']);
 await run('connect()');
 check(st().bad && /IAC Driver Bus 1, Launchkey MK3/.test(st().text), `connect, no FM-1: says which ports it sees`);

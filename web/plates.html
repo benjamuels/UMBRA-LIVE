@@ -199,7 +199,7 @@ const META = {
   KOI: { k: "v", t: ["sea"] }, MARSH: { k: "v", t: ["light", "sea"] }, MEDUSA: { k: "v", t: ["sea"] }, MOTHS: { k: "v", t: ["light"] },
   MURMUR: { k: "v", t: [] }, PACHINKO: { k: "v", t: ["space"] }, QUILL: { k: "v", t: [] }, RAPIDS: { k: "g", t: ["sea"] },
   RIDGE: { k: "v", t: ["space"] }, RIVULET: { k: "g", t: ["sea"] }, SAROS: { k: "v", t: ["space"] }, SEPIA: { k: "g", t: ["sea"] },
-  SONAR: { k: "v", t: ["sea"] }, TARN: { k: "g", t: ["space", "sea"] }, WAX: { k: "g", t: ["light"] }, ZODIAC: { k: "v", t: ["space"] } };
+  SONAR: { k: "v", t: ["sea"] }, TARN: { k: "g", t: ["space", "sea"] }, TROUPE: { k: "v", t: ["space"] }, WAX: { k: "g", t: ["light"] }, ZODIAC: { k: "v", t: ["space"] } };
 /* each plate's controls: name, default, what it does (umbra-plate-parameters.md, by web/plates_doc.py: between the marks) */
 const DOC = {
 /*@DOC*/
@@ -231,6 +231,7 @@ const DOC = {
   "TARN": [["DRAG", 55, "Water damping"], ["BEND", 50, "How far the reflection bends"], ["SIZE", 50, "Reflection nearer or further"], ["DROP", 50, "Notes that are not drums, and snare/clap: a drop"], ["PLUNGE", 50, "Kick: a heavy drop by the moon"], ["GLINT", 50, "Rest of the kit: a star's glint"]],
   "WAX": [["HEAT", 40, "How hard the lamp drives the blobs"], ["THICK", 50, "How much the wax resists"], ["SIZE", 50, "Blob size"], ["BLOB", 50, "Notes that are not drums: a hot blob from the foot"], ["HEAVE", 50, "Kick: heaves them all up and swells them"], ["BEAD", 50, "Rest of the kit: beads that hurry up"], ["GLOW", 50, "Light round the blobs and their rim"]],
   "ZODIAC": [["TURN", 30, "Sky's wheel speed (0 = still)"], ["FADE", 50, "How long a star stays lit"], ["SIZE", 60, "Size of the signs"], ["STARS", 50, "Notes (default: every note) light one of the track's stars"], ["JOINS", 50, "Joins' own light"], ["SPREAD", 55, "How far from the pole the signs lie"]],
+  "TROUPE": [["CAST", 50, "How many dance: 0..33 one large dancer, 34..66 a duet (the partner mirrored), 67..99 a trio"], ["STEP", 50, "How often the pose changes: 0..32 every 4 beats, 33..65 every 2, 66..99 every beat"], ["FLOW", 60, "How a pose is reached: 0 a snap and a long hold, 99 one move flowing into the next"], ["LEAP", 50, "Notes (default: a kit's kick) send the dancer up in a hop, knees tucked"], ["SPIN", 40, "How often they turn: a passe always pirouettes (past 70 a double), other steps now and then"], ["RIBBON", 60, "The ribbons trailing from both hands, in the dancer's two tracks' colours (0 = none)"], ["IMPROV", 30, "Notes (default: every melodic note) pick the next pose by pitch: low grounded, high lifted (0 = the set choreography)"], ["CANON", 0, "0 all in step; 99 each dancer a step behind the last"]],
 /*@END*/
 };
 const CORONA_DESC = "The eclipse: streamers, drums as arches and beads.";
