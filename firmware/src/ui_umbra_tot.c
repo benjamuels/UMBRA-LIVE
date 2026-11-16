@@ -37,6 +37,8 @@
  * OCT shifts as on HOME. Built for size, as the main loop is (tools/size_fns.py) */
 static int name_on(void);                               /* (ui_name.c) */
 static int32_t accel(uint32_t role, int32_t s, int32_t range);   /* (ui_input.c) */
+static void knob_cap(track_t *t, uint32_t id);
+static void excite_turn(track_t *t, const int16_t *vp, int32_t old);
 static struct {
     uint8_t on, fx, song, home, info;                   /* TOTALITY; the words at the foot (SEQ); KNOB 1..4 the effects; it came from TIMELINE or
                                                          * ARRANGE (PLAY: the song); the page under it was HOME's */
@@ -81,7 +83,7 @@ static void umt_say(const char *a, const char *b)
         str_cpy(umt.say + str_len(umt.say), " ", sizeof umt.say - str_len(umt.say));
         str_cpy(umt.say + str_len(umt.say), b, sizeof umt.say - str_len(umt.say));
     }
-    umt.say_ms = fm1_ms | 1u;
+    umt.say_ms = (fm1_ms - 1u) | 1u;                    /* (never ahead of now: a word said and drawn in one ms stays) */
 }
 static void umt_say_knobs(void) { umt_say(umt.fx ? "MIRROR MOSAIC GLITCH SOLAR" : "KNOB 1 2 3 4", 0); }   /* KNOB 1..4's */
 static void umt_enter(uint32_t song)
@@ -224,8 +226,8 @@ static void umt_mlist(uint32_t k)
 static void umt_knob(uint32_t k, int32_t d)
 {
     uint32_t v;
-    char b[4], m[7] = {'K', 'N', 'O', 'B', ' ', (char)('1' + k), 0};
-    const char *nm = m, *vs = b;
+    char b[4];
+    const char *nm = "", *vs = b;
     if (umt.fx) {
         umg_put(G_MIR + k, (int32_t)umg_raw(G_MIR + k) + d);
         v = umg_raw(G_MIR + k);
@@ -234,11 +236,26 @@ static void umt_knob(uint32_t k, int32_t d)
             vs = UMT_MIRN[v & 3u];
         else if (!v)
             vs = "OFF";
-    } else {
-        macro_v[k & 3u] = (uint8_t)clamp(macro_v[k & 3u] + d, 0, 127);
-        v = macro_v[k & 3u] * 100u / 127u;
-        if (umt.info)
-            umt_mlist(k & 3u);
+    } else {                                            /* (the user, 2026-11-16) the BODY's own knob: what KNOBS chose
+                                                         * for the selected track (its engine's four at first; a macro:
+                                                         * with the words on, what it moves) */
+        static char vb[12];
+        int16_t *vp;
+        const param_desc_t *pd = home_param(k, &vp);
+        const char *u;
+        int32_t was = *vp;
+        *vp = (int16_t)param_turn(pd, *vp, accel(EN_K1 + k, d, pd->fmt == F_ENUM ? 0 : pd->max - pd->min));
+        if (home_put(k, vp)) {
+            if (umt.info)
+                umt_mlist(umk_kn(song.sel, k) & 3u);
+        } else {
+            knob_cap(TSEL, (uint32_t)(vp - TSEL->p));
+            excite_turn(TSEL, vp, was);
+            umt_ml.n = 0;
+        }
+        param_format(pd, *vp, vb, &u);
+        umt_say(pd->label, vb);
+        return;
     }
     fmt_int(b, (int32_t)v);
     umt_say(nm, vs);
@@ -404,7 +421,7 @@ static void umb_full(void)
             umt_fig(src, UMX_BODY, la[1] * umv_lt[1] >> 8);
         if (umt.say_ms) {                               /* the word at the foot (a macro's: what it moves, over it) */
             cv_text(8, 222 - (int32_t)y, &AF_S, umt.say, T_MID);
-            for (i = 0; !umt.fx && umt.say[0] == 'K' && umt.say[1] == 'N' && i < umt_ml.n; i++)
+            for (i = 0; !umt.fx && i < umt_ml.n; i++)
                 cv_text(8, 210 - 10 * (int32_t)(umt_ml.n - i) - (int32_t)y, &AF_X, umt_ml.ln[i], T_TEXT);
         }
         if (umt.info && tg < 1500u)                     /* the track, a second, then fading (ALGORITHM, SEQ: again) */

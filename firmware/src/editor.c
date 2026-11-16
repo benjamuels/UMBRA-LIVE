@@ -567,7 +567,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             for (i = 0; i <= (uint32_t)(d->max - d->min) && i < 32u; i++) {
                 int dst = d->names == N_MDST, show = dst && (mod_dst_offer(TSEL, i) || i == (uint32_t)*vp);
                 if (show && i) { ed_b(mod_dst_scope(TSEL, i)); ed_b(':'); }
-                ed_str(dst ? (show ? mod_dst_name(TSEL, (int32_t)i) : N_MDST[0]) : d->names[d->min + (int32_t)i], show && i ? 6u : 8u);
+                ed_str(dst ? (show ? mod_dst_name(TSEL, (int32_t)i) : N_MDST[0]) : pd_name(d, d->min + (int32_t)i), show && i ? 6u : 8u);
             }
         break;
     case ED_STEP_GET:

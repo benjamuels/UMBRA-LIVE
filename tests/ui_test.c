@@ -161,7 +161,25 @@ static int32_t ut_cv_w(void) { return (int32_t)cv_w; }
 #include "../firmware/src/ui_input.c"
 #include "../firmware/src/ui_layer.c"
 #include "../firmware/src/upreset.c"
+#define umc_flash umc_flash_fw                   /* ((UMBRA LIVE, plate API 7) project.c's own, kept under another name .. */
 #include "../firmware/src/project.c"
+#undef umc_flash
+/* .. so that a check can give LIVE VIZ CTRLS' store a saved copy to read (an older firmware's: shorter than umc_t): host_umc,
+ * host_umc_n bytes of it (0: none, the firmware's own no-flash umc_flash as ever, every other check's). Read: its start, as
+ * st_load gives a shorter object; written: kept there */
+static uint8_t host_umc[sizeof(umc_t)];
+static uint32_t host_umc_n;
+static int umc_flash(void *p, uint32_t n, int save)
+{
+    if (!host_umc_n)
+        return umc_flash_fw(p, n, save);
+    if (save) {
+        memcpy(host_umc, p, n < sizeof host_umc ? n : sizeof host_umc);
+        host_umc_n = n < sizeof host_umc ? n : (uint32_t)sizeof host_umc;
+    } else
+        memcpy(p, host_umc, n < host_umc_n ? n : host_umc_n);
+    return 0;
+}
 #include "legacy_proj.h"                        /* (V10.6s) FUN6, retired: refused */
 
 static int check(const char *what, int ok)
@@ -183,6 +201,11 @@ static void ui_power_on(void)
         umc_gen++;
         umc_flash(&umc, sizeof umc, 1);
     }
+    memset(umc.kn, 0, sizeof umc.kn);             /* ((UMBRA LIVE, 2026-11-16) nor a knob given to another parameter or a macro
+                                                   * on HOME > BEING > KNOBS (ROUTES' place: JIANT's own checks turn the knobs
+                                                   * there), nor another palette in use: HOME's and TOTALITY's knobs the engine's
+                                                   * own four, the plates' colours palette 1's, as at power-on with an empty store) */
+    umc.palcur = 0;
     memset(split_cfg, 0, sizeof split_cfg); memset(&midi_map, 0, sizeof midi_map);
     if (!lyb_ok)
         sing_init();                              /* (0.9.0: as felucca_init, VOICE's English generator words) */
@@ -11387,8 +11410,8 @@ static int test_skin(void)
         ok &= !ui.msg_t && !ui.hint_pg;
         bad += check("a page's hint goes when the page changes (not carried onto the next page); no layer hint after EDIT", ok);
     }
-    {   /* (UMBRA LIVE) TOTALITY: a HOME tap on HOME (lit); PRESETS the MAIN plates, round, SELECT OVER's; KNOB 1..4 the macros M1..M4 (said
-         * by name); FX tapped: the effects, FX lit; every other LED dark; HOME: back to the page under it; a page chosen
+    {   /* (UMBRA LIVE) TOTALITY: a HOME tap on HOME (lit); PRESETS the MAIN plates, round, SELECT OVER's; KNOB 1..4 the selected
+         * track's own four knobs (2026-11-16: home_param, the parameter's label and value said; not the macros any more); FX tapped: the effects, FX lit; every other LED dark; HOME: back to the page under it; a page chosen
          * (EDIT) ends it */
         uint32_t c, dim = 0, pl;
         ui_power_on(); frame();
@@ -11399,7 +11422,7 @@ static int test_skin(void)
         led_pos[panel.btn[B_FX]] = 0u << 3 | 2u;
         led_pos[panel.btn[B_ENV]] = 0u << 3 | 3u;
         led_pos[panel.btn[B_SEQ]] = 0u << 3 | 4u;
-        nav_go(SEC_HOME, 1, 0); frame(); ui_leds();                /* (MACROS - AUDIO) */
+        nav_go(SEC_HOME, 1, 0); frame(); ui_leds();                /* (PLATES) */
         ok = ui.home && !umt.on && led_of(fm1_led, panel.btn[B_HOME]);
         press(B_HOME); frames(32); ui_leds();
         for (c = 0; c < FM1_NCOL; c++) dim |= fm1_led_dim[c] | fm1_led_breath[c];
@@ -11418,12 +11441,28 @@ static int test_skin(void)
         turn(EN_ALGO, 1);                                          /* (ALGORITHM: the track here, never the plate) */
         ok &= umb_pl() == pl && umt.on;
         macro_v[2] = 0;
-        turn(EN_K3, 5);                                            /* (KNOB 3: M3; the words off at first) */
-        ok &= macro_v[2] == 5u && !umt.say_ms && !umt.info;
-        press(B_SEQ); ui_leds();                                   /* (SEQ: the words on, lit, no page) */
-        ok &= umt.on && umt.info && ui.home && led_of(fm1_led, panel.btn[B_SEQ]);
-        turn(EN_K3, -5); turn(EN_K3, 5);
-        ok &= macro_v[2] == 5u && str_eq(umt.say, "KNOB 3 3");
+        {                                                          /* (2026-11-16: KNOB 3 the selected track's own third knob,
+                                                                    * its engine's at first: not M3; the words off at first) */
+            int16_t *vp, v0;
+            const param_desc_t *pd = home_param(2u, &vp);
+            const char *u;
+            char want[24], vb[12];
+            ok &= vp == &TSEL->p[trk_engp(TSEL)->knob[2]];
+            *vp = (int16_t)((pd->min + pd->max) / 2);
+            v0 = *vp;
+            turn(EN_K3, 5);
+            ok &= *vp != v0 && !macro_v[2] && !umt.say_ms && !umt.info;
+            press(B_SEQ); ui_leds();                               /* (SEQ: the words on, lit, no page) */
+            ok &= umt.on && umt.info && ui.home && led_of(fm1_led, panel.btn[B_SEQ]);
+            turn(EN_K3, -5); turn(EN_K3, 5);
+            param_format(pd, *vp, vb, &u);
+            str_cpy(want, pd->label, sizeof want);
+            str_cpy(want + str_len(want), " ", 2);
+            str_cpy(want + str_len(want), vb, 12);
+            ok &= !macro_v[2] && str_eq(umt.say, want);            /* (the foot: the parameter's label and its value) */
+            if (!ok) printf("  totality knob 3: say '%s' want '%s' v %d from %d\n", umt.say, want, *vp, v0);
+            *vp = v0;
+        }
         press(B_FX); ui_leds();
         ok &= umt.fx && led_of(fm1_led, panel.btn[B_FX]) && ui.home && umt.on;
         turn(EN_K1, 3);                                            /* (MIRROR: a detent a mode) */
@@ -11433,7 +11472,7 @@ static int test_skin(void)
         press(B_SEQ); ui_leds();
         ok &= umt.on && !umt.info && !led_of(fm1_led, panel.btn[B_SEQ]);   /* (SEQ again: the words off) */
         press(B_HOME); frame();
-        ok &= !umt.on && ui.home && ui.hset[0] == 1u && !ui.hlv;   /* (MACROS - AUDIO again) */
+        ok &= !umt.on && ui.home && ui.hset[0] == HOME_PLATES && !ui.hlv;   /* (PLATES again) */
         press(B_HOME); frame(); press(B_EDIT);
         ok &= umt.on && ui.home && umq.tap[2] > 200u;              /* (EDIT: TAP at first, its link MOSAIC fires; TOTALITY stays) */
         umx_rec(UMX_FX)->ls[2] = 0;                                /* (no link takes it: still TOTALITY, 2026-11-13) */
@@ -11443,7 +11482,7 @@ static int test_skin(void)
         memset(&umc, 0, sizeof umc);
         favorites.factory[4][16] = 0;
         macro_v[2] = 0;
-        bad += check("(UMBRA LIVE) TOTALITY: HOME on HOME; PRESETS the MAIN plates round, SELECT OVER's, KNOBs the macros, FX effects; LEDs dark; HOME back; EDIT a tap, TOTALITY stays", ok);
+        bad += check("(UMBRA LIVE) TOTALITY: HOME on HOME; PRESETS the MAIN plates round, SELECT OVER's, KNOBs the track's own (label and value said), FX effects; LEDs dark; HOME back; EDIT a tap, TOTALITY stays", ok);
     }
     {   /* (UMBRA LIVE, the user 2026-11-13, 2026-11-15) TOTALITY's SEL ENV ARP (LIVE VIZ CTRLS' BUTTONS, at first BODIES,
          * OVER, MAIN): ENV and ARP tapped hide their layer or show it again over half a second, lit while it shows; SEL lays
@@ -11516,30 +11555,43 @@ static int test_skin(void)
          * (GEN 1..3), one chain by SELECT, WELCOME at power-on; WELCOME and the MACROS pages: no knobs (KNOB 1..4 turn
          * nothing, the knob row bare), the plate behind (AIR: the whole screen), WELCOME its words; BEING its HOME knobs,
          * ROUTES M1..M4 as before; a HOME tap on WELCOME: TOTALITY */
-        static const char *const CR[8] = {"HOME \xB7 WELCOME \xB7 WELCOME", "HOME \xB7 UMBRA \xB7 LIVE AUDIO CTRLS",
+        static const char *const CR[8] = {"HOME \xB7 WELCOME \xB7 WELCOME", "HOME \xB7 UMBRA \xB7 PLATES",
                                           "HOME \xB7 UMBRA \xB7 PLATES - GROUND", "HOME \xB7 UMBRA \xB7 PLATES - VEILS",
-                                          "HOME \xB7 UMBRA \xB7 PLATES", "HOME \xB7 UMBRA \xB7 BEING",
-                                          "HOME \xB7 UMBRA \xB7 ROUTES", "HOME \xB7 GENE \xB7 GENE 1"};   /* (V10.6d: GEN is GENE; 2026-11-13: PLATES;
+                                          "HOME \xB7 UMBRA \xB7 COLOR", "HOME \xB7 BEING \xB7 BEING",
+                                          "HOME \xB7 BEING \xB7 KNOBS", "HOME \xB7 GENE \xB7 GENE 1"};   /* (V10.6d: GEN is GENE; 2026-11-13: PLATES;
                                                          * 2026-11-15: LIVE VIZ CTRLS two pages, GROUND and VEILS) */
-        static const uint8_t TAB[8] = {0, 1, 1, 1, 1, 1, 1, 2};
+        static const uint8_t TAB[8] = {0, 1, 1, 1, 1, 2, 2, 3};   /* (2026-11-16: PLATES first, COLOR; BEING a tab of its own
+                                                         * again with KNOBS in ROUTES' place; LIVE AUDIO CTRLS gone) */
         char cn[8];
-        uint32_t k, j, c0, w0, w1, y, x;
+        uint32_t k, j, c0, w0, w1, y, x, pg0;
         uint8_t m0, pl0 = umb_plate;
         ui_power_on(); ui.hlv = 0; frame();                       /* (the device's power-on: ui all 0, WELCOME) */
-        ok = ui.home && !ui.hset[0] && nav_cur() == 0u && lz_tabs() == 3u;
+        memset(&umc, 0, sizeof umc);
+        umx_pg = 0xFFu; umcl_r = 0;
+        ok = ui.home && !ui.hset[0] && nav_cur() == 0u && lz_tabs() == 4u && HOME_PLATES == 1u && HOME_COLOR == 4u &&
+             HOME_E_BEING == 5u && HOME_E_GEN == 7u;
         for (k = 0; k < 8u; k++) {
             fmt_int(cn, (int32_t)k + 1);
             str_cpy(cn + str_len(cn), "/10", 4);
-            ok &= lz_crumb_is(CR[k]) && lz_count_is(cn) && lz_tab_lit(TAB[k]) && home_bare() == (k < 5u) &&
+            ok &= lz_crumb_is(CR[k]) && lz_count_is(cn) && lz_tab_lit(TAB[k]) && home_bare() == (k < 5u) && home_macros() == (k == 6u) &&
                   (!k ? skin_ink(LZ_CARD_Y, LZ_CARD_Y + LZ_CARD_H) == 0 : 1);
             if (k < 7u) {                                          /* (the MACROS pages: their routes', ui_umbra_mac.c) */
                 c0 = (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]];
                 m0 = macro_v[0];
+                pg0 = umx_cur();
                 for (j = 0; j < 4u; j++) turn(EN_K1 + j, 2);
                 frame();
-                ok &= k < 4u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] == c0 && macro_v[0] == m0 && !ui.hot_t == !k :
-                      k == 4u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] == c0 && macro_v[0] != m0 :   /* (PLATES: the macros, 2026-11-13) */
-                      k == 5u ? (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] != c0 : macro_v[0] != m0;
+                if (k < 5u)                                        /* (WELCOME, UMBRA's pages: no parameter's knobs, no macro's) */
+                    ok &= (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] == c0 && macro_v[0] == m0 && !ui.hot_t == !k;
+                if (k == HOME_PLATES)                              /* (PLATES: KNOB 1 the next plate, as ALGORITHM; no macros) */
+                    ok &= umx_cur() != pg0 && umx_place(umx_cur());
+                else if (k == HOME_COLOR)                          /* (COLOR: KNOB 1 the part, KNOB 3 the palette in use) */
+                    ok &= umcl_r == 2u && umc.palcur == 2u;
+                else if (k == 5u)                                  /* (BEING: its HOME knobs) */
+                    ok &= (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] != c0 && macro_v[0] == m0;
+                else if (k == 6u)                                  /* (KNOBS: what KNOB 1 turns chosen, nothing turned) */
+                    ok &= (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] == c0 && macro_v[0] == m0 &&
+                          umc.kn[song.sel % NTRK][0] == UMK_KL[1] && umc.kn[song.sel % NTRK][3] == UMK_KL[1];
             }
             if (!ok) { printf("  HOME entry %u\n", k); break; }
             turn(EN_SELECT, 1); frame();
@@ -11560,17 +11612,18 @@ static int test_skin(void)
         ok &= !umt.on && ui.home && !ui.hlv && !ui.hset[0];
         if (!ok) printf("  welcome ink %u, macros %u\n", w0, w1);
         ui_skin = SKIN_COLORS;
-        memset(&umc, 0, sizeof umc);                              /* (the routes the knobs turned: as at first) */
+        memset(&umc, 0, sizeof umc);                              /* (the routes the knobs turned, KNOBS' choices, the palette: as at first) */
         umb_plate = pl0;                                          /* (.. the ground PLATES' KNOB 1 chose) */
+        umx_pg = 0xFFu; umcl_r = 0;
         for (k = 0; k < NTRK; k++) memset(&trk[k].p[P_M1SRC], 0, 12u * sizeof trk[k].p[0]);
-        bad += check("(UMBRA LIVE) HOME: WELCOME . UMBRA (MACROS - AUDIO, MACROS - VISUALS, BEING, ROUTES) . GEN; no knobs on WELCOME; WELCOME's words, the MACROS pages' routes", ok);
+        bad += check("(UMBRA LIVE) HOME: WELCOME . UMBRA (PLATES, PLATES - GROUND, PLATES - VEILS, COLOR) . BEING (BEING, KNOBS) . GENE; no knobs on WELCOME; PLATES' KNOB 1 the plate, COLOR's the part and the palette, KNOBS' what a knob turns; WELCOME's words, the PLATES pages' rows", ok);
     }
     {   /* (UMBRA LIVE, the user 2026-11-09) the MACROS pages (ui_umbra_mac.c): TOTALITY's KNOB 1..4 the macros M1..M4;
          * MACROS - VISUALS' routes at first M1..M3 the plate's three from SET to 99, M4 LIGHT from SET to 0, so the plate as
          * set with the macros at 0; MACROS - AUDIO: + NEW, KNOB 1 a route in the selected track's free slot, DEST, AMOUNT as
          * LFO > MOD's, TRACK moves it, ALGORITHM the route (not the track); MACROS - VISUALS: SOURCE TARGET a detent each,
          * a track's hits and its step as sources, two routes on a target adding */
-        uint32_t v[4], k, s0, sl;
+        uint32_t k, s0;
         ui_power_on(); frame();
         memset(&umc, 0, sizeof umc);
         memset(&umc, 0, sizeof umc);
@@ -11585,32 +11638,25 @@ static int test_skin(void)
         nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(32);
         ok &= umt.on && umq_o[G_LIGHT] == umg_raw(G_LIGHT) && t_el(0u, 0u) == umx_raw(0u, 0u);   /* (the macros at 0: as set) */
         press(B_SEQ);
+        umc.kn[song.sel % NTRK][0] = 0x80u;                        /* (2026-11-16: TOTALITY's knobs are the track's own; KNOBS */
+        umc.kn[song.sel % NTRK][3] = 0x83u;                        /* gives KNOB 1 to M1 and KNOB 4 to M4: the macros again) */
         turn(EN_K4, 127); turn(EN_K1, 127); frames(32);
-        ok &= macro_v[3] == 127u && macro_v[0] == 127u && umq_o[G_LIGHT] == 0u && t_el(0u, 0u) == 99u && str_eq(umt.say, "KNOB 1 100");
+        ok &= macro_v[3] == 127u && macro_v[0] == 127u && umq_o[G_LIGHT] == 0u && t_el(0u, 0u) == 99u && str_eq(umt.say, "M1 100");
+        if (!ok) printf("  ctrls: macros %u %u, say '%s'\n", macro_v[0], macro_v[3], umt.say);
         ok &= umg_raw(G_LIGHT) == 99u;                             /* (LIGHT as set, kept) */
         press(B_LFO); frame();                                     /* (LFO tapped: its route fires, TOTALITY stays) */
         ok &= umt.on && umq.tap[1] > 128u;
         press(B_HOME); frame();
         memset(macro_v, 0, sizeof macro_v);
-        nav_go(SEC_HOME, 1, 0); frame();                           /* LIVE AUDIO CTRLS */
-        uma_slot = 0;
+        umc.kn[song.sel % NTRK][0] = umc.kn[song.sel % NTRK][3] = 0;
         s0 = song.sel;
-        turn(EN_K2, 1);                                            /* (SOURCE: M1, the selected track's first slot) */
-        ok &= trk[s0].p[P_M1SRC] == MS_M1 && !trk[s0].p[P_M1DST];
-        turn(EN_K3, 1); turn(EN_K4, 10);
-        ok &= trk[s0].p[P_M1DST] != 0 && trk[s0].p[P_M1AMT] == 10;
-        turn(EN_K1, 2);                                            /* (SLOT 3) */
-        ok &= uma_slot == 2u;
-        if (trk_live > 1u) {
-            turn(EN_ALGO, 1);                                      /* (ALGORITHM: the next track, and back) */
-            ok &= song.sel == s0 + 1u;
-            turn(EN_ALGO, -1);
+        {                                                          /* (the picture's link source once "KNOB 1..4": the macros, "M1".."M4") */
+            char sb[12];
+            umx_src(sb, UMQ_M1);
+            ok &= str_eq(sb, "M1");
+            umx_src(sb, UMQ_M1 + 3u);
+            ok &= str_eq(sb, "M4");
         }
-        ok &= song.sel == s0;
-        press(B_OCTUP); frame();                                   /* (OCT+: the track's first free slot, from KNOB 1, chosen) */
-        ok &= uma_slot == 1u && trk[s0].p[P_M1SRC + 3] == MS_M1 && msg_is("SLOT ADDED");
-        press(B_OCTDN); frame();                                   /* (OCT-: the chosen slot emptied, the first kept) */
-        ok &= uma_slot == 1u && !trk[s0].p[P_M1SRC + 3] && trk[s0].p[P_M1SRC] == MS_M1 && msg_is("SLOT REMOVED");
         nav_go(SEC_HOME, 2, 0); frame();                           /* LIVE VIZ CTRLS */
         umx_pg = 0xFFu; umx_el = umx_ct = 0;
         ok &= umx_cur() == 0u;                                     /* (the ground's plate, CINDER: its name's row) */
@@ -11693,12 +11739,12 @@ static int test_skin(void)
         ok &= umq_o[G_TRAVEL] == 99u;                              /* (0 + 98 + 50, at most 99) */
         trk[0].p[P_MS0] = 0; frame(); frame();
         ok &= umq_o[G_TRAVEL] == 0u;
-        if (!ok) printf("  ctrls: slot %u page %u row %u ctl %u speed %u travel %u\n", uma_slot, umx_pg, umx_el, umx_ct, umq_o[G_SPEED], umq_o[G_TRAVEL]);
+        if (!ok) printf("  ctrls: page %u row %u ctl %u speed %u travel %u\n", umx_pg, umx_el, umx_ct, umq_o[G_SPEED], umq_o[G_TRAVEL]);
         memset(&umc, 0, sizeof umc);
         memset(&umc, 0, sizeof umc);
         for (k = 0; k < NTRK; k++) memset(&trk[k].p[P_M1SRC], 0, 12u * sizeof trk[k].p[0]);
         trk[0].p[P_MSLEN] = 16;
-        bad += check("(UMBRA LIVE) LIVE CTRLS: TOTALITY's knobs M1..M4, LFO TAP; VIZ at first the plate as set; AUDIO SLOT, SOURCE, DEST, AMOUNT, ALGORITHM the track, OCT+ / OCT- a slot; VIZ ROUTE, ALGORITHM the plate (a ground MAIN, a veil OVER), OCT+ / OCT- a link, hits and steps, routes adding", ok);
+        bad += check("(UMBRA LIVE) LIVE CTRLS: TOTALITY's knobs given to M1 / M4 on KNOBS turn the macros, LFO TAP; VIZ at first the plate as set, its macro sources named M1..M4; VIZ ROUTE, ALGORITHM the plate (a ground MAIN, a veil OVER), OCT+ / OCT- a link, hits and steps, routes adding", ok);
     }
     {   /* (UMBRA LIVE) NOTE MOVEMENT (its page, HOME > ECO > NOTES, gone: set here as it set it): STATIC MOVE DRIFT RANDOM (MOVE at first);
          * STATIC: no offset, a plate's places as ever; MOVE: a note a step along the track's own path (each track its own);
@@ -11746,15 +11792,16 @@ static int test_skin(void)
             sc->ld[0] = 99;
         }
         macro_v[3] = 0;
+        umc.kn[song.sel % NTRK][3] = 0x83u;                        /* (2026-11-16: KNOB 4 given to M4 on KNOBS) */
         nav_go(SEC_HOME, 0, 0); frame(); press(B_HOME); frames(4);
         press(B_SEQ);                                              /* (the words on) */
         turn(EN_K4, 127); frames(32);
-        ok = umt.on && macro_v[3] == 127u && umq_o[G_MOVE] == 3u && str_eq(umt.say, "KNOB 4 100");
+        ok = umt.on && macro_v[3] == 127u && umq_o[G_MOVE] == 3u && str_eq(umt.say, "M4 100");
         press(B_HOME); frame();
         memset(&umc, 0, sizeof umc);
         memset(&umc, 0, sizeof umc);
         macro_v[3] = 0;
-        bad += check("(UMBRA LIVE) TOTALITY: KNOB 4 the macro M4, routed to MOVEMENT, said by name", ok);
+        bad += check("(UMBRA LIVE) TOTALITY: KNOB 4 given to the macro M4, routed to MOVEMENT, said by name", ok);
     }
     {   /* (UMBRA LIVE) a plate's settings (their pages, PLATE and ROUTING, gone): its third a size, a plate each; LIGHT
          * one for all; routing a plate each; on HOME's pages ALGORITHM the track, never the plate; DISSOLVE: a plate chosen
@@ -11776,6 +11823,9 @@ static int test_skin(void)
             if (k == 2u || k == HOME_PLATES)                       /* (PLATES - GROUND, PLATES: the page, its plate the ground now;
                                                                     * the track kept) */
                 ok &= umb_pl() == umx_pg && umx_pg != 5u && song.sel == sel0;
+            else if (k == HOME_COLOR)                              /* (COLOR, 2026-11-16: the page, any plate, laid where its kind
+                                                                    * goes; the track kept) */
+                ok &= umx_pg != 5u && umx_pg < UMB_NPLT && umx_place(umx_pg) && song.sel == sel0;
             else if (k == 3u) {                                    /* (PLATES - VEILS, 2026-11-15: the page, never a ground; the
                                                                     * ground and the track kept) */
                 ok &= umb_pl() == 5u && umx_pg != 5u && !(umx_pg < UMB_NPLT && !umx_veil(umx_pg)) && song.sel == sel0;
@@ -11783,10 +11833,11 @@ static int test_skin(void)
                 umc_gen++;
             } else
                 ok &= umb_pl() == 5u && (trk_live < 2u || song.sel != sel0);
+            if (k == HOME_COLOR) { umc.lay[0] = 0; umc_gen++; }
             umb_plate = 0x85u;
             track_select(sel0);
         }
-        bad += check("(UMBRA LIVE) a plate's settings: its third a size, a plate each; on HOME ALGORITHM the track (LIVE VIZ CTRLS, PLATES: the plate, the ground now)", ok);
+        bad += check("(UMBRA LIVE) a plate's settings: its third a size, a plate each; on HOME ALGORITHM the track (PLATES, PLATES - GROUND / - VEILS, COLOR: the plate, laid where its kind goes)", ok);
         ok = dc_key(120u, 120u) < 64u && dc_key(2u, 2u) >= 188u && dc_gate == 256u;
         nav_go(SEC_HOME, 2, 0); frame(); press(B_HOME); frames(4);   /* (TOTALITY: TARN, from MACROS - VISUALS) */
         for (y = 0; y < 16u; y++) for (x = 0; x < 16u; x++) corner[y * 16u + x] = host_screen[y * 240u + x];
@@ -11816,7 +11867,7 @@ static int test_skin(void)
          * SYSTEM > WELCOME ON: back. Elsewhere OCT is the octave as ever */
         uint32_t dn = 1u << panel.btn[B_OCTDN], both = dn | (1u << panel.btn[B_OCTUP]), k, l;
         ui_power_on(); ui.hlv = 0; frame();
-        ok = umw_on() && umw_pg == 0u && lz_tabs() == 3u && (oct_leds() & OCT_BREATH) && !(oct_leds() & OCT_BREATH_DN);
+        ok = umw_on() && umw_pg == 0u && lz_tabs() == 4u && (oct_leds() & OCT_BREATH) && !(oct_leds() & OCT_BREATH_DN);
         for (k = 1; k <= 6u; k++) {
             press(B_OCTUP); frame();
             ok &= umw_pg == k % 6u && song.octave == 0;
@@ -11840,16 +11891,19 @@ static int test_skin(void)
         ok &= !umw_gone() && umw_on();
         for (k = 0; k < 60u; k++) frame();                         /* (past 4 s: gone) */
         l = ui.hset[0];
-        ok &= umw_gone() && !umw_on() && l == 1u && ui.home && !ui.hlv && lz_tabs() == 2u && lz_crumb_is("HOME \xB7 UMBRA \xB7 LIVE AUDIO CTRLS") &&
+        ok &= umw_gone() && !umw_on() && l == HOME_PLATES && ui.home && !ui.hlv && lz_tabs() == 3u && lz_crumb_is("HOME \xB7 UMBRA \xB7 PLATES") &&
               song.octave == 0;
         fm1_in.buttons &= ~dn; frame();
         ok &= song.octave == 0 && !umw_eat;
         nav_go(SEC_HOME, 0, 0); frame();
-        ok &= ui.hset[0] == 1u;                                    /* (WELCOME asked for: not there, the next) */
+        for (k = 0; k < 300u && ui.msg_t; k++) frame();            /* ("WELCOME OFF" said: until it has gone) */
+        ok &= ui.hset[0] == HOME_PLATES;                           /* (WELCOME asked for: not there, the next: PLATES) */
         press(B_OCTUP); frame();
-        ok &= song.octave == 0 && msg_is("SLOT ADDED");            /* (LIVE AUDIO CTRLS: OCT+ a slot, OCT- it gone) */
+        ok &= song.octave == 0 && !ui.msg_t && !oct_leds();        /* (PLATES: OCT+ and OCT- do nothing, dark; nor on COLOR) */
         press(B_OCTDN); frame();
-        ok &= song.octave == 0 && msg_is("SLOT REMOVED");
+        ok &= song.octave == 0 && !ui.msg_t;
+        nav_go(SEC_HOME, HOME_COLOR, 0); frame(); press(B_OCTUP); frame(); press(B_OCTDN); frame();
+        ok &= ui.hset[0] == HOME_COLOR && song.octave == 0 && !ui.msg_t && !oct_leds();
         nav_go(SEC_HOME, HOME_E_BEING, 0); frame(); press(B_OCTUP); frame();
         ok &= song.octave == 1;                                    /* (BEING: OCT the octave again) */
         press(B_OCTDN); frame();
@@ -11857,8 +11911,8 @@ static int test_skin(void)
         menu_put(MI_WELCOME, 1u);
         ok &= !umw_gone() && menu_get(MI_WELCOME) == 1u;
         nav_go(SEC_HOME, 0, 0); frame();
-        ok &= umw_on() && lz_tabs() == 3u;
-        bad += check("(UMBRA LIVE) WELCOME: six pages by OCT+ / OCT- round, the octave kept; OCT- held: the count from 1 s, let go it stays, to its end gone (saved), LIVE AUDIO CTRLS; MENU > SYSTEM > WELCOME ON: back", ok);
+        ok &= umw_on() && lz_tabs() == 4u;
+        bad += check("(UMBRA LIVE) WELCOME: six pages by OCT+ / OCT- round, the octave kept; OCT- held: the count from 1 s, let go it stays, to its end gone (saved), PLATES (OCT nothing there, nor on COLOR); MENU > SYSTEM > WELCOME ON: back", ok);
     }
     {   /* (UMBRA LIVE, the user 2026-11-09) in TOTALITY FX, SCL, LFO, EDIT, GLO held: their layer as ever (keys, knobs,
          * LEDs), its map not drawn, the plate stays (ui_umbra_tot.c umt_ly); let go: no FX lock, no MACRO latch there */
@@ -11954,7 +12008,7 @@ static int test_skin(void)
          * MAIN (the ground) and OVER (LAYER 1), a row with none as the one before it; ALGORITHM past the last track
          * reaches them, KNOB 4 the cell's plate, OCT+ the cell open (LIVE VIZ CTRLS for it), PRESETS its preset, OCT+
          * again its transition, a third keeps it; OCT- a step back, nothing kept; a row copied takes its cells. The
-         * previews draw inside their squares. PLATES: ALGORITHM the plate, the ground; KNOB 1..4 the macros */
+         * previews draw inside their squares. PLATES: ALGORITHM (or KNOB 1) the plate, the ground; no macros on its knobs */
         uint32_t i, n, x, y, in = 0, out = 0, sx = umx_key("GRANULE"), bk = umx_key("BEACON");
         ui_power_on(); frame();
         memset(&umc, 0, sizeof umc);
@@ -12042,8 +12096,11 @@ static int test_skin(void)
         nav_go(SEC_HOME, HOME_PLATES, 0); frame();                  /* (PLATES) */
         umx_pg = 0;
         macro_v[0] = 0;
-        turn(EN_ALGO, 1); turn(EN_K1, 4); frame();                 /* (2026-11-13: ALGORITHM the plate, KNOB 1..4 the macros) */
-        ok &= umx_pg == 3u && umb_pl() == 3u && home_bare() && macro_v[0] == 4u;
+        turn(EN_ALGO, 1); frame();                                 /* (2026-11-13: ALGORITHM the plate; 2026-11-16: KNOB 1 too, a
+                                                                    * detent a plate whatever its speed; no macros on its knobs) */
+        ok &= umx_pg == 3u && umb_pl() == 3u && home_bare() && !macro_v[0];
+        turn(EN_K1, 4); turn(EN_K2, 4); frame();
+        ok &= umx_pg == 4u && umb_pl() == 4u && !macro_v[0] && !macro_v[1];
         macro_v[0] = 0;
         press(B_HOME); frame(); press(B_HOME); frame();
         memset(&umc, 0, sizeof umc);
@@ -12052,8 +12109,8 @@ static int test_skin(void)
         umb_plate = 0x80u;
         bad += check("(UMBRA LIVE) presets: a plate's own, a changed one kept apart; TIMELINE's MAIN and OVER cells, the row before's, a cell open by OCT+, its transition, OCT- nothing kept; previews inside their squares; PLATES", ok);
     }
-    {   /* (UMBRA LIVE, the user 2026-11-13) plate API 5: a plate's liveliness and its still picture (CORONA: none, a ring
-         * drawn). CORONA: a drum only ever an arch or a glint, its lane's shape; other notes the streamers, the low ones
+    {   /* (UMBRA LIVE, the user 2026-11-13) plate API 5: a plate's liveliness (its still picture: gone with API 7, 0 in
+         * every plate). CORONA: a drum only ever an arch or a glint, its lane's shape; other notes the streamers, the low ones
          * PULSE. GENE: a song made brings its cells (a quiet one a calm plate, no OVER; a lively one livelier plates, an
          * OVER, the drums' hits on GLITCH); they outlive the new song's "no cells". TOOLS: KNOB 3 picks CLEAR PLATES, OCT+
          * held does it */
@@ -12062,8 +12119,10 @@ static int test_skin(void)
         uint32_t r, q, lo, hi = 0, ov = 0, es = 0;
         ui_power_on(); frame();
         memset(&umc, 0, sizeof umc);
-        ok = umb_plate_cinder.splash == SPL_CINDER && umb_plate_tarn.energy < umb_plate_pachinko.energy && !umb_plate_corona.splash &&
-             umb_plate_corona.api == UMB_API;
+        ok = !umb_plate_cinder.splash && umb_plate_tarn.energy < umb_plate_pachinko.energy && !umb_plate_corona.splash &&
+             umb_plate_corona.api == UMB_API && UMB_API == 7u;     /* (API 7: no still pictures any more) */
+        for (q = 0; q < UMB_NPLT; q++)
+            if (umb_has(q)) ok &= !umb_mod(q)->splash;
         memset(&cx, 0, sizeof cx); memset(cx.k, 50, sizeof cx.k);
         memset(&umb.co, 0, sizeof umb.co);
         memset(&nt, 0, sizeof nt); nt.vel = 100; nt.note = 36; nt.drum = 1;
@@ -12103,7 +12162,441 @@ static int test_skin(void)
         umc_flash(&umc, sizeof umc, 1);
         chain_defaults(&chain_config);
         umb_plate = 0x80u;
-        bad += check("(UMBRA LIVE) API 5 pictures and liveliness; CORONA: a drum an arch its lane's; GENE's cells by ENERGY, its links; TOOLS' CLEAR PLATES", ok);
+        bad += check("(UMBRA LIVE) API 5 liveliness (API 7: no still pictures); CORONA: a drum an arch its lane's; GENE's cells by ENERGY, its links; TOOLS' CLEAR PLATES", ok);
+    }
+    {   /* (UMBRA LIVE, the user 2026-11-16) plate API 7, the palettes: an empty store has the four factory palettes of six
+         * colours, palette 1 in use; an older store (shorter than umc_t: no palettes in it) keeps its records and cells and
+         * gets the factory palettes; a store of today's keeps its own palettes and the one in use; umb_pal_set, the
+         * editor's umb_pal_io; BODIES' track accents the palette in use's */
+        static const uint8_t P1[UMB_NCOL][3] = {{64, 110, 230}, {120, 226, 214}, {236, 250, 246}, {255, 206, 64}, {255, 122, 28}, {232, 124, 196}};
+        uint8_t io[18], z[sizeof umc.cc];
+        uint32_t i, key, old = (uint32_t)offsetof(umc_t, pal);
+        ui_power_on(); frame();
+        memset(&umc, 0, sizeof umc);
+        umc_load();
+        ok = UMB_API == 7u && UMP_NPAL == 4u && UMB_NCOL == 6u && !memcmp(umc.pal, UMP_PAL0, sizeof umc.pal) &&
+             !memcmp(umc.pal[0], P1, sizeof P1) && umc.palok == UMP_PALOK && umc.palcur == 0u && sizeof umc.pal == 72u;
+        for (i = 1; i < UMP_NPAL; i++)                             /* (four different ones) */
+            ok &= memcmp(umc.pal[i], umc.pal[0], sizeof umc.pal[0]) != 0;
+        ok &= umb_pal_trk(0u) == RGB(64, 110, 230) && umb_pal_trk(5u) == RGB(232, 124, 196);
+        umb_pal_set(1u);
+        ok &= umc.palcur == 1u && umb_pal_trk(0u) == RGB(210, 44, 20) && umc_dirty;
+        (void)vx_level(&trk[2], 0u, 0);                            /* (a BODY's accent: its track's colour of the palette in use) */
+        ok &= vx_acc == umb_pal_trk(2u) && vx_acc == RGB(255, 236, 200);
+        umb_pal_set(UMP_NPAL);                                     /* (none such: let be) */
+        ok &= umc.palcur == 1u;
+        ok &= umb_pal_io(127u, io, 0) == 1u;                       /* (the editor's: the one in use; a palette read halved, */
+        (void)umb_pal_io(0u, io, 0);                               /* written doubled; 64 + i: put in use) */
+        ok &= io[0] == 32u && io[1] == 55u && io[2] == 115u && io[17] == 98u;
+        for (i = 0; i < 18u; i++) io[i] = (uint8_t)(i * 7u);
+        (void)umb_pal_io(3u, io, 1);
+        ok &= umc.pal[3][0][1] == 14u && umc.pal[3][5][2] == (uint8_t)(119u << 1 | 119u >> 6) && umc.palcur == 1u &&
+              umb_pal_io(64u + 2u, io, 1) == 2u && umc.palcur == 2u;
+        if (!ok) printf("  palettes: cur %u ok %x trk %04x acc %04x\n", umc.palcur, umc.palok, umb_pal_trk(0u), vx_acc);
+        bad += check("(UMBRA LIVE) API 7 palettes: an empty store has the four factory palettes, palette 1 in use; umb_pal_set, the editor's read and write; a BODY's accent its track's colour of the palette in use", ok);
+        memset(&umc, 0, sizeof umc);                               /* an older store: a record, a cell, a layer; no palettes */
+        umc_load();
+        umx_put(0u, 0u, 33);                                       /* (CINDER's RISE) */
+        umv_cell(1, 0)->key = (uint16_t)umx_key("GRANULE");
+        key = umc.rec[0].key;
+        memcpy(host_umc, &umc, sizeof umc);
+        memset(host_umc + old, 0x5Au, sizeof umc - old);           /* (what lay past its end: never read) */
+        host_umc_n = old;
+        memset(&umc, 0, sizeof umc);
+        umc_load();
+        memset(z, 0, sizeof z);
+        ok = old < sizeof umc && umc.magic == UMC_MAGIC && key && umc.rec[0].key == key && umx_raw(0u, 0u) == 33u &&
+             umv_cell(1, 0)->key == umx_key("GRANULE") && !memcmp(umc.pal, UMP_PAL0, sizeof umc.pal) && umc.palok == UMP_PALOK &&
+             umc.palcur == 0u && !memcmp(umc.cc, z, sizeof umc.cc) && !memcmp(umc.cp, z, sizeof umc.cp) &&
+             !memcmp(umc.kn, z, sizeof umc.kn);
+        if (!ok) printf("  older store: %u of %u bytes, magic %x key %x/%x palok %x cur %u\n", old, (unsigned)sizeof umc, umc.magic,
+                        umc.rec[0].key, key, umc.palok, umc.palcur);
+        umc.pal[2][4][1] = 77u;                                    /* today's store: its palettes and the one in use kept */
+        umc.palcur = 3u;
+        umc.kn[1][2] = 0x81u;
+        umc.cp[0][5] = 2u;
+        ok &= !umc_flash(&umc, sizeof umc, 1) && host_umc_n == sizeof umc;
+        memset(&umc, 0, sizeof umc);
+        umc_load();
+        ok &= umc.pal[2][4][1] == 77u && umc.palcur == 3u && umc.kn[1][2] == 0x81u && umc.cp[0][5] == 2u && umx_raw(0u, 0u) == 33u;
+        host_umc_n = 0;
+        memset(&umc, 0, sizeof umc);
+        umc_load();
+        ok &= !umc.rec[0].key && umc.palcur == 0u && !memcmp(umc.pal, UMP_PAL0, sizeof umc.pal);   /* (no saved copy again: empty) */
+        memset(&umc, 0, sizeof umc);
+        bad += check("(UMBRA LIVE) API 7 palettes: an older store (shorter than today's) loads with its records and cells and the factory palettes; today's keeps its palettes, the one in use, the knobs, the rows' palettes", ok);
+    }
+    {   /* (UMBRA LIVE, the user 2026-11-16) plate API 7, a plate's colours' parts: every plate names its parts (six at most),
+         * CORONA six; a layer's context has each part's colour as COLOR chose it (umb_cols): KOI's FISH the palette's colour 3
+         * at first, PATCH 1 its 4; OWN the header's rgb; a part that follows the notes (NOTES) the tracks' at first, OWN the
+         * notes' own; TRACKS only where the part is flagged for it; tc the palette's six; a part flagged DIM half the light.
+         * A ground's cold palette: made from its two ramp parts (palette 1 and 2 differ), the original with both OWN; a veil
+         * never touches it */
+        static uint16_t l0[4][256], l1[4][256];
+        const umb_plate_t *ko = &umb_plate_koi, *ci = &umb_plate_cinder, *p;
+        umb_lctx_t c;
+        uint32_t i, j, okp = 1;
+        ui_power_on(); frame();
+        memset(&umc, 0, sizeof umc);
+        umc_load();
+        ok = umb_plate_corona.api == 7u && umb_plate_corona.ncol == 6u && str_eq(umb_plate_corona.col[0].name, "CORONA") &&
+             (umb_plate_corona.col[0].def & UMB_COLF_RAMP) && str_eq(umb_plate_corona.col[5].name, "BEADS") &&
+             ko->ncol == 6u && str_eq(ko->col[0].name, "FISH") && (ko->col[0].def & 7u) == 3u && str_eq(ko->col[1].name, "NOTES") &&
+             (ko->col[1].def & UMB_COLF_TRK) && sizeof c.pc == 18u && sizeof c.tc == 18u;
+        for (i = 0; i < UMB_NPLT; i++) {                           /* every plate there is: parts, named, their choice at first one
+                                                                    * there is (the tracks' only where flagged) */
+            if (!umb_has(i)) continue;
+            p = umb_mod(i);
+            okp &= p->api == UMB_API && p->ncol >= 1u && p->ncol <= UMB_NCOL && !p->splash;
+            for (j = 0; j < p->ncol && j < UMB_NCOL; j++)
+                okp &= p->col[j].name[0] && str_len(p->col[j].name) < 8u &&
+                       ((p->col[j].def & 7u) != UMB_COL_TRK || (p->col[j].def & UMB_COLF_TRK)) && umb_colc(p, j) == (p->col[j].def & 7u);
+            if (!okp) { printf("  parts: plate %u %s\n", i, p->name); break; }
+        }
+        ok &= okp;
+        memset(&umc, 0, sizeof umc);                              /* (the records the round made: gone) */
+        umc_load();
+        memset(&c, 0xEE, sizeof c);
+        umb_cols(&c, ko, 1u);
+        ok &= umb_colc(ko, 0u) == 3u && !memcmp(c.pc[0], umc.pal[0][2], 3) && c.pc[0][0] == 236u && c.pm[0] == UMB_PM_ONE &&
+              !memcmp(c.pc[2], umc.pal[0][3], 3) && !memcmp(c.pc[5], umc.pal[0][5], 3) &&
+              umb_colc(ko, 1u) == UMB_COL_TRK && c.pm[1] == UMB_PM_TRACKS && !memcmp(c.tc, umc.pal[0], sizeof c.tc) &&
+              !c.rsv5[0] && !c.rsv5[1];
+        umb_pal_set(1u);                                           /* (palette 2 in use: the same parts, its colours) */
+        umb_cols(&c, ko, 1u);
+        ok &= !memcmp(c.pc[0], umc.pal[1][2], 3) && c.pc[0][1] == 236u && !memcmp(c.tc, umc.pal[1], sizeof c.tc);
+        umb_colc_set(ko, 0u, UMB_COL_OWN);                         /* (OWN: as the plate was drawn, whatever the palette) */
+        umb_colc_set(ko, 1u, UMB_COL_OWN);
+        umb_cols(&c, ko, 1u);
+        ok &= umb_colc(ko, 0u) == UMB_COL_OWN && !memcmp(c.pc[0], ko->col[0].rgb, 3) && c.pc[0][1] == 250u && c.pm[0] == UMB_PM_ONE &&
+              c.pm[1] == UMB_PM_NOTES && !memcmp(c.pc[2], umc.pal[1][3], 3);
+        umb_colc_set(ko, 0u, UMB_COL_TRK);                         /* (TRACKS on a part not flagged for it: its own) */
+        umb_colc_set(ko, 1u, 5u);                                  /* (a part of the notes' given one colour: the palette's 5) */
+        umb_cols(&c, ko, 1u);
+        ok &= umb_colc(ko, 0u) == UMB_COL_OWN && c.pm[0] == UMB_PM_ONE && !memcmp(c.pc[0], ko->col[0].rgb, 3) &&
+              umb_colc(ko, 1u) == 5u && c.pm[1] == UMB_PM_ONE && !memcmp(c.pc[1], umc.pal[1][4], 3);
+        for (i = 0; i < UMB_NPLT; i++)                             /* (a part flagged DIM: the palette's colour at half its light) */
+            if (umb_has(i) && (umb_mod(i)->col[0].def & UMB_COLF_DIM) && (umb_mod(i)->col[0].def & 7u) && (umb_mod(i)->col[0].def & 7u) < UMB_COL_TRK) {
+                p = umb_mod(i);
+                umb_cols(&c, p, 1u);
+                for (j = 0; j < 3u; j++)
+                    ok &= c.pc[0][j] == umc.pal[1][(p->col[0].def & 7u) - 1u][j] >> 1;
+                break;
+            }
+        if (!ok) printf("  parts: koi %u %u, pc %u %u %u pm %u %u\n", umb_colc(ko, 0u), umb_colc(ko, 1u), c.pc[0][0], c.pc[0][1], c.pc[0][2], c.pm[0], c.pm[1]);
+        bad += check("(UMBRA LIVE) API 7 parts: every plate names its colours' parts (CORONA six); a context's colours follow COLOR's choice and the palette in use: KOI's FISH colour 3 at first, OWN the header's rgb, TRACKS only where flagged, DIM half", ok);
+        memset(&umc, 0, sizeof umc);
+        umc_load();
+        ump_sig = 0;
+        ump_lut_for(0, 0);                                         /* (the cold palette as it ever was) */
+        memcpy(l0, ump_lut, sizeof l0);
+        ok = ump_sig == 1u && (ci->col[0].def & UMB_COLF_RAMP) && umb_colc(ci, 0u) == 1u && umb_colc(ci, 1u) == 2u;
+        umb_cols(&c, ci, 0u);                                      /* (CINDER the ground, palette 1: HEAT its colour 1, GLOW its 2) */
+        memcpy(l1, ump_lut, sizeof l1);
+        ok &= ump_sig != 1u && memcmp(l1, l0, sizeof l0) != 0 && l1[0][0] == l0[0][0];   /* (black stays black) */
+        umb_cols(&c, ko, 1u);                                      /* (a veil: the ground's palette let be) */
+        ok &= !memcmp(l1, ump_lut, sizeof l1);
+        umb_pal_set(1u);
+        umb_cols(&c, ci, 0u);                                      /* (palette 2: another) */
+        ok &= memcmp(l1, ump_lut, sizeof l1) != 0 && memcmp(l0, ump_lut, sizeof l0) != 0;
+        umb_pal_set(0u);
+        umb_cols(&c, ci, 0u);
+        ok &= !memcmp(l1, ump_lut, sizeof l1);                     /* (palette 1 again: as it was) */
+        umb_colc_set(ci, 0u, UMB_COL_OWN);
+        umb_cols(&c, ci, 0u);                                      /* (HEAT its own, GLOW the palette's: made from the two still) */
+        ok &= memcmp(l0, ump_lut, sizeof l0) != 0 && memcmp(l1, ump_lut, sizeof l1) != 0;
+        umb_colc_set(ci, 1u, UMB_COL_OWN);
+        umb_cols(&c, ci, 0u);                                      /* (both their own: the original) */
+        ok &= ump_sig == 1u && !memcmp(l0, ump_lut, sizeof l0) && !memcmp(c.pc[0], ci->col[0].rgb, 3) && !memcmp(c.pc[1], ci->col[1].rgb, 3);
+        umb_pal_set(1u);
+        umb_cols(&c, ci, 0u);                                      /* (.. whatever the palette in use) */
+        ok &= !memcmp(l0, ump_lut, sizeof l0);
+        umb_colc_set(ci, 0u, 1u);
+        umb_cols(&c, ci, 0u);
+        umb_cols(&c, ko, 0u);                                      /* (a plate with no ramp part as the ground: the original) */
+        ok &= ump_sig == 1u && !memcmp(l0, ump_lut, sizeof l0);
+        if (!ok) printf("  cold palette: sig %x\n", ump_sig);
+        memset(&umc, 0, sizeof umc);
+        bad += check("(UMBRA LIVE) API 7 cold palette: a ground's made from its two ramp parts (palette 1 and 2 differ, a veil lets it be); both parts OWN, or no ramp part: the original", ok);
+    }
+    {   /* (UMBRA LIVE, the user 2026-11-16) HOME > UMBRA > COLOR: ALGORITHM the plate (any plate, none of SCREEN EFFECTS
+         * BUTTONS BODIES), KNOB 1 the part, KNOB 2 its colour OWN 1..6 (TRACKS past 6 only on a part that follows the notes),
+         * KNOB 3 or PRESETS the palette in use (1..4, stopping at the ends), KNOB 4 nothing; the knob row PART COLOR PALETTE;
+         * the plate's context follows; OCT+ / OCT- nothing (WELCOME's check); no macro, no parameter turned */
+        const umb_plate_t *ko = &umb_plate_koi;
+        umb_lctx_t c;
+        char b[12];
+        uint32_t n, wrong = 0, c0;
+        uint8_t m0[4];
+        ui_power_on(); frame();
+        memset(&umc, 0, sizeof umc);
+        umb_plate = 0x80u;                                         /* (CINDER) */
+        nav_go(SEC_HOME, HOME_COLOR, 0); frame();
+        umx_pg = (uint8_t)(UMP_NPL + 14u); umcl_r = 0;             /* (KOI) */
+        memcpy(m0, macro_v, 4);
+        c0 = (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]];
+        ok = ui.hset[0] == HOME_COLOR && home_bare() && umk_on() && lz_crumb_is("HOME \xB7 UMBRA \xB7 COLOR") && umcl_p() == ko &&
+             umb_colc(ko, 0u) == 3u && umc.palcur == 0u;
+        turn(EN_K2, -1);                                           /* (FISH: 3, 2 ..) */
+        ok &= umb_colc(ko, 0u) == 2u;
+        umb_cols(&c, ko, 1u);
+        ok &= !memcmp(c.pc[0], umc.pal[0][1], 3);
+        turn(EN_K2, -9);                                           /* (.. OWN, no further) */
+        umb_cols(&c, ko, 1u);
+        umcl_word(b, umb_colc(ko, 0u));
+        ok &= umb_colc(ko, 0u) == UMB_COL_OWN && !memcmp(c.pc[0], ko->col[0].rgb, 3) && str_eq(b, "OWN");
+        turn(EN_K2, 20);                                           /* (6 its last: not the tracks') */
+        umcl_word(b, umb_colc(ko, 0u));
+        ok &= umb_colc(ko, 0u) == UMB_NCOL && str_eq(b, "6");
+        turn(EN_K1, 1);                                            /* (NOTES: the tracks' at first, the last choice there) */
+        umcl_word(b, umb_colc(ko, 1u));
+        ok &= umcl_r == 1u && umb_colc(ko, 1u) == UMB_COL_TRK && str_eq(b, "TRACKS") && umb_colc(ko, 0u) == UMB_NCOL;
+        turn(EN_K2, -1); turn(EN_K2, 5);
+        ok &= umb_colc(ko, 1u) == UMB_COL_TRK;
+        turn(EN_K1, 20);                                           /* (its last part, no further; back to the first) */
+        ok &= umcl_r == ko->ncol - 1u;
+        turn(EN_K1, -20);
+        ok &= umcl_r == 0u;
+        turn(EN_K3, 1);                                            /* (KNOB 3: the palette in use) */
+        umb_cols(&c, ko, 1u);
+        ok &= umc.palcur == 1u && !memcmp(c.pc[0], umc.pal[1][5], 3) && !memcmp(c.tc, umc.pal[1], sizeof c.tc);
+        turn(EN_PRESET, 1);                                        /* (PRESETS too) */
+        ok &= umc.palcur == 2u;
+        turn(EN_K3, 9);
+        ok &= umc.palcur == UMP_NPAL - 1u;
+        turn(EN_PRESET, -9);
+        ok &= umc.palcur == 0u;
+        turn(EN_K4, 3); frame();                                   /* (KNOB 4: nothing; no macro, no parameter turned by any) */
+        ok &= umc.palcur == 0u && umcl_r == 0u && umb_colc(ko, 0u) == UMB_NCOL && !memcmp(m0, macro_v, 4) &&
+              (uint32_t)TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] == c0 && ui.home && !umt.on;
+        if (!ok) printf("  color: part %u choice %u %u palette %u page %u\n", umcl_r, umb_colc(ko, 0u), umb_colc(ko, 1u), umc.palcur, umx_pg);
+        umcl_r = 3;
+        for (n = 0; n < UMX_N + 2u; n++) {                         /* (ALGORITHM: the plates there are, round; the part the first) */
+            turn(EN_ALGO, 1);
+            wrong |= umx_pg >= UMB_NPLT || !umb_has(umx_pg) || umcl_r != 0u || umcl_p() != umb_mod(umx_pg);
+            umcl_r = 1;
+        }
+        ok &= !wrong && ui.hset[0] == HOME_COLOR;
+        frames(64);                                                /* (drawn: its words over the plate) */
+        for (n = 0, c0 = 0; n < 240u * 150u; n++) c0 += lg_px((int32_t)(n % 240u), 60 + (int32_t)(n / 240u)) == T_THEME;
+        ok &= c0 > 40u;
+        if (!ok) printf("  color: wrong %u, page %u, ink %u\n", wrong, umx_pg, c0);
+        memset(&umc, 0, sizeof umc);
+        umx_pg = 0xFFu; umcl_r = 0;
+        umb_plate = 0x80u;
+        bad += check("(UMBRA LIVE) COLOR: ALGORITHM the plate, KNOB 1 the part, KNOB 2 its colour OWN 1..6 (TRACKS where the part follows the notes), KNOB 3 or PRESETS the palette in use; the plate's context follows", ok);
+    }
+    {   /* (UMBRA LIVE, the user 2026-11-16) HOME > UMBRA > PLATES, the list of what is installed in two columns: ALGORITHM
+         * (or KNOB 1, a detent a plate) the next plate, BODIES among them and nothing past it (no SCREEN, EFFECTS, BUTTONS),
+         * round; laid where its kind goes: a ground MAIN, a veil OVER (the ground kept), BODIES OVER; KNOB 2..4 nothing */
+        uint32_t n, seen = 0, wrong = 0, gr = 0, ve = 0, body = 0, lastg = 0, have = 1, ink = 0;
+        ui_power_on(); frame();
+        memset(&umc, 0, sizeof umc);
+        umb_plate = 0x80u;                                         /* (CINDER) */
+        for (n = 0; n < UMB_NPLT; n++) have += umb_has(n) != 0;    /* (the plates there are, and BODIES) */
+        nav_go(SEC_HOME, HOME_PLATES, 0); frame();
+        umx_pg = 0xFFu;
+        ok = ui.hset[0] == HOME_PLATES && home_bare() && umk_on() && umx_cur() == 0u && !umc.lay[0] && lz_crumb_is("HOME \xB7 UMBRA \xB7 PLATES");
+        turn(EN_ALGO, 1);                                          /* (the next: GRANULE, a ground: MAIN) */
+        ok &= umx_pg == 3u && umb_pl() == 3u && umx_place(3u) == 1u && !umc.lay[0];
+        for (n = 0; n < UMB_NPLT && !umx_veil(umx_pg); n++) {     /* (.. on through the grounds to the first veil: OVER, the */
+            lastg = umx_pg;                                        /* last ground kept under it) */
+            turn(n & 1u ? EN_K1 : EN_ALGO, 1);
+        }
+        ok &= umx_pg < UMB_NPLT && umx_veil(umx_pg) && umx_place(umx_pg) == 2u && umc.lay[0] == umx_key(umb_pname(umx_pg)) &&
+              umb_pl() == lastg && !umx_veil(lastg) && umx_place(lastg) == 1u;
+        if (!ok) printf("  plates list: page %u ground %u (last %u) over %x\n", umx_pg, umb_pl(), lastg, umc.lay[0]);
+        for (n = 0; n < have; n++) {                               /* (a whole round from there) */
+            turn(EN_K1, 1);
+            wrong |= umx_pg > UMX_BODY || (umx_pg < UMB_NPLT && !umb_has(umx_pg)) || !umx_place(umx_pg) ||
+                     (umx_place(umx_pg) == 2u) != (umx_veil(umx_pg) != 0);
+            seen += umx_pg <= UMX_BODY;
+            gr += umx_pg < UMB_NPLT && !umx_veil(umx_pg);
+            ve += umx_pg < UMB_NPLT && umx_veil(umx_pg);
+            body += umx_pg == UMX_BODY;
+        }
+        ok &= !wrong && seen == have && body == 1u && gr + ve + 1u == have && gr >= 8u && ve >= 8u;
+        n = umx_pg;
+        turn(EN_K1, 5);                                            /* (KNOB 1 fast: a plate a turn; back: the one before) */
+        turn(EN_ALGO, -1);
+        ok &= umx_pg == n;
+        turn(EN_K2, 3); turn(EN_K3, 3); turn(EN_K4, 3); frames(64);   /* (the other knobs: nothing) */
+        ok &= umx_pg == n && !macro_v[0] && !macro_v[1] && !macro_v[2] && !macro_v[3] && umc.palcur == 0u && ui.home && !umt.on;
+        for (n = 0; n < 240u * 150u; n++) {                        /* (the list drawn: the names, the chosen one's in the theme's) */
+            uint16_t q = lg_px((int32_t)(n % 240u), 60 + (int32_t)(n / 240u));
+            ink += q == T_TEXT;
+            seen += 0u;
+            wrong += q == T_THEME ? 0x10000u : 0u;
+        }
+        ok &= ink > 300u && (wrong >> 16) > 20u;
+        if (!ok) printf("  plates list: wrong %u seen %u of %u (grounds %u veils %u bodies %u) ink %u theme %u\n", wrong & 0xFFFFu, seen, have, gr, ve, body, ink, wrong >> 16);
+        memset(&umc, 0, sizeof umc);
+        umx_pg = 0xFFu;
+        umb_plate = 0x80u;
+        bad += check("(UMBRA LIVE) PLATES: the list; ALGORITHM or KNOB 1 the next plate there is, BODIES too, round, each laid where its kind goes (a ground MAIN, a veil OVER); the other knobs nothing", ok);
+    }
+    {   /* (UMBRA LIVE, the user 2026-11-16) HOME > BEING > KNOBS: KNOB k steps what the selected track's knob k turns
+         * through the list (AUTO: its engine's own, the sound's parameters, M1..M4), a detent a place, stopping at the ends,
+         * a track each; BEING's knobs and TOTALITY's turn what was chosen (the foot: its label and value); a knob on a
+         * macro (M2) turns macro_v[1] on BEING and in TOTALITY, no parameter; another track: its own still */
+        int16_t *vp, v0, e0;
+        const param_desc_t *pd;
+        const char *u;
+        char want[24], vb[12];
+        uint32_t i, k, id = 0, own;
+        ui_power_on(); frame();
+        memset(&umc, 0, sizeof umc);
+        memset(macro_v, 0, sizeof macro_v);
+        track_select(0);
+        own = trk_engp(TSEL)->knob[1];
+        for (i = 1; i < sizeof UMK_KL - 4u; i++) {                 /* (a parameter of the list that is none of the engine's own four) */
+            id = UMK_KL[i] - 1u;
+            for (k = 0; k < 4u && trk_engp(TSEL)->knob[k] != id; k++) {}
+            if (k == 4u && id != P_LRATE && track_desc(TSEL, id)->max - track_desc(TSEL, id)->min >= 20) break;
+        }
+        ok = UMK_KL[0] == 0u && UMK_KL[sizeof UMK_KL - 1u] == 0x83u && UMK_KL[sizeof UMK_KL - 4u] == 0x80u && i < sizeof UMK_KL - 4u;
+        pd = home_param(1u, &vp);
+        ok &= vp == &TSEL->p[own] && pd == track_desc(TSEL, own) && !umk_kn(0u, 1u);   /* (at first: its engine's own) */
+        nav_go(SEC_HOME, HOME_E_BEING + 1u, 0); frame();          /* KNOBS */
+        ok &= home_macros() && !home_bare() && lz_crumb_is("HOME \xB7 BEING \xB7 KNOBS");
+        e0 = TSEL->p[own];
+        turn(EN_K2, -1);                                           /* (AUTO the first: no further back) */
+        ok &= !umc.kn[0][1];
+        turn(EN_K2, 5);                                            /* (a detent a place, however fast) */
+        ok &= umc.kn[0][1] == UMK_KL[1];
+        for (k = 1; k < i; k++) turn(EN_K2, 1);
+        pd = home_param(1u, &vp);
+        ok &= umc.kn[0][1] == id + 1u && umk_kn(0u, 1u) == id + 1u && vp == &TSEL->p[id] && pd == track_desc(TSEL, id) &&
+              TSEL->p[own] == e0 && !umc.kn[0][0] && !umc.kn[0][2] && !umc.kn[1][1] && umc_dirty;   /* (nothing turned; that knob of that track alone) */
+        frames(64);                                                /* (drawn: the parameter's name on the page and in the knob row) */
+        nav_go(SEC_HOME, HOME_E_BEING, 0); frame();               /* BEING: KNOB 2 turns it, not the engine's own */
+        TSEL->p[id] = (int16_t)((pd->min + pd->max) / 2);
+        v0 = TSEL->p[id];
+        turn(EN_K2, 3);
+        ok &= !home_macros() && TSEL->p[id] != v0 && TSEL->p[own] == e0;
+        if (!ok) printf("  knobs: id %u own %u kn %u value %d from %d, own %d from %d\n", id, own, umc.kn[0][1], TSEL->p[id], v0, TSEL->p[own], e0);
+        nav_go(SEC_HOME, HOME_PLATES, 0); frame(); press(B_HOME); frames(32);   /* TOTALITY: the same */
+        v0 = TSEL->p[id];
+        turn(EN_K2, -2);
+        ok &= umt.on && TSEL->p[id] != v0 && TSEL->p[own] == e0 && !macro_v[1] && !umt.say_ms;
+        press(B_SEQ);                                              /* (the words on: the parameter's label and value) */
+        turn(EN_K2, 1);
+        param_format(pd, TSEL->p[id], vb, &u);
+        str_cpy(want, pd->label, sizeof want);
+        str_cpy(want + str_len(want), " ", 2);
+        str_cpy(want + str_len(want), vb, 12);
+        ok &= str_eq(umt.say, want);
+        if (!ok) printf("  knobs, totality: say '%s' want '%s'\n", umt.say, want);
+        if (trk_live > 1u) {                                       /* (another track: its engine's own, T1's chosen one let be) */
+            v0 = TSEL->p[id];
+            turn(EN_ALGO, 1);
+            pd = home_param(1u, &vp);
+            e0 = *vp;
+            ok &= song.sel == 1u && vp == &trk[1].p[trk_engp(&trk[1])->knob[1]];
+            turn(EN_K2, pd->fmt == F_ENUM || *vp < pd->max ? 1 : -1);
+            ok &= *vp != e0 && trk[0].p[id] == v0;
+            *vp = e0;
+            turn(EN_ALGO, -1);
+        }
+        press(B_SEQ); press(B_HOME); frame();
+        ok &= !umt.on && song.sel == 0u;
+        bad += check("(UMBRA LIVE) KNOBS: a knob of the selected track given a parameter of the list (a detent a place, AUTO first), that track's knob alone; BEING and TOTALITY turn it, the foot its label and value; another track its engine's own", ok);
+        nav_go(SEC_HOME, HOME_E_BEING + 1u, 0); frame();          /* KNOBS: KNOB 3 to the list's end (M4), two back: M2 */
+        for (k = 0; k < sizeof UMK_KL + 3u; k++) turn(EN_K3, 1);
+        ok = umc.kn[0][2] == 0x83u;
+        turn(EN_K3, -1); turn(EN_K3, -1);
+        pd = home_param(2u, &vp);
+        ok &= umc.kn[0][2] == 0x81u && str_eq(pd->label, "M2") && pd->fmt == F_PCT && pd->min == 0 && pd->max == 127 && *vp == 0;
+        own = trk_engp(TSEL)->knob[2];
+        e0 = TSEL->p[own];
+        nav_go(SEC_HOME, HOME_E_BEING, 0); frame();               /* BEING: M2 */
+        turn(EN_K3, 6);
+        ok &= macro_v[1] == 6u && !macro_v[0] && !macro_v[2] && !macro_v[3] && TSEL->p[own] == e0;
+        nav_go(SEC_HOME, HOME_PLATES, 0); frame(); press(B_HOME); frames(32);   /* TOTALITY: M2 */
+        press(B_SEQ);
+        turn(EN_K3, 10);
+        ok &= umt.on && macro_v[1] == 16u && !macro_v[2] && TSEL->p[own] == e0 && str_eq(umt.say, "M2 13");
+        turn(EN_K3, 127);
+        ok &= macro_v[1] == 127u && str_eq(umt.say, "M2 100");    /* (its end) */
+        turn(EN_K1, 1);                                            /* (KNOB 1, not chosen: its engine's own still, no macro) */
+        ok &= !macro_v[0] && macro_v[1] == 127u && umt.say[0] && !str_eq(umt.say, "M2 100");
+        press(B_FX);                                               /* (FX tapped: the effects, whatever KNOBS chose) */
+        turn(EN_K3, 5);
+        ok &= umt.fx && macro_v[1] == 127u && umg_raw(G_MIR + 2u) == 5u;
+        turn(EN_K3, -5); press(B_FX);
+        if (!ok) printf("  knobs, macro: kn %x M2 %u say '%s'\n", umc.kn[0][2], macro_v[1], umt.say);
+        press(B_SEQ); press(B_HOME); frame();
+        memset(&umc, 0, sizeof umc);
+        memset(macro_v, 0, sizeof macro_v);
+        ui_power_on();
+        bad += check("(UMBRA LIVE) KNOBS: a knob given to M2 turns macro_v[1] on BEING and in TOTALITY (said M2), no parameter; FX tapped the effects still", ok);
+    }
+    {   /* (UMBRA LIVE, the user 2026-11-16) SAVE > SONG > TIMELINE's third picture track, COLOR: ALGORITHM past OVER reaches
+         * it (no further), KNOB 4 the row's palette (-- as before, 1..4), the palette in use at once; a row with none keeps
+         * the last one called for before it; OCT+ opens no cell there; a row copied takes its palette */
+        ui_power_on(); frame();
+        memset(&umc, 0, sizeof umc);
+        umb_plate = 0x80u;
+        chain_defaults(&chain_config);
+        chain_config.count = 4;
+        song_cur = 0;
+        go_title("TIMELINE"); frame();
+        ui.song_row = 0; umv_tk = umv_ed = 0;
+        track_select(trk_live - 1u);
+        turn(EN_ALGO, 1); turn(EN_ALGO, 1); turn(EN_ALGO, 1);      /* (MAIN, OVER, COLOR) */
+        ok = umv_tk == 3u && song.sel == trk_live - 1u && !umv_cp(0u) && umc.palcur == 0u;
+        turn(EN_ALGO, 1);                                          /* (the last) */
+        ok &= umv_tk == 3u;
+        turn(EN_K4, 2); frame();                                   /* (row 1: palette 2, in use at once) */
+        ok &= umv_cp(0u) == 2u && umc.cp[0][0] == 2u && umc.palcur == 1u && !umv_cell(0, 0)->key && !umv_cell(0, 1)->key && umc_dirty;
+        turn(EN_K4, 9);
+        ok &= umv_cp(0u) == UMP_NPAL && umc.palcur == UMP_NPAL - 1u;   /* (4 the last) */
+        turn(EN_K4, -2);
+        ok &= umv_cp(0u) == 2u && umc.palcur == 1u;
+        press(B_OCTUP); frame();                                   /* (OCT+: no cell to open there: TIMELINE's own, as on a sound's
+                                                                    * track, a row added after the cursor's, its palette with it) */
+        ok &= !umv_on() && !umv_ed && umv_tk == 3u && umv_cp(0u) == 2u && chain_config.count == 5u && msg_is("ROW ADDED") &&
+              ui.song_row == 1u && umv_cp(1u) == 2u && song.octave == 0;
+        press(B_OCTDN); frame();
+        ok &= !umv_ed && umv_tk == 3u && ui.confirm && chain_config.count == 5u;   /* (OCT-: TIMELINE's own too, the row's
+                                                                    * removal asked; OCT- again: not done) */
+        press(B_OCTDN); frame();
+        ok &= !ui.confirm && chain_config.count == 5u && umv_tk == 3u && !umv_ed;
+        if (!ok) printf("  timeline color, oct: confirm %u count %u tk %u ed %u\n", ui.confirm, chain_config.count, umv_tk, umv_ed);
+        chain_config.count = 4; ui.song_row = 0;                   /* (the four rows again, row 1's palette alone) */
+        memset(umc.cp[0], 0, sizeof umc.cp[0]);
+        umc.cp[0][0] = 2u;
+        if (!ok) printf("  timeline color: tk %u ed %u row 1 %u in use %u\n", umv_tk, umv_ed, umv_cp(0u), umc.palcur);
+        umv_apply(1);                                              /* (row 2 has none: as row 1's) */
+        ok &= !umv_cp(1u) && umc.palcur == 1u;
+        umc.cp[0][2] = 4u;                                         /* (row 3: palette 4; row 4 none: row 3's; row 2 again: row 1's) */
+        umv_apply(2);
+        ok &= umc.palcur == 3u;
+        umv_apply(3);
+        ok &= umc.palcur == 3u;
+        umv_apply(1);
+        ok &= umc.palcur == 1u;
+        umv_req = 3; umv_poll();                                   /* (the song: row 3 gone in) */
+        ok &= !umv_req && umc.palcur == 3u;
+        ui.song_row = 0;
+        turn(EN_K4, -9); frame();                                  /* (row 1 --: no palette called for before it, the last one stays) */
+        ok &= !umv_cp(0u) && umc.palcur == 3u;
+        umv_apply(1);
+        ok &= umc.palcur == 3u;
+        umv_rows(1, 2);                                            /* (row 2 becomes row 3: its palette with it; a row emptied: none) */
+        ok &= umv_cp(1u) == 4u;
+        umv_rows(2, CHAIN_ROWS);
+        ok &= !umv_cp(2u);
+        umv_rows(CHAIN_ROWS, 0);                                   /* (a new song: no row's) */
+        ok &= !umv_cp(1u);
+        turn(EN_ALGO, -1); turn(EN_ALGO, -1); turn(EN_ALGO, -1);
+        ok &= !umv_tk;
+        frame();
+        memset(&umc, 0, sizeof umc);
+        chain_defaults(&chain_config);
+        umv_tk = umv_ed = 0;
+        umb_plate = 0x80u;
+        bad += check("(UMBRA LIVE) TIMELINE: the COLOR track past OVER, KNOB 4 the row's palette (-- 1..4), in use at once; a row with none the last one called for; OCT+ opens no cell; a row copied takes its palette", ok);
     }
     for (sk = 0; sk < SKIN_N; sk++) {                             /* every lens page in each skin */
         int okp = 1;
@@ -12123,21 +12616,22 @@ static int test_skin(void)
             if (!okp) { printf("  skin %u: %s\n", sk, PAGES[i].title); break; }
         }
         ok = okp;
-        for (i = 0; i < 3u; i++) {                                /* HOME's groups: (UMBRA LIVE) WELCOME, UMBRA, GEN */
+        for (i = 0; i < 4u; i++) {                                /* HOME's groups: (UMBRA LIVE) WELCOME, UMBRA, BEING (a tab of
+                                                                   * its own again, 2026-11-16), GENE */
             ui_power_on(); ui_skin = (uint8_t)sk; frame();
-            nav_go(SEC_HOME, i == 2u ? HOME_E_GEN : i ? HOME_E_BEING : 0u, 0);   /* (UMBRA LIVE: a HOME tap on HOME is
+            nav_go(SEC_HOME, i == 3u ? HOME_E_GEN : i == 2u ? HOME_E_BEING : i ? HOME_PLATES : 0u, 0);   /* (UMBRA LIVE: a HOME tap on HOME is
                                                                   * TOTALITY; the groups by their pages) */
             frames(100);
-            ok &= lz_on() && lz_fam() == LZ_HOME && lz_level() == i && hud_home() == ((sk == SKIN_HUD || sk == SKIN_AIR) && !i) &&
+            ok &= lz_on() && lz_fam() == LZ_HOME && lz_level() == i && hud_home() == ((sk == SKIN_HUD || sk == SKIN_AIR) && i < 2u) &&
                   skin_ink(LZ_FOOT_Y, 240) > 0;
         }
         hold(B_HOME); frame();                                    /* the menu */
         ok &= ui.menu == 1u && lz_low() == (sk != SKIN_COLORS);
         press(B_HOME);
-        bad += check(sk == SKIN_COLORS ? "SKIN COLORS: every page of the lenses, HOME's three levels and the menu drawn" :
-                     sk == SKIN_BOTTOM ? "SKIN BOTTOM: every page of the lenses, HOME's three levels and the menu drawn" :
-                     sk == SKIN_HUD ? "SKIN HUD: every page of the lenses, HOME's three levels and the menu drawn" :
-                     "SKIN AIR: every page of the lenses, HOME's three levels and the menu drawn", ok && npg > 40u);
+        bad += check(sk == SKIN_COLORS ? "SKIN COLORS: every page of the lenses, HOME's four groups and the menu drawn" :
+                     sk == SKIN_BOTTOM ? "SKIN BOTTOM: every page of the lenses, HOME's four groups and the menu drawn" :
+                     sk == SKIN_HUD ? "SKIN HUD: every page of the lenses, HOME's four groups and the menu drawn" :
+                     "SKIN AIR: every page of the lenses, HOME's four groups and the menu drawn", ok && npg > 40u);
     }
     ui_power_on(); frame();
     return bad;

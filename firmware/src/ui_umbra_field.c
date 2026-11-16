@@ -28,27 +28,56 @@ static uint16_t ump_lut[4][256] __attribute__((section(".pool")));   /* the pale
  * bytes of the slot) */
 static const uint8_t UMP_ST[6][4] = {{0, 0, 0, 0}, {40, 2, 5, 18}, {84, 14, 38, 112}, {136, 44, 130, 200}, {190, 132, 218, 228},
                                      {255, 248, 255, 255}};
-static const uint8_t UMP_WT[3] = {236, 250, 246};       /* white-teal */
-static const uint8_t UMP_WARM[2][3] = {{255, 206, 64}, {255, 122, 28}};   /* the warm tints: yellow, orange (ump_tint) */
+/* (plate API 7) CORONA's colours' parts, their own: the cold palette's two (CORONA, GLOW), the warm tints (yellow, orange:
+ * ump_tint), the prominences' rose, the beads' white-teal; ump_pc: as the layer has them now (ump_co_strip; the welcome:
+ * their own) */
+static const uint8_t UMP_OWN[UMB_NCOL][3] = {{14, 38, 112}, {132, 218, 228}, {255, 206, 64}, {255, 122, 28}, {232, 124, 196},
+                                             {236, 250, 246}};
+static const uint8_t (*ump_pcl)[3] __attribute__((section(".pool")));   /* (0: their own) */
+#define ump_pc (ump_pcl ? ump_pcl : UMP_OWN)
+#define UMP_WT ump_pc[5]
+#define UMP_WARM (ump_pc + 2)
 #define UMP_IX(v, vg) ump_ix(((v) * (vg)) >> 8)
 static inline __attribute__((always_inline)) int32_t ump_ix(int32_t i) { return i < 0 ? 0 : i > 255 ? 255 : i; }
 /* a pixel: the palette at v (0..255; its plain entry) and the light r g b added, darkened by vg (Q8), dithered by d (only
  * lit pixels, GRANULE's, TARN's sheen and the warm tints, come here) */
 #define ump_rgb(v, r, g, b, vg, d) umm_add(ump_lut[1][UMP_IX(v, vg)], r, g, b, vg, d)
-static void ump_lut_make(void)
+/* (plate API 7) the palette made: the cold one (D: 0), or a ground's own two colours' (D its deep one, B its bright one:
+ * black, a trace of D, D at half, the two between, B, B near white: the cold one's own shape) */
+static uint32_t ump_sig __attribute__((section(".pool")));   /* what it was made from (0: not yet; 1: the cold one) */
+static void ump_lut_make(const uint8_t *D, const uint8_t *B)
 {
+    uint8_t st[6][4];
     uint32_t k, i, j = 0, c;
     int32_t p[3];
+    memcpy(st, UMP_ST, sizeof st);
+    for (c = 1; D && c < 4u; c++) {
+        uint32_t d = D[c - 1], b = B[c - 1];
+        st[1][c] = (uint8_t)(d / 12u);
+        st[2][c] = (uint8_t)(d / 2u);
+        st[3][c] = (uint8_t)((d + b) / 2u);
+        st[4][c] = (uint8_t)b;
+        st[5][c] = (uint8_t)(b + (255u - b) * 7u / 8u);
+    }
     for (i = 0; i < 256u; i++) {
         const uint8_t *a, *b;
-        while (i > UMP_ST[j + 1][0])
+        while (i > st[j + 1][0])
             j++;
-        a = UMP_ST[j];
-        b = UMP_ST[j + 1];
+        a = st[j];
+        b = st[j + 1];
         for (c = 1; c < 4u; c++)
             p[c - 1] = a[c] + (b[c] - a[c]) * (int32_t)(i - a[0]) / (b[0] - a[0]);
         for (k = 0; k < 4u; k++)
             ump_lut[k][i] = ump_pack(p[0], p[1], p[2], UMP_D2[k]);
+    }
+}
+static void ump_lut_for(const uint8_t *D, const uint8_t *B)   /* .. if it is not the one made already */
+{
+    uint32_t g = D ? 2u | (uint32_t)(D[0] ^ B[1]) << 8 | (uint32_t)(D[1] ^ B[2]) << 16 | (uint32_t)(D[2] ^ B[0]) << 24 |
+                         (uint32_t)(B[0] + B[1] + B[2] + D[0]) << 2 : 1u;
+    if (g != ump_sig) {
+        ump_sig = g;
+        ump_lut_make(D, B);
     }
 }
 /* the warm tints (CINDER, CORONA): a track's own (3 yellow, 4 orange; 0: none, the cold palette), as a tint byte: its share
@@ -263,7 +292,7 @@ static void ump_co_draw(int32_t x0, int32_t y0)
         int32_t fq = s->ph[i] ? ump_fade(age, 1400u, 8u) : 0, rise = age >= 250u ? 256 : (int32_t)(age * 256u / 250u),
                 dl = s->ph[i] * UMR_PW[kd] >> 2, hh = s->ph[i] * UMR_PH[kd] * rise >> 2,
                 lift = kd == 3u ? s->ph[i] * rise * 3 >> 1 : 0;
-        const uint8_t *pc = s->pc[i] ? UMP_WARM[s->pc[i] >> 7] : UMB_EVC[6];   /* (rose; tracks 3 and 4 theirs) */
+        const uint8_t *pc = s->pc[i] ? UMP_WARM[s->pc[i] >> 7] : ump_pc[4];   /* (rose; tracks 3 and 4 theirs) */
         if (!fq)
             continue;
         for (u = 0; u <= 50; u++) {
@@ -306,7 +335,7 @@ BTAPP_FN static void ump_co_xdraw(const umb_lctx_t *cx)   /* (in the Bluetooth s
             int32_t a = hd * (n - i) / n, sp = i * 40, w = (int32_t)(sine_i((umb_now + (uint32_t)i * 97u) * 900000u) >> 9) * i / n;
             umm_splat(X - i * 3 * 256, Y - i * 154 + w, a, UMP_WT);
             if (i > 2)
-                umm_splat(X - i * 3 * 256, Y - i * 154 + w + sp / 4 + 256, a >> 2, UMB_EVC[2]);
+                umm_splat(X - i * 3 * 256, Y - i * 154 + w + sp / 4 + 256, a >> 2, ump_pc[1]);
         }
         ump_glint(X, Y, hd, UMP_WT);
     }
@@ -360,9 +389,12 @@ static void ump_co_strip(void *st, const umb_lctx_t *cx, const umb_api_t *ap, co
     umm_p = sp->px;
     umm_w = (uint32_t)sp->w;
     umm_h = (uint32_t)sp->h;
+    if (cx->pm[0] == UMB_PM_ONE && (cx->pc[5][0] | cx->pc[5][1] | cx->pc[5][2]))   /* (its parts' colours: the layer's) */
+        ump_pcl = cx->pc;
     ump_co_draw(sp->x0, sp->y0);
     if (bt_hw_seg())
         ump_co_xdraw(cx);                               /* (API 6) */
+    ump_pcl = 0;
 }
 #if UMB_RES_ALL
 #define UMR_W(s) s
@@ -387,7 +419,11 @@ static const umb_plate_t umb_plate_corona = {
       {UMR_W("Comet on or off"), UMR_W("How fast it crosses (24 s to 4 s)"), UMR_W("How long its tail streams")}},
      {"PLANETS", 3u, 1u, {0, 0}, {{"ON", 0}, {"COUNT", 60}, {"SHINE", 50}},
       UMR_W("Tiny planets all round the frame, each fading in and out on its own, so never all lit at once"),
-      {UMR_W("Planets on or off"), UMR_W("How many planets (4 to 28)"), UMR_W("How bright they shine")}}}};
+      {UMR_W("Planets on or off"), UMR_W("How many planets (4 to 28)"), UMR_W("How bright they shine")}}},
+    /* (API 7) its colours' parts */
+    6u, {0, 0, 0},
+    {{"CORONA", {14, 38, 112}, 1u | UMB_COLF_RAMP}, {"GLOW", {132, 218, 228}, 2u}, {"WARM 1", {255, 206, 64}, 4u},
+     {"WARM 2", {255, 122, 28}, 5u}, {"PROM", {232, 124, 196}, 6u}, {"BEADS", {236, 250, 246}, 3u}}};
 
 /* ------------------------------------------------------------------------------------------------ WELCOME --- */
 /* (UMBRA LIVE) the power-on screen, UMW_T ms (ui_draw.c draw_splash, splash_write: main.c boot_splash, web/emu): an
@@ -420,7 +456,7 @@ static void umb_welcome(uint32_t ms)
     static uint8_t made;
     if (!made) {                                        /* (the palette, CORONA at rest: its state zeroed at boot) */
         umb_tabs();
-        ump_lut_make();
+        ump_lut_for(0, 0);
         ump_co_init();
         made = 1;
     }

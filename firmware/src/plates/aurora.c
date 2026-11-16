@@ -26,7 +26,9 @@
 #define FAU_NC 3                                        /* curtains */
 #define FAU_NI 64                                       /* a curtain's points of light */
 #define FAU_NG 8                                        /* stars glinting at once */
-static const uint8_t FAU_ST[4][3] = {{62, 20, 120}, {16, 170, 110}, {110, 255, 150}, {236, 255, 236}};   /* its palette */
+/* (API 7) its colours' parts: GLOW (the foot's pale green), RAYS, TOPS (the palette's stops, from the top down), STARS (and
+ * the meteors), MOON, HALO */
+enum { FAU_GLOW, FAU_RAYS, FAU_TOPS, FAU_STARS, FAU_MOON, FAU_HALO };
 typedef struct {
     uint16_t lut[2][256];                               /* the palette as the panel takes it */
     uint8_t I[FAU_NC][FAU_NI];                          /* the notes' light along each curtain */
@@ -45,7 +47,27 @@ typedef struct {
     uint32_t xr, mt[4];                                 /* (NEW, API 6) METEOR: its own dice; each one since when (0: none) .. */
     uint32_t fw;                                        /* (FLOW) how far the folds' wave has run (2^32 a turn) */
     uint8_t mx[4], my[4], md[4], nm;                    /* .. where it set off (px), its dice (way, speed); the next */
+    uint32_t psum;                                      /* (API 7) the parts' colours the palette was made from */
 } fau_t;
+
+/* (API 7) the palette's brightest stop (the flare, a meteor's tail): GLOW's colour most of the way to white (its own:
+ * 236 255 236, as it was) */
+static void fau_top(const umb_lctx_t *cx, uint8_t *c)
+{
+    static const uint8_t W[3] = {223, 216, 210};
+    int32_t k;
+    for (k = 0; k < 3; k++)
+        c[k] = (uint8_t)(PL_PC(cx, FAU_GLOW)[k] + (((255 - PL_PC(cx, FAU_GLOW)[k]) * W[k]) >> 8));
+}
+static void fau_pal(fau_t *s, const umb_lctx_t *cx)   /* .. the palette from its parts: TOPS, RAYS, GLOW, the brightest */
+{
+    uint8_t st[4][3];
+    pl_cpy(st[0], PL_PC(cx, FAU_TOPS), 3u);
+    pl_cpy(st[1], PL_PC(cx, FAU_RAYS), 3u);
+    pl_cpy(st[2], PL_PC(cx, FAU_GLOW), 3u);
+    fau_top(cx, st[3]);
+    pl_lut(s->lut, st, 4);
+}
 
 static void fau_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 {
@@ -56,7 +78,6 @@ static void fau_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
     s->fp = pl_rnd(&s->rs);
     s->all = 1u;                                        /* (each worked out once before it is drawn) */
     s->xr = 7151u + cx->now;                            /* (NEW, API 6) METEOR's dice, apart from the plate's own */
-    pl_lut(s->lut, FAU_ST, 4);
 }
 static void fau_note(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_note_t *nt)
 {
@@ -122,6 +143,8 @@ static void fau_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
     fau_t *s = st;
     int32_t k1 = (int32_t)cx->k[1], k, i;
     uint32_t n;
+    if (pl_pcnew(cx, &s->psum))                         /* (API 7) the palette, when its parts' colours change */
+        fau_pal(s, cx);
     s->flare = pl_dec(s->flare, (int32_t)cx->dt * 187);  /* (0.35 s) */
     for (k = 0; k < FAU_NC; k++)
         if (s->d1[k]) {
@@ -175,7 +198,7 @@ static void fau_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     for (i = 0; i < FAU_NG; i++) {                      /* the stars glinting: 0.5 s */
         int32_t f = s->gt[i] ? pl_fade(cx->now - s->gt[i], 500u, 8u) : 0;
         if (f)
-            pl_glint(S, s->gx[i] * 256, s->gy[i] * 256, (f * (110 + (s->gv[i] >> 1))) >> 8, PL_WT);
+            pl_glint(S, s->gx[i] * 256, s->gy[i] * 256, (f * (110 + (s->gv[i] >> 1))) >> 8, PL_PC(cx, FAU_STARS));
     }
     /* (NEW, API 6) MOON: a disc over the top right, lit but for the shadow (PHASE: the shadow's disc, a quarter px a step,
      * over it at 0 and 99, clear of it at 50; waxing from the right, waning to the left), the dark part a faint ghost;
@@ -188,9 +211,9 @@ static void fau_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             for (x = X - Ro; x <= X + Ro; x++) {
                 int32_t d2 = (x - X) * (x - X) + (y - Y) * (y - Y), e2 = (4 * (x - X) - off) * (4 * (x - X) - off) + 16 * (y - Y) * (y - Y);
                 if (d2 <= R * R)
-                    pl_px(S, x, y, e2 > 16 * R * R ? (d2 > (R - 1) * (R - 1) ? 255 : 200) : 22, PL_WT[0], PL_WT[1], PL_WT[2]);
+                    pl_px(S, x, y, e2 > 16 * R * R ? (d2 > (R - 1) * (R - 1) ? 255 : 200) : 22, PL_PC(cx, FAU_MOON)[0], PL_PC(cx, FAU_MOON)[1], PL_PC(cx, FAU_MOON)[2]);
                 else if (d2 < Ro * Ro)
-                    { int32_t q = (Ro * Ro - d2) * 256 / (Ro * Ro - R * R); pl_px(S, x, y, (hl * ((q * q) >> 8)) >> 9, 150, 120, 255); }
+                    { int32_t q = (Ro * Ro - d2) * 256 / (Ro * Ro - R * R); pl_px(S, x, y, (hl * ((q * q) >> 8)) >> 9, PL_PC(cx, FAU_HALO)[0], PL_PC(cx, FAU_HALO)[1], PL_PC(cx, FAU_HALO)[2]); }
             }
     }
     /* (NEW, API 6) METEOR: each a bright head and a tail (TRAIL) going out behind it, gone in 0.7 s */
@@ -200,13 +223,14 @@ static void fau_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                     vy = 60 + (s->md[i] >> 3), hx = s->mx[i] * 256 + vx * age * 256 / 1000, hy = s->my[i] * 256 + vy * age * 256 / 1000,
                     L = 10 + cx->xk[0][2] * 60 / 99, n = (int32_t)pl_isqrt((uint32_t)(vx * vx + vy * vy)), al = pl_out(255, (uint32_t)age, 700u),
                     dx = vx * L * 256 / n, dy = vy * L * 256 / n, k;
+            uint8_t tp[3];
+            fau_top(cx, tp);
             for (k = 0; k < 4; k++)
-                pl_line(S, hx - dx * k / 4, hy - dy * k / 4, hx - dx * (k + 1) / 4, hy - dy * (k + 1) / 4, al * (4 - k) / 5, k ? FAU_ST[3] : PL_WT);
-            pl_glint(S, hx, hy, al, PL_WT);
+                pl_line(S, hx - dx * k / 4, hy - dy * k / 4, hx - dx * (k + 1) / 4, hy - dy * (k + 1) / 4, al * (4 - k) / 5, k ? tp : PL_PC(cx, FAU_STARS));
+            pl_glint(S, hx, hy, al, PL_PC(cx, FAU_STARS));
         }
 }
 
-#include "splash/aurora.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_aurora = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(fau_t), "AURORA",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 8u, {0, 0, 0},
@@ -217,7 +241,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_aurora = {
     {{"POLAR", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 50, 40}},
      {"HUSH", {16, 91, 81, 31, 0, 26, 26, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 6u), 0}, {99, 99, 30, 0}},
      {"STORM", {91, 26, 96, 91, 96, 0, 91, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 6u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 40, 30}}},
-    35u, {0, 0, 0}, SPL_AURORA,
+    35u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     3u, {0, 0, 0},
     {{"METEOR", 3u, 1u, {0, 0}, {{"ON", 0}, {"RATE", 50}, {"TRAIL", 50}},
@@ -228,4 +252,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_aurora = {
       {"Moon on or off", "Its phase: eclipsed at 0 and 99, full at 50", "How wide and bright its halo"}},
      {"FLOW", 2u, 1u, {0, 0}, {{"ON", 0}, {"SPEED", 40}},
       "The curtains' wave evolves: their folds run along them and change shape",
-      {"Flow on or off (off: the curtains stand)", "How fast the wave evolves"}}}};
+      {"Flow on or off (off: the curtains stand)", "How fast the wave evolves"}}},
+    /* (API 7) its colours' parts */
+    6u, {0, 0, 0},
+    {{"GLOW", {110, 255, 150}, 3u}, {"RAYS", {16, 170, 110}, 2u}, {"TOPS", {62, 20, 120}, 6u | UMB_COLF_DIM},
+     {"STARS", {236, 250, 246}, 3u}, {"MOON", {236, 250, 246}, 3u}, {"HALO", {150, 120, 255}, 6u}}};

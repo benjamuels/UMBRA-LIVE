@@ -14,7 +14,7 @@ enum { RW_BYTE = 5, RW_FLOAT = 6 };
  * a (VAR: 1 .. 16); t runs with the note played (C4: ~8 kHz, the classic rate; an octave up twice as fast), restarts
  * at each note-on; the hold (4B/2), the bits (CHIP), TONE and the rest as for the other waves. Our own picks and
  * variations; each a few operations a sample */
-static const char *const N_BYTE[] = {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B09", "B10", "B11", "B12", "B13", "B14", "B15", "B16", "B17", "B18", "B19", "B20", "B21", "B22", "B23", "B24", "B25", "B26", "B27", "B28", "B29", "B30", "B31", "B32", "B33", "B34", "B35", "B36", "B37", "B38", "B39", "B40", "B41", "B42", "B43", "B44", "B45", "B46", "B47", "B48", 0};   /* (p6: 48) */
+static const char *const N_BYTE[] = {"\001\060B", 0};   /* (UMBRA LIVE, 2026-11-16: the room) "B01" .. "B48", made as asked for: params.c pd_name */   /* (p6: 48) */
 /* (JIANT 0.5) BYTE's own: RES the filter's resonance (VIB's slot), LOOP (MASK's slot) t held in a window of 2^17 ..
  * 2^5 steps: the formula's long evolution (0: free) folded into a short cycle repeating at the note: a pitched tone */
 /* (JIANT 0.5) E4 (CUT) left: the filter is the FILTER page's (TYPE, CUT, RES: P_FTYPE P_FCUT P_FRES), on every engine */
@@ -86,7 +86,7 @@ static __attribute__((noinline)) uint32_t lofi_byte(uint32_t f, uint32_t t, uint
  * The same t as BYTE's: MOTN runs its slow bits at their own speed, VAR mutates it (lofi_mut), BEND folds it, LOOP
  * holds it in a window; FBK (E5, 0.6.4) feeds the output back into t, from a shimmer to chaos; CHIP the bits, RES the
  * filter's */
-static const char *const N_FLOAT[] = {"F01", "F02", "F03", "F04", "F05", "F06", "F07", "F08", "F09", "F10", "F11", "F12", "F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24", "F25", "F26", "F27", "F28", "F29", "F30", "F31", "F32", "F33", "F34", "F35", "F36", "F37", "F38", "F39", "F40", "F41", "F42", "F43", "F44", "F45", "F46", "F47", "F48", 0};   /* (p6: 48) */
+static const char *const N_FLOAT[] = {"\001\060F", 0};   /* "F01" .. "F48" (pd_name) */   /* (p6: 48) */
 static const param_desc_t LOFI_ALGO = {"ALGO", F_INT, 0, 191, 64, N_BYTE, 0};    /* (p6: 48; the knob's: edit[2] keeps
                                                          * 0..127, FUN7's byte) */
 static const param_desc_t LOFI_MOTN = {"MOTION", F_INT, 0, 255, 0, 0, 0};   /* (p6: 128 .. 255 SYNC; V10.6d: 0) */

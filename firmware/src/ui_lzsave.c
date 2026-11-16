@@ -309,7 +309,7 @@ static __attribute__((noinline)) void graph_tl(void)
         }
     }
     umv_tl();                                            /* ((UMBRA LIVE) the right half: the row's two plates) */
-    cv_text(4, 128, &AF_X, umv_tk ? "KNOB 4 PLATE \xB7 OCT+ OPENS IT" : "KEYS: F3-D4 MUTE \xB7 F4-B4 FROM", T_DIM);
+    cv_text(4, 128, &AF_X, umv_tk == 3u ? "KNOB 4 PALETTE" : umv_tk ? "KNOB 4 PLATE \xB7 OCT+ OPENS IT" : "KEYS: F3-D4 MUTE \xB7 F4-B4 FROM", T_DIM);
 }
 /* PROJECT: the sections, the arrangement's chips, the song's strip (ar: ARRANGE, its rows picked; 2: GENE's lanes) */
 static void graph_proj(int ar)

@@ -613,7 +613,7 @@ PLATES = [("cinder", "cinder", []), ("granule", "granule", []), ("tarn", "tarn",
           ("ridge", "ridge", []), ("quill", "quill", []), ("murmur", "murmur", []),
           # (2026-11-14) dancers in silhouette (ribbons, skirts, turns): a veil, a plate file in no bank yet
           ("troupe", "troupe", []),
-          ("filament-ember", "filament", ["-DPLF_REST_RGB=150,70,26", '-DPLF_NAME="FIL EMBER"'])]
+          ("filament-ember", "filament", ["-DPLF_REST_RGB=150,70,26", "-DPLF_REST_DEF=5u", '-DPLF_NAME="FIL EMBER"'])]
 
 
 def plate_files():

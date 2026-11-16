@@ -92,7 +92,7 @@ static void plw_hl(const umb_strip_t *S, const umb_api_t *a, const umb_lctx_t *c
         y0 = -y0 / 2;
         y1 = -y1 / 2;
     }
-    pl_line(S, X + (x0 + d0) * 64, W + y0, X + (x1 + d1) * 64, W + y1, mir ? 120 : 190, mir ? PL_DEEP : PL_INK);
+    pl_line(S, X + (x0 + d0) * 64, W + y0, X + (x1 + d1) * 64, W + y1, mir ? 120 : 190, mir ? PL_PC(cx, 0) : PL_PC(cx, 5));
 }
 /* its body and legs (px x 4 from its feet, facing left), then its neck and beak: standing .. stabbing (st 0 .. 256) */
 static const int16_t PLW_HB[9][4] = {{-12, 0, -2, -96},     {12, 0, 2, -96},      {-2, -96, -40, -108}, {-40, -108, -24, -126},
@@ -116,18 +116,18 @@ static void plw_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     const plw_t *m = st;
     int32_t hy = plw_hy(cx), i, rl = 110 * cx->k[6] / 50, wind = 40 + cx->k[0] * 216 / 50 + m->gust * 6;
     pl_clear(S);
-    pl_line(S, 0, hy * 256, 239 * 256, hy * 256, 34, PL_DEEP);   /* the horizon */
+    pl_line(S, 0, hy * 256, 239 * 256, hy * 256, 34, PL_PC(cx, 0));   /* the horizon */
     if (cx->k[7]) {                                     /* the moon: a thin one, two arcs */
-        pl_arc(S, a, 196 * 256, (hy - 78) * 256, 11 * 256, 0xB0000000u, 0x90000000u, 70 * cx->k[7] / 50, PL_WT);
-        pl_arc(S, a, 192 * 256, (hy - 80) * 256, 11 * 256, 0xC8000000u, 0x68000000u, 44 * cx->k[7] / 50, PL_INK);
+        pl_arc(S, a, 196 * 256, (hy - 78) * 256, 11 * 256, 0xB0000000u, 0x90000000u, 70 * cx->k[7] / 50, PL_PC(cx, 3));
+        pl_arc(S, a, 192 * 256, (hy - 80) * 256, 11 * 256, 0xC8000000u, 0x68000000u, 44 * cx->k[7] / 50, PL_PC(cx, 5));
     }
     for (i = 0; i < PLW_ND; i++) {                      /* the water: longer dashes nearer, shimmering; lit by the notes */
         uint32_t h = plw_h((uint32_t)i);
         int32_t y = hy + 4 + (int32_t)((h >> 20) % (uint32_t)(236 - hy)), x = plw_dx((uint32_t)i), w = 3 + (int32_t)((h >> 28) * (uint32_t)(y - hy) / 28u),
                 sh = 26 + ((pl_sine(a, cx->now * (150000u + (h >> 12 & 255u) * 900u) + h) + 32768) * 30 >> 16);
-        pl_line(S, (x - w) * 256, y * 256, (x + w) * 256, y * 256, sh, PL_DEEP);
+        pl_line(S, (x - w) * 256, y * 256, (x + w) * 256, y * 256, sh, PL_PC(cx, 0));
         if (m->d[i])
-            pl_line(S, (x - w) * 256, y * 256, (x + w) * 256, y * 256, m->d[i], a->colour[(m->dc[i] * 3u) % 8u]);
+            pl_line(S, (x - w) * 256, y * 256, (x + w) * 256, y * 256, m->d[i], pl_rc(cx, a, 1u, m->dc[i]));
     }
     for (i = 0; i < PLW_NP; i++) {                      /* the rings: an ellipse on the water, widening over 0.9 s */
         uint32_t age = cx->now - m->pt[i], k;
@@ -138,21 +138,21 @@ static void plw_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         e = m->pv[i] * (int32_t)(900u - age) / 900;
         for (k = 0; k < 40u; k++)
             pl_splat(S, m->px[i] * 256 + pl_pol(a, r, k * 107374182u + 0x40000000u), (hy + 22) * 256 + pl_pol(a, r / 4, k * 107374182u), e,
-                     a->colour[(m->pc[i] * 3u) % 8u]);
+                     pl_rc(cx, a, 1u, m->pc[i]));
     }
     for (i = 0; i < PLW_NR; i++) {                      /* the reeds: at both edges, bending with the wind (two strokes each) */
         uint32_t h = plw_h((uint32_t)i + 77u);
         int32_t x = (i & 1 ? 238 - (int32_t)((h >> 8) % 52u) : 2 + (int32_t)((h >> 8) % 52u)) * 256, ht = (18 + (int32_t)((h >> 16) % 44u)) * 256,
                 by = (hy + 3 + (int32_t)((h >> 24) % 12u)) * 256,
                 sw = ((pl_sine(a, cx->now * 480000u + (uint32_t)i * 1160000000u) >> 7) * 3 + (pl_sine(a, cx->now * 190000u + h) >> 7) * 2) * wind >> 8;
-        pl_line(S, x, by, x + sw * 3 / 10, by - ht * 6 / 10, rl, PL_DEEP);
-        pl_line(S, x + sw * 3 / 10, by - ht * 6 / 10, x + sw, by - ht, rl, PL_DEEP);
+        pl_line(S, x, by, x + sw * 3 / 10, by - ht * 6 / 10, rl, PL_PC(cx, 2));
+        pl_line(S, x + sw * 3 / 10, by - ht * 6 / 10, x + sw, by - ht, rl, PL_PC(cx, 2));
     }
     for (i = 0; i < PLW_NF; i++) {                      /* the fireflies: a warm point over the water, 0.7 s */
         uint32_t age = cx->now - m->ft[i];
         if (m->ft[i] && age < 700u)
             pl_glint(S, m->fx[i] * 256 + pl_pol(a, 4 * 256, age * 5000000u), (hy - 8 - m->fy[i]) * 256, m->fv[i] * (int32_t)(700u - age) / 700,
-                     PL_WARM[0]);
+                     PL_PC(cx, 4));
     }
     /* (NEW, API 6) STARS: over the marsh (COUNT of them), each on its own clock: it fades in somewhere, shines a while,
      * twinkling, fades out and stays dark, then comes back elsewhere, so only some are lit at once; GLEAM: how much the
@@ -170,10 +170,10 @@ static void plw_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             ev = (int32_t)(t < on - t ? t : on - t);
             al = al * (ev < 800 ? ev : 800) / 800;
             if (h2 & 1u)
-                pl_star(S, x * 256, y * 256, (1 + (al >> 7)) * 256, al, PL_WT);
+                pl_star(S, x * 256, y * 256, (1 + (al >> 7)) * 256, al, PL_PC(cx, 3));
             else
-                pl_glint(S, x * 256, y * 256, al, PL_WT);
-            pl_line(S, (x - 2) * 256, (2 * hy - y + 4) * 256, (x + 2) * 256, (2 * hy - y + 4) * 256, al / 3, PL_INK);
+                pl_glint(S, x * 256, y * 256, al, PL_PC(cx, 3));
+            pl_line(S, (x - 2) * 256, (2 * hy - y + 4) * 256, (x + 2) * 256, (2 * hy - y + 4) * 256, al / 3, PL_PC(cx, 5));
         }
     /* (NEW, API 6) HERON: standing in the shallows (WADE: where across), on the beat it stabs at the water, STRIKE: how hard;
      * its reflection under it */
@@ -181,7 +181,6 @@ static void plw_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         plw_heron(S, a, cx, (34 + cx->xk[0][1] * 172 / 99) * 256, (hy + 30) * 256, (cx->beat * cx->beat >> 8) * cx->xk[0][2] / 99);
 }
 
-#include "splash/marsh.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_marsh = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plw_t), "MARSH",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
@@ -192,7 +191,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_marsh = {
     {{"CALM", {16, 0, 0, 31, 0, 36, 0, 91}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 0u), 0}, {99, 99, 20, 0}},
      {"GALE", {91, 0, 0, 0, 96, 0, 81, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 0u), UMB_LINK(UMB_SRC_LEVEL, 3u)}, {99, 99, 40, 50}},
      {"FIREFLY", {0, 81, 0, 0, 0, 100, 31, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 2u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 25, 30}}},
-    18u, {0, 0, 0}, SPL_MARSH,
+    18u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"HERON", 3u, 1u, {0, 0}, {{"ON", 0}, {"WADE", 30}, {"STRIKE", 60}},
@@ -200,4 +199,9 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_marsh = {
       {"Heron on or off", "Where it stands, left to right", "How far it stabs on the beat (0 it stands still)"}},
      {"STARS", 3u, 1u, {0, 0}, {{"ON", 0}, {"COUNT", 40}, {"GLEAM", 50}},
       "Stars over the marsh come and go, each fading in and out on its own, brighter on the beat, their light broken on the water",
-      {"Stars on or off", "How many stars (4 to 40)", "How much the music brightens them"}}}};
+      {"Stars on or off", "How many stars (4 to 40)", "How much the music brightens them"}}},
+    /* (API 7) its colours' parts (WATER: the horizon and the heron's reflection too; MOON: the stars too; HERON: the moon's
+     * inner arc and the stars' light on the water too, teal as it is) */
+    6u, {0, 0, 0},
+    {{"WATER", {34, 60, 96}, 1u | UMB_COLF_DIM}, {"NOTES", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"REEDS", {34, 60, 96}, 1u | UMB_COLF_DIM},
+     {"MOON", {236, 250, 246}, 3u}, {"FLIES", {255, 206, 64}, 4u}, {"HERON", {120, 226, 214}, 2u}}};

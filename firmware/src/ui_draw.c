@@ -1354,11 +1354,11 @@ static void draw_columns(void)
     char val[12];
     const char *unit;
     (void)motion_mask(song.sel, card_mot_mask);       /* (PLAY OFF: no scan) */
-    if (home_macros()) {                                /* (0.8.5) HOME's MACROS / ROUTES: M1..M4, 0..100 % */
-        static const char *const M[4] = {"M1", "M2", "M3", "M4"};
+    if (home_macros()) {                                /* ((UMBRA LIVE) HOME > BEING > KNOBS: what each knob turns) */
+        static const char *const M[4] = {"KNOB 1", "KNOB 2", "KNOB 3", "KNOB 4"};
         for (c = 0; c < 4u; c++) {
-            fmt_int(val, macro_v[c] * 100 / 127);
-            draw_column(c, M[c], val, "%", VAL(c), macro_v[c] * 1000 / 127, ICON_MIX);
+            int16_t *vp;
+            text_column(c, M[c], home_param(c, &vp)->label, VAL(c));
         }
         return;
     }
@@ -1475,6 +1475,12 @@ static void draw_columns(void)
         text_column(1, "SECT", val, VAL(1u));
         fmt_int(val, chain_config.row[row].bars);
         text_column(2, "BARS", val, VAL(2u));
+        if (umv_tk == 3u) {                             /* ((UMBRA LIVE) COLOR: the row's palette) */
+            uint32_t v = umv_cp(row);
+            val[0] = v ? (char)('0' + v) : '-', val[1] = v ? 0 : '-', val[2] = 0;
+            text_column(3, "COLOR", val, v ? VAL(3u) : T_DIM);
+            return;
+        }
         if (umv_tk) {                                   /* ((UMBRA LIVE) a picture track: its cell's plate) */
             umv_name(umv_cc(), val);
             text_column(3, UMV_TN[umv_tk - 1u], val, umv_cc()->key ? VAL(3u) : T_DIM);

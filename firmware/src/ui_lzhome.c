@@ -331,39 +331,30 @@ static __attribute__((noinline)) void graph_home_being(void)
     (void)eco_step();
     (void)bg_energy();
     char b[16];
-    if (home_set()) {                                   /* ROUTES: the being small, the macros and their routes ((UMBRA */
-        uint32_t m, i, j, row = 0;                      /* LIVE) BEING's figure, small, not HOME's being) */   
-        int32_t ry[12];
-        being_fig(c, 128, 66, 10);
-        for (m = 0; m < 4u; m++) {
-            int32_t y = 16 + (int32_t)m * 34, n = 0;
-            char mn[3] = {'M', (char)('1' + m), 0};
-            uint16_t col = ui.hot_t && ui.hot_col == m ? T_ACCENT : T_THEME;
-            for (i = 0; i < NTRK; i++)
-                for (j = 0; j < 4u && row < 12u; j++) {
-                    const int16_t *p = &trk[i].p[P_M1SRC + 3u * j];
-                    char e[20] = {'T', (char)('1' + i), ' ', 0};
-                    int32_t ty;
-                    if (p[0] != (int16_t)(MS_M1 + m) || !p[1] || !p[2] || n >= 3)
-                        continue;
-                    ty = 6 + (int32_t)row * 11;
-                    ry[row++] = ty;
-                    n++;
-                    str_cpy(e + 3, mod_dst_name(&trk[i], p[1]), sizeof e - 3);
-                    str_cpy(e + str_len(e), p[2] > 0 ? "+" : "", sizeof e - str_len(e));
-                    fmt_int(e + str_len(e), p[2] * 100 / 64);
-                    og_quad_a(34 * 16, y * 16, 120 * 16, y * 16, 168 * 16, (ty + 4) * 16, heat_col(70 + macro_v[m] * 150 / 127),
-                              14u, 200);
-                    cv_clip_text(171, ty, &AF_X, e, T_MID, T_SURF, 66);
-                }
-            og_node(22 * 16, y * 16, 12, T_RAISE);
-            lz_arc(22, y, 10, 2, macro_v[m] * 1000 / 127, T_LINE, col);
-            GFX_HOOK_ALIGN(12, y - 5, 32, y + 5, AL_HV, "ROUTES macro name in its knob");
-            cv_text_in(12, y - 4, 20, &AF_X, mn, T_TEXT, T_RAISE);
-            if (!n)
-                cv_text(40, y - 4 - AF_X_CAP_Y + 1, &AF_X, "NO ROUTE", T_DIM);
+    if (home_set()) {                                   /* (UMBRA LIVE, 2026-11-16) KNOBS: the BODY at the right, on the left
+                                                         * its four knobs, what each turns (its engine's own: dim "AUTO"
+                                                         * beside it) and where it stands now */
+        umb_backdrop(0, (int32_t)graph_y());
+        vx_bare = 1;
+        being_fig(c, 186, 64, 9);
+        vx_bare = 0;
+        b[0] = 'T', b[1] = (char)('1' + c), b[2] = ' ';
+        str_cpy(b + 3, trk_engp(&trk[c])->name, sizeof b - 3);
+        cv_text(8, 4, &AF_X, b, T_MID);
+        for (k = 0; k < 4u; k++) {
+            int16_t *vp;
+            const param_desc_t *d = home_param(k, &vp);
+            const char *u;
+            char v[12], kn[3] = {'K', (char)('1' + k), 0};
+            int32_t y = 20 + (int32_t)k * 28;
+            uint16_t col = ui.hot_t && ui.hot_col == k ? T_ACCENT : umk_kn(c, k) ? T_THEME : T_TEXT;   /* (chosen: the theme's) */
+            cv_text(8, y + 4, &AF_X, kn, T_MID);
+            cv_text(28, y, &AF_M, d->label, col);
+            param_format(d, *vp, v, &u);
+            cv_text(28, y + 17, &AF_X, v, T_MID);
+            cv_rect(64, y + 20, 60, 1, T_LINE);
+            cv_rect(64, y + 19, clamp(RATIO(d, enum_rank(d, *vp)), 0, 1000) * 60 / 1000, 3, col);
         }
-        (void)ry;
         return;
     }
     umb_backdrop(0, (int32_t)graph_y());               /* (UMBRA LIVE) the plate playing behind (as on ECO) */

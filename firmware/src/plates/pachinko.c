@@ -187,32 +187,32 @@ static void plp_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     pl_clear(S);
     for (i = 0; i < PLP_NP; i++) {                      /* the pegs: a point; struck, a star in the striker's colour */
         plp_peg((uint32_t)i, &x, &y);
-        pl_glint(S, x * 256, y * 256, pl, PL_INK);
+        pl_glint(S, x * 256, y * 256, pl, PL_PC(cx, 1));
         if (m->pe[i])
-            pl_star(S, x * 256, y * 256, (2 + m->pe[i] / 60) * 256, m->pe[i], m->pc[i] < UMB_NTRK ? a->colour[(m->pc[i] * 3u) % 8u] : PL_WT);
+            pl_star(S, x * 256, y * 256, (2 + m->pe[i] / 60) * 256, m->pe[i], m->pc[i] < UMB_NTRK ? pl_rc(cx, a, 0u, m->pc[i]) : PL_PC(cx, 5));
     }
     for (i = 0; i < PLP_NC; i++) {                      /* the cups: two walls and a floor; lit, its rim and a glow in it */
-        const uint8_t *tc = a->colour[(m->cc[i] * 3u) % 8u];
+        const uint8_t *tc = pl_rc(cx, a, 0u, m->cc[i]);
         x = (4 + i * 30) * 256;
-        pl_line(S, x, PLP_CY * 256, x + 3 * 256, (PLP_CY + 14) * 256, cl, PL_INK);
-        pl_line(S, x + 3 * 256, (PLP_CY + 14) * 256, x + 19 * 256, (PLP_CY + 14) * 256, cl, PL_INK);
-        pl_line(S, x + 19 * 256, (PLP_CY + 14) * 256, x + 22 * 256, PLP_CY * 256, cl, PL_INK);
+        pl_line(S, x, PLP_CY * 256, x + 3 * 256, (PLP_CY + 14) * 256, cl, PL_PC(cx, 2));
+        pl_line(S, x + 3 * 256, (PLP_CY + 14) * 256, x + 19 * 256, (PLP_CY + 14) * 256, cl, PL_PC(cx, 2));
+        pl_line(S, x + 19 * 256, (PLP_CY + 14) * 256, x + 22 * 256, PLP_CY * 256, cl, PL_PC(cx, 2));
         if (m->ce[i]) {
             pl_line(S, x + 3 * 256, (PLP_CY + 12) * 256, x + 19 * 256, (PLP_CY + 12) * 256, m->ce[i], tc);
             pl_line(S, x + 2 * 256, (PLP_CY + 8) * 256, x + 20 * 256, (PLP_CY + 8) * 256, m->ce[i] / 2, tc);
-            pl_star(S, x + 11 * 256, (PLP_CY + 4) * 256, 3 * 256, m->ce[i], PL_WT);
+            pl_star(S, x + 11 * 256, (PLP_CY + 4) * 256, 3 * 256, m->ce[i], PL_PC(cx, 5));
         }
     }
     if (cx->xk[0][0])                                   /* (NEW, API 6) BUMPER: two rings, breathing with the beat; struck, a
                                                          * ring of the striker's colour round them and a star */
         for (i = 0; i < 2; i++) {
             int32_t R = PLP_BR(cx) * 256 + (cx->beat >> 7) * 128, e = m->be[i], X = m->ux[i] * 4, Y = m->uy[i] * 4;
-            const uint8_t *tc = a->colour[(m->bc[i] * 3u) % 8u];
-            pl_arc(S, a, X, Y, R, 0u, 0xFFFFFFFFu, 150 + (cx->beat >> 2), PL_INK);
-            pl_arc(S, a, X, Y, R / 2, 0u, 0xFFFFFFFFu, 90, PL_INK);
+            const uint8_t *tc = pl_rc(cx, a, 0u, m->bc[i]);
+            pl_arc(S, a, X, Y, R, 0u, 0xFFFFFFFFu, 150 + (cx->beat >> 2), PL_PC(cx, 1));
+            pl_arc(S, a, X, Y, R / 2, 0u, 0xFFFFFFFFu, 90, PL_PC(cx, 1));
             if (e) {
                 pl_arc(S, a, X, Y, R + 2 * 256 + (255 - e) * 16, 0u, 0xFFFFFFFFu, e, tc);
-                pl_star(S, X, Y, (2 + e / 50) * 256, e, PL_WT);
+                pl_star(S, X, Y, (2 + e / 50) * 256, e, PL_PC(cx, 5));
             }
         }
     if (cx->xk[1][0]) {                                 /* (NEW, API 6) LIGHTS: bulbs every 12 px up the left, across the
@@ -220,25 +220,24 @@ static void plp_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                                                          * them all in the landing's colour */
         uint32_t ph = cx->now / 10u * (uint32_t)(4 + cx->xk[1][1] * 16 / 99) / 100u;   /* (4 .. 20 steps a second) */
         int32_t fl = m->fl * (20 + cx->xk[1][2]) / 119;
-        const uint8_t *tc = a->colour[(m->fc * 3u) % 8u];
+        const uint8_t *tc = pl_rc(cx, a, 4u, m->fc);
         for (i = 0; i < 54; i++) {
             int32_t bx = i < 16 ? 4 : i < 38 ? 6 + (i - 16) * 11 : 236, by = i < 16 ? 200 - i * 12 : i < 38 ? 16 : 20 + (i - 38) * 12,
                     on = ((uint32_t)i + ph) % 4u == 0u ? 190 + (cx->beat >> 2) : 40;
-            pl_star(S, bx * 256, by * 256, on > 40 ? 3 * 256 : 256, on, PL_WARM[0]);
+            pl_star(S, bx * 256, by * 256, on > 40 ? 3 * 256 : 256, on, PL_PC(cx, 3));
             if (fl)
                 pl_star(S, bx * 256, by * 256, 2 * 256, fl, tc);
         }
     }
     for (i = 0; i < PLP_NB; i++)                        /* the stars: a glint and the way it came */
         if (m->on[i]) {
-            const uint8_t *tc = a->colour[((m->on[i] - 1u) * 3u) % 8u];
+            const uint8_t *tc = pl_rc(cx, a, 0u, m->on[i] - 1u);
             pl_line(S, m->x[i] * 4, m->y[i] * 4, m->x[i] * 4 - m->vx[i] * 6, m->y[i] * 4 - m->vy[i] * 6, 60 + m->bv[i] / 3, tc);
             pl_glint(S, m->x[i] * 4, m->y[i] * 4, 130 + m->bv[i] / 2, tc);
-            pl_splat(S, m->x[i] * 4, m->y[i] * 4, 160, PL_WT);
+            pl_splat(S, m->x[i] * 4, m->y[i] * 4, 160, PL_PC(cx, 5));
         }
 }
 
-#include "splash/pachinko.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_pachinko = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plp_t), "PACHINKO",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 7u, {0, 0, 0},
@@ -249,7 +248,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_pachinko = {
     {{"FLOAT", {16, 81, 0, 0, 0, 36, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 40, 0}},
      {"JACKPOT", {81, 0, 0, 96, 0, 0, 91, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), UMB_LINK(UMB_SRC_HIT(0), 4u)}, {99, 99, 60, 50}},
      {"TILT", {0, 0, 86, 0, 81, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u), UMB_LINK(UMB_SRC_BEAT, 2u)}, {99, 99, 40, -30}}},
-    92u, {0, 0, 0}, SPL_PACHINKO,
+    92u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"BUMPER", 3u, 1u, {0, 0}, {{"ON", 0}, {"KICK", 50}, {"RING", 50}},
@@ -257,4 +256,9 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_pachinko = {
       {"Bumpers on or off", "How hard they throw a star", "How big they are"}},
      {"LIGHTS", 3u, 1u, {0, 0}, {{"ON", 0}, {"CHASE", 50}, {"FLASH", 50}},
       "A border of bulbs chases round the table; every star that lands flashes them all",
-      {"Lights on or off", "How fast the lit bulbs chase round", "How bright a landing flashes them"}}}};
+      {"Lights on or off", "How fast the lit bulbs chase round", "How bright a landing flashes them"}}},
+    /* (API 7) its colours' parts (STARS: the pegs they strike, the cups and bumpers they light too; PEGS: the bumpers'
+     * rings too; GLINT: the white of a star's heart, a shaken peg, a lit cup's and a struck bumper's star) */
+    6u, {0, 0, 0},
+    {{"STARS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"PEGS", {120, 226, 214}, 2u}, {"CUPS", {120, 226, 214}, 2u},
+     {"BULBS", {255, 206, 64}, 4u}, {"FLASH", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"GLINT", {236, 250, 246}, 3u}}};

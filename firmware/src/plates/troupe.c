@@ -330,10 +330,11 @@ static PL_SMALL void plq_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a
     for (d = 0; d < PLQ_ND; d++) {
         int32_t al = m->fa[d] >> 8;
         uint8_t col[3];
+        const uint8_t *rc[2];                           /* (API 7: the dancer's two ribbons' colours) */
         if (al < 4)
             continue;
+        rc[0] = pl_rc(cx, a, 1u, d), rc[1] = pl_rc(cx, a, 2u, d + 3u);
         for (s = 0; s < 2u && A; s++) {                 /* (the ribbons: newest first, fading, falling, fluttering) */
-            const uint8_t *rc = pl_ncol(a, d + s * 3u);
             int32_t px = m->p[d][PLQ_LHA + s][0], py = m->p[d][PLQ_LHA + s][1],
                     b = pl_clamp(90 + A + m->lit[d][1 + s] / 2, 0, 255) * al >> 8;
             for (i = 0; i + 1u < m->rn; i++) {
@@ -341,18 +342,18 @@ static PL_SMALL void plq_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a
                 int32_t I = (int32_t)i + 1, wv = (pl_sine(a, cx->now * 0x400000u + (uint32_t)I * 0x14000000u) >> 9) * I * 683 >> 14,
                         qx = q[0] + wv, qy = q[1] + (I * I * 7 >> 4), bb = b * (PLQ_NR - I) * 683 >> 14;
                 for (k = 0; k < 2; k++)                 /* (and again, fainter, half a px over: a ribbon's width) */
-                    pl_line(S, px * 16 + k * 128, py * 16 + k * 256, qx * 16 + k * 128, qy * 16 + k * 256, bb >> k, rc);
+                    pl_line(S, px * 16 + k * 128, py * 16 + k * 256, qx * 16 + k * 128, qy * 16 + k * 256, bb >> k, rc[s]);
                 px = qx, py = qy;
             }
         }
         for (i = 0; i < 3u; i++)                        /* (the body pale: white touched by its colour) */
-            col[i] = (uint8_t)((PL_WT[i] * 5 + pl_ncol(a, d)[i] * 3) >> 3);
+            col[i] = (uint8_t)((PL_PC(cx, 0)[i] * 5 + rc[0][i] * 3) >> 3);
         plq_fill(m, S, d, Fy, al, col);
         if (d != 1u) {                                  /* (the skirt: chiffon, light threads curving waist to hem, the legs
                                                          * seen through, a brighter hem; tinted by the dancer's colour) */
             uint8_t sc[3];
             for (i = 0; i < 3u; i++)
-                sc[i] = (uint8_t)((col[i] + pl_ncol(a, d + 3u)[i]) >> 1);
+                sc[i] = (uint8_t)((col[i] + rc[1][i]) >> 1);
             for (i = 0; i < PLQ_NK; i++) {              /* (a thread: a curve through its halfway point, and the hem on) */
                 const int32_t(*k)[2] = m->sk[d][i];
                 int32_t P[3][2], b = 110 * al >> 8, px, py, t;
@@ -371,12 +372,10 @@ static PL_SMALL void plq_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a
             }
         }
         for (s = 0; s < 2u; s++)
-            pl_splat(S, m->p[d][PLQ_LHA + s][0] * 16, m->p[d][PLQ_LHA + s][1] * 16, (160 + m->lit[d][1 + s] / 2) * al >> 8,
-                     pl_ncol(a, d + s * 3u));
+            pl_splat(S, m->p[d][PLQ_LHA + s][0] * 16, m->p[d][PLQ_LHA + s][1] * 16, (160 + m->lit[d][1 + s] / 2) * al >> 8, rc[s]);
     }
 }
 
-#include "splash/troupe.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_troupe = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plq_t), "TROUPE",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
@@ -393,4 +392,9 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_troupe = {
      /* CANON: a trio, a step apart, a pose a beat; KNOB 1 the flow, KNOB 2 the turns */
      {"CANON", {100, 71, 41, 61, 51, 51, 11, 100}, {UMB_LINK(UMB_SRC_KNOB(0), 2u), UMB_LINK(UMB_SRC_KNOB(1), 4u),
                                                     UMB_LINK(UMB_SRC_LFO(0), 5u), UMB_LINK(UMB_SRC_LEVEL, 3u)}, {99, 99, 40, 30}}},
-    55u, {0, 0, 0}, SPL_TROUPE};
+    55u, {0, 0, 0}, 0,
+    /* (API 6) no new elements */
+    0u, {0, 0, 0}, {{{0}}},
+    /* (API 7) its colours' parts: the skirt is the body's and the second ribbon's, half and half */
+    3u, {0, 0, 0},
+    {{"BODY", {236, 250, 246}, 3u}, {"RIBBON1", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"RIBBON2", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}}};

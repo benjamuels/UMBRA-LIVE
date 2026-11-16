@@ -30,7 +30,6 @@ typedef struct {
     uint16_t fx[OBK_N], fy[OBK_N], tx[OBK_N], ty[OBK_N], ms[OBK_N];
     uint8_t sh;
 } obk_t;
-static const uint8_t OBK_RED[3] = {255, 56, 28};        /* a car's lamps from behind */
 
 /* (NEW, API 6) SHUFFLE: how long light i (its dice h) stays on each move (RATE: 8 .. 0.6 s, its own 0.75 .. 1.25 of it) */
 static int32_t obk_T(const umb_lctx_t *cx, uint32_t h) { return (8000 - cx->xk[2][1] * 75) * (192 + (int32_t)(h >> 25)) >> 8; }
@@ -149,18 +148,18 @@ static void obk_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         r = pl_clamp((r * (256 - s->foc * 150 / 255)) >> 8, 2, 40);
         if (y + r < S->y0 || y - r >= S->y0 + S->h)
             continue;
-        rim = pl_mix(m, i % 3u ? PL_INK : PL_WARM[0], pl_ncol(a, s->c[i]), rest + s->foc / 4, e * cx->k[2] / 50);
+        rim = pl_mix(m, PL_PC(cx, i % 3u ? 1 : 2), pl_rc(cx, a, 0u, s->c[i]), rest + s->foc / 4, e * cx->k[2] / 50);
         obk_disc(S, x, y, r, 0, rim, m);
         if (e)
-            obk_disc(S, x, y, r, (e * (256 + s->foc)) >> 9, 0, pl_ncol(a, s->c[i]));
+            obk_disc(S, x, y, r, (e * (256 + s->foc)) >> 9, 0, pl_rc(cx, a, 0u, s->c[i]));
         /* (NEW, API 6) SPIKES: POINTS rays through the light, as long as it is lit (REACH), brightest at its rim */
         if (cx->xk[0][0]) {
             int32_t g = e + s->foc / 2 + rest / 3, L = (r + 4 + ((g * (10 + cx->xk[0][2] * 60 / 99)) >> 8)) * 256, np = 2 + cx->xk[0][1] * 3 / 100, k;
             for (k = 0; g > 24 && k < np; k++) {
                 uint32_t ph = (uint32_t)k * (0x80000000u / (uint32_t)np) + 0x08000000u;
                 int32_t ux = pl_pol(a, L, ph + 0x40000000u), uy = pl_pol(a, L, ph);
-                pl_line(S, x * 256 - ux, y * 256 - uy, x * 256 + ux, y * 256 + uy, g > 255 ? 110 : g * 110 / 255, e ? pl_ncol(a, s->c[i]) : m);
-                pl_line(S, x * 256 - ux / 2, y * 256 - uy / 2, x * 256 + ux / 2, y * 256 + uy / 2, g > 255 ? 120 : g * 120 / 255, PL_WT);
+                pl_line(S, x * 256 - ux, y * 256 - uy, x * 256 + ux, y * 256 + uy, g > 255 ? 110 : g * 110 / 255, e ? pl_rc(cx, a, 0u, s->c[i]) : m);
+                pl_line(S, x * 256 - ux / 2, y * 256 - uy / 2, x * 256 + ux / 2, y * 256 + uy / 2, g > 255 ? 120 : g * 120 / 255, PL_PC(cx, 5));
             }
         }
     }
@@ -169,27 +168,26 @@ static void obk_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     if (cx->xk[1][0]) {
         int32_t nk = 1 + cx->xk[1][2] * 4 / 100, len = nk * 64, y = 182, x0 = 240 - (int32_t)((s->tp >> 8) % (uint32_t)(len + 360)), k, j,
                 w = 70 + cx->level / 2;
-        pl_line(S, 0, (y + 10) * 256, 240 * 256, (y + 10) * 256, 40, PL_DEEP);   /* (the line it runs on) */
+        pl_line(S, 0, (y + 10) * 256, 240 * 256, (y + 10) * 256, 40, PL_PC(cx, 4));   /* (the line it runs on) */
         for (k = 0; k < nk; k++) {
             int32_t cxl = x0 + k * 64;
             if (cxl > 250 || cxl + 64 < -10)
                 continue;
-            pl_line(S, cxl * 256, (y - 8) * 256, (cxl + 60) * 256, (y - 8) * 256, 70, PL_INK);
-            pl_line(S, cxl * 256, (y + 7) * 256, (cxl + 60) * 256, (y + 7) * 256, 70, PL_INK);
+            pl_line(S, cxl * 256, (y - 8) * 256, (cxl + 60) * 256, (y - 8) * 256, 70, PL_PC(cx, 1));
+            pl_line(S, cxl * 256, (y + 7) * 256, (cxl + 60) * 256, (y + 7) * 256, 70, PL_PC(cx, 1));
             for (j = 0; j < 7; j++)
-                obk_disc(S, cxl + 6 + j * 8, y, 3, (w * (200 + (pl_hash((uint32_t)(k * 8 + j)) >> 26) * 4)) >> 8, 40, (j + k) % 3 ? PL_WARM[0] : PL_INK);
+                obk_disc(S, cxl + 6 + j * 8, y, 3, (w * (200 + (pl_hash((uint32_t)(k * 8 + j)) >> 26) * 4)) >> 8, 40, PL_PC(cx, (j + k) % 3 ? 2 : 1));
         }
         if (x0 > -10 && x0 < 250)
-            pl_star(S, (x0 - 2) * 256, y * 256, 1536, 230, PL_WT);
+            pl_star(S, (x0 - 2) * 256, y * 256, 1536, 230, PL_PC(cx, 5));
     }
     for (i = 0; i < OBK_NC; i++)
         if (s->cv[i]) {
-            obk_disc(S, s->cx[i] >> 4, s->cd[i] ? 206 : 218, 3, s->cv[i], 0, s->cd[i] ? OBK_RED : PL_WARM[0]);
-            obk_disc(S, (s->cx[i] >> 4) + 10, s->cd[i] ? 206 : 218, 3, s->cv[i], 0, s->cd[i] ? OBK_RED : PL_WARM[0]);
+            obk_disc(S, s->cx[i] >> 4, s->cd[i] ? 206 : 218, 3, s->cv[i], 0, PL_PC(cx, s->cd[i] ? 3 : 2));
+            obk_disc(S, (s->cx[i] >> 4) + 10, s->cd[i] ? 206 : 218, 3, s->cv[i], 0, PL_PC(cx, s->cd[i] ? 3 : 2));
         }
 }
 
-#include "splash/bokeh.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_bokeh = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(obk_t), "BOKEH",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
@@ -200,7 +198,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_bokeh = {
     {{"AVENUE", {0, 0, 0, 0, 0, 100, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 6u)}, {99, 99, 40, 30}},
      {"MACRO", {96, 86, 16, 0, 31, 1, 61, 71}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 0u), 0}, {99, 99, 25, 0}},
      {"SIGNAL", {21, 21, 100, 100, 100, 0, 11, 1}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 4u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 50, 40}}},
-    38u, {0, 0, 0}, SPL_BOKEH,
+    38u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     3u, {0, 0, 0},
     {{"SPIKES", 3u, 1u, {0, 0}, {{"ON", 0}, {"POINTS", 30}, {"REACH", 50}}, "A star filter: rays through every lit light, longest as notes light them and the kick pulls focus",
@@ -208,4 +206,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_bokeh = {
      {"TRAIN", 3u, 1u, {0, 0}, {{"ON", 0}, {"PACE", 40}, {"COACH", 50}}, "An elevated train crosses the city, its windows brightening with the level",
       {"Train on or off", "How fast it goes", "How many coaches (one .. four)"}},
      {"SHUFFLE", 3u, 1u, {0, 0}, {{"ON", 0}, {"RATE", 40}, {"GLIDE", 60}}, "The lights wander the city: each leaves its place for a new one and glides there",
-      {"Shuffle on or off", "How often a light moves (every 8 s .. 0.6 s)", "How it gets there (0 a jump .. 99 gliding all the way)"}}}};
+      {"Shuffle on or off", "How often a light moves (every 8 s .. 0.6 s)", "How it gets there (0 a jump .. 99 gliding all the way)"}}},
+    /* (API 7) its colours' parts */
+    6u, {0, 0, 0},
+    {{"LIGHTS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"CITY", {120, 226, 214}, 2u}, {"SODIUM", {255, 206, 64}, 4u},
+     {"TAILS", {255, 56, 28}, 5u}, {"RAIL", {34, 60, 96}, 1u | UMB_COLF_DIM}, {"GLINT", {236, 250, 246}, 3u}}};

@@ -76,20 +76,20 @@ static void plo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     for (t = 0; t < UMB_NTRK; t++) {
         uint32_t age = cx->now - m->pt[t];
         r = (18 + 16 * (int32_t)t) * sc;
-        pl_arc(S, a, X, Y, r, 0u, 0xFFFFFFFFu, 96 * cx->k[5] / 50, PL_DEEP);
+        pl_arc(S, a, X, Y, r, 0u, 0xFFFFFFFFu, 96 * cx->k[5] / 50, PL_PC(cx, 1));
         if (m->pv[t] && age < (uint32_t)pl) {
             i = (int32_t)age;
             e = m->pv[t] * pl_clamp((pl - i) * (100 + 2 * g) / 100, 0, pl) / pl;   /* (gentle: held longer, then out) */
             if (i < pi)
                 e = e * i / pi;
             i = r * (100 - g) / 100 * i / pl;
-            pl_arc(S, a, X, Y, i, 0u, 0xFFFFFFFFu, e, a->colour[(t * 3u) % 8u]);
+            pl_arc(S, a, X, Y, i, 0u, 0xFFFFFFFFu, e, pl_rc(cx, a, 0u, t));
             if (g && i > 3 * 256)
-                pl_arc(S, a, X, Y, i - 3 * 256, 0u, 0xFFFFFFFFu, e * g / 80, a->colour[(t * 3u) % 8u]);
+                pl_arc(S, a, X, Y, i - 3 * 256, 0u, 0xFFFFFFFFu, e * g / 80, pl_rc(cx, a, 0u, t));
         }
     }
-    pl_line(S, X, Y, X + pl_pol(a, 106 * sc, m->hand + 0x40000000u), Y + pl_pol(a, 106 * sc, m->hand), 110 * cx->k[6] / 50, PL_INK);
-    pl_glint(S, X, Y, 200, PL_WT);
+    pl_line(S, X, Y, X + pl_pol(a, 106 * sc, m->hand + 0x40000000u), Y + pl_pol(a, 106 * sc, m->hand), 110 * cx->k[6] / 50, PL_PC(cx, 2));
+    pl_glint(S, X, Y, 200, PL_PC(cx, 3));
     for (i = 0; i < PLO_NM; i++) {                      /* the marks: fading over their life, lit again as the hand passes */
         uint32_t age = cx->now - m->mt[i], ph = (uint32_t)m->ma[i] << 16;
         int32_t e, glow = 256 - (int32_t)(((m->hand - ph) >> 24));   /* (the turn since the hand was there: 256 .. 0) */
@@ -97,7 +97,7 @@ static void plo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             continue;
         e = (m->mv[i] * (int32_t)((uint32_t)life - age) / life) * (70 + ((186 * glow) >> 8)) >> 8;
         r = (18 + 16 * m->mr[i]) * sc;
-        pl_star(S, X + pl_pol(a, r, ph + 0x40000000u), Y + pl_pol(a, r, ph), (2 + (glow >> 6)) * 256, e, a->colour[(m->mr[i] * 3u) % 8u]);
+        pl_star(S, X + pl_pol(a, r, ph + 0x40000000u), Y + pl_pol(a, r, ph), (2 + (glow >> 6)) * 256, e, pl_rc(cx, a, 0u, m->mr[i]));
     }
     /* (NEW, API 6) TARGETS: contacts creeping round (each its own ring and pace, some against the hand), a diamond and a wake
      * of dots behind it; dim until the hand passes, then bright and a small ring round it, fading over the turn */
@@ -111,15 +111,15 @@ static void plo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             ex = X + pl_pol(a, rr, ph + 0x40000000u);
             ey = Y + pl_pol(a, rr, ph);
             e = 70 + ((185 * glow * glow) >> 16);
-            pl_line(S, ex - d, ey, ex, ey - d, e, PL_WT);
-            pl_line(S, ex, ey - d, ex + d, ey, e, PL_WT);
-            pl_line(S, ex + d, ey, ex, ey + d, e, PL_WT);
-            pl_line(S, ex, ey + d, ex - d, ey, e, PL_WT);
+            pl_line(S, ex - d, ey, ex, ey - d, e, PL_PC(cx, 4));
+            pl_line(S, ex, ey - d, ex + d, ey, e, PL_PC(cx, 4));
+            pl_line(S, ex + d, ey, ex, ey + d, e, PL_PC(cx, 4));
+            pl_line(S, ex, ey + d, ex - d, ey, e, PL_PC(cx, 4));
             if (glow > 200)
-                pl_arc(S, a, ex, ey, (6 + (256 - glow) / 6) * 256, 0u, 0xFFFFFFFFu, (glow - 200) * 4, PL_INK);
+                pl_arc(S, a, ex, ey, (6 + (256 - glow) / 6) * 256, 0u, 0xFFFFFFFFu, (glow - 200) * 4, PL_PC(cx, 2));
             for (j = 1; j <= 5; j++) {                  /* its wake: where it was, 0.3 s apart */
                 uint32_t q = h + (h & 1u ? (cx->now - 300u * (uint32_t)j) * sp : 0u - (cx->now - 300u * (uint32_t)j) * sp);
-                pl_splat(S, X + pl_pol(a, rr, q + 0x40000000u), Y + pl_pol(a, rr, q), e * (6 - j) / 7, PL_INK);
+                pl_splat(S, X + pl_pol(a, rr, q + 0x40000000u), Y + pl_pol(a, rr, q), e * (6 - j) / 7, PL_PC(cx, 2));
             }
         }
     }
@@ -134,13 +134,12 @@ static void plo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 continue;
             r = 8 * 256 + (int32_t)((r1 - 8 * 256) / 64 * (int32_t)(ag * 64u / life));
             e = (m->kv + 90) * (int32_t)(life - ag) / (int32_t)life * (4 - j) / 4;
-            pl_arc(S, a, X, Y, r, 0u, 0xFFFFFFFFu, e, j ? PL_INK : PL_WT);
-            pl_arc(S, a, X, Y, r - 3 * 256, 0u, 0xFFFFFFFFu, e / 3, PL_INK);
+            pl_arc(S, a, X, Y, r, 0u, 0xFFFFFFFFu, e, j ? PL_PC(cx, 2) : PL_PC(cx, 5));
+            pl_arc(S, a, X, Y, r - 3 * 256, 0u, 0xFFFFFFFFu, e / 3, PL_PC(cx, 2));
         }
     }
 }
 
-#include "splash/sonar.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_sonar = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plo_t), "SONAR",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 7u, {0, 0, 0},
@@ -151,7 +150,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_sonar = {
     {{"SCAN", {81, 0, 0, 0, 0, 31, 91, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), 0}, {99, 99, 50, 0}},
      {"DEEP", {21, 91, 76, 81, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u), UMB_LINK(UMB_SRC_LFO(0), 2u)}, {99, 99, 40, 20}},
      {"CONTACT", {0, 31, 0, 96, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 6u), UMB_LINK(UMB_SRC_BEAT, 2u)}, {99, 99, 50, 15}}},
-    58u, {0, 0, 0}, SPL_SONAR,
+    58u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"TARGETS", 3u, 1u, {0, 0}, {{"ON", 0}, {"COUNT", 40}, {"DRIFT", 30}},
@@ -159,4 +158,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_sonar = {
       {"Targets on or off", "How many contacts (1 to 8)", "How fast they creep round"}},
      {"SHOCK", 3u, 1u, {0, 0}, {{"ON", 0}, {"REACH", 60}, {"ECHOES", 50}},
       "Every kick sends a doubled ring racing out from the centre through the rings, echoes behind it",
-      {"Shock rings on or off", "How far the rings run (at most past the last ring)", "How many rings follow each kick (1 to 4)"}}}};
+      {"Shock rings on or off", "How far the rings run (at most past the last ring)", "How many rings follow each kick (1 to 4)"}}},
+    /* (API 7) its colours' parts (a target's wake and ring, a shock's echoes: HAND's colour) */
+    6u, {0, 0, 0},
+    {{"MARKS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"RINGS", {34, 60, 96}, 1u | UMB_COLF_DIM}, {"HAND", {120, 226, 214}, 2u},
+     {"CENTRE", {236, 250, 246}, 3u}, {"TARGET", {236, 250, 246}, 3u}, {"SHOCK", {236, 250, 246}, 3u}}};

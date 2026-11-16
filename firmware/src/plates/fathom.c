@@ -136,7 +136,7 @@ static void ffa_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     }
     for (i = 0; i < FFA_NS; i++)
         if (s->sl[i])
-            pl_splat(S, s->sx[i] * 16, s->sy[i] * 16, 60 + s->sl[i] * 5, PL_WT);
+            pl_splat(S, s->sx[i] * 16, s->sy[i] * 16, 60 + s->sl[i] * 5, PL_PC(cx, 2));
     /* (NEW, API 6) BOLT: from the top of the sky down to the sea in ten jagged steps, FORKS branches off it; it flickers
      * and is gone in 0.4 s */
     if (fl) {
@@ -146,14 +146,14 @@ static void ffa_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             int32_t nx, ny = (top + (bot - top) * j / 10) * 256;
             h = pl_hash(h);
             nx = x + (int32_t)(h >> 20) % 4096 - 2048;
-            pl_line(S, x, y, nx, ny, al, PL_WT);
-            pl_line(S, x + 256, y, nx + 256, ny, al / 3, PL_WT);
+            pl_line(S, x, y, nx, ny, al, PL_PC(cx, 3));
+            pl_line(S, x + 256, y, nx + 256, ny, al / 3, PL_PC(cx, 3));
             if (j < 8 && (int32_t)(h >> 28) < nf * 4) {   /* (a fork: four steps off to a side, fainter) */
                 int32_t fx = nx, fy = ny, q, sd = h & 1u ? 1 : -1;
                 for (q = 0; q < 4; q++) {
                     uint32_t g = pl_hash(h + (uint32_t)q);
                     int32_t gx = fx + sd * (int32_t)(1024 + (g >> 22) % 2048), gy = fy + (int32_t)(1024 + (g >> 24) % 1536);
-                    pl_line(S, fx, fy, gx, gy, al / 2, PL_WT);
+                    pl_line(S, fx, fy, gx, gy, al / 2, PL_PC(cx, 3));
                     fx = gx;
                     fy = gy;
                 }
@@ -164,7 +164,6 @@ static void ffa_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     }
 }
 
-#include "splash/fathom.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_fathom = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(ffa_t), "FATHOM",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 7u, {0, 0, 0},
@@ -175,8 +174,12 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_fathom = {
     {{"TIDE", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 50, 20}},
      {"GLASS", {6, 91, 0, 31, 0, 21, 91, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 15, 0}},
      {"GALE", {96, 11, 0, 81, 96, 96, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 0u), UMB_LINK(UMB_SRC_LEVEL, 6u)}, {99, 99, 30, 40}}},
-    26u, {0, 0, 0}, SPL_FATHOM,
+    26u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     1u, {0, 0, 0},
     {{"BOLT", 3u, 1u, {0, 0}, {{"ON", 0}, {"STRIKE", 40}, {"FORKS", 50}}, "Lightning strikes the sea on the kick, the night sky flashing with it",
-      {"Lightning on or off", "How many kicks bring a strike", "How often it forks (never .. at most steps)"}}}};
+      {"Lightning on or off", "How many kicks bring a strike", "How often it forks (never .. at most steps)"}}},
+    /* (API 7) its colours' parts: the cold palette's two (the sea, the light let down and the sky's flash), the spray, the bolt */
+    4u, {0, 0, 0},
+    {{"SEA", {14, 38, 112}, 1u | UMB_COLF_RAMP}, {"LIGHT", {132, 218, 228}, 2u}, {"SPRAY", {236, 250, 246}, 3u},
+     {"BOLT", {236, 250, 246}, 3u}}};

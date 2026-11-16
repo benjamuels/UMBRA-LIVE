@@ -36,7 +36,12 @@ typedef struct {
 #ifndef PLF_NAME
 #define PLF_NAME "FILAMENT"
 #endif
-static const uint8_t PLF_REST[3] = {PLF_REST_RGB};      /* a string at rest: deep blue */
+#ifndef PLF_REST_DEF                                    /* (API 7) .. and REST's choice at first (FIL EMBER: a warm one) */
+#define PLF_REST_DEF (1u | UMB_COLF_DIM)
+#endif
+/* (API 7) its colours' parts: STRING (the notes'), REST (a string at rest: deep blue, or the build's PLF_REST_RGB), FRETS,
+ * FLASH (a fret a pluck has lit), BEADS (the notes'), GLINT (the beads') */
+enum { PLF_STRING, PLF_REST, PLF_FRETS, PLF_FLASH, PLF_BEADS, PLF_GLINT };
 
 static int32_t plf_clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 static uint16_t plf_swap(uint32_t c) { return (uint16_t)(((c >> 8) & 0xFFu) | ((c & 0xFFu) << 8)); }
@@ -207,7 +212,7 @@ static void plf_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         sp = 224 / (nl - 1);
     for (c = 0; c < nl && c < (int32_t)UMB_NTRK; c++) {
         const int16_t *u = m->u[c];
-        const uint8_t *tc = a->colour[(c * 3) % 8];
+        const uint8_t *tc = pl_rc(cx, a, PLF_STRING, (uint32_t)c), *rest = PL_PC(cx, PLF_REST);
         int32_t y0 = cy + (2 * c - nl + 1) * sp / 2, py = -1, held = 0, h;
         if (y0 + 20 < s->y0 || y0 - 20 >= s->y0 + s->h)
             continue;
@@ -230,9 +235,9 @@ static void plf_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             e = (((sv < 0 ? -sv : sv) >> 3) + (held ? 90 : 0));
             e = (plf_clamp(e, 0, 256) + 8) & ~15;
             al = (141 + ((115 * e) >> 8)) * gl / 50;
-            r = PLF_REST[0] + (((tc[0] - PLF_REST[0]) * e) >> 8);
-            g = PLF_REST[1] + (((tc[1] - PLF_REST[1]) * e) >> 8);
-            b = PLF_REST[2] + (((tc[2] - PLF_REST[2]) * e) >> 8);
+            r = rest[0] + (((tc[0] - rest[0]) * e) >> 8);
+            g = rest[1] + (((tc[1] - rest[1]) * e) >> 8);
+            b = rest[2] + (((tc[2] - rest[2]) * e) >> 8);
             if ((py > y ? py - y : y - py) < 256) {    /* (a point, shared between two rows) */
                 plf_px(s, x, y >> 8, ((256 - (y & 255)) * al) >> 8, r, g, b);
                 plf_px(s, x, (y >> 8) + 1, ((y & 255) * al) >> 8, r, g, b);
@@ -251,7 +256,7 @@ static void plf_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         int32_t nf = 5 + cx->xk[1][1] * 15 / 99, ya = (cy - (nl - 1) * sp / 2 - 16) * 256, yb = (cy + (nl - 1) * sp / 2 + 16) * 256, f, fx;
         for (f = 0; f < nf; f++) {
             fx = plf_fret(f, nf) * 256;
-            pl_line(s, fx, ya, fx, yb, 40 + ((m->fv[f] * (20 + cx->xk[1][2] * 3 / 2)) >> 8), m->fv[f] > 60 ? PL_INK : PL_DEEP);
+            pl_line(s, fx, ya, fx, yb, 40 + ((m->fv[f] * (20 + cx->xk[1][2] * 3 / 2)) >> 8), PL_PC(cx, m->fv[f] > 60 ? PLF_FLASH : PLF_FRETS));
         }
     }
     /* (NEW, API 6) BEADS: COUNT on each string, sliding to and fro (SLIDE) at their own pace, riding its waves */
@@ -264,13 +269,12 @@ static void plf_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 int32_t bx = 120 * 256 + pl_pol(a, 112 * 256, cx->now * (uint32_t)(20000 + cx->xk[0][2] * 3000) * (4u + (h >> 30)) / 4u + h),
                         fi = ((bx >> 8) * 21937) >> 8, i0 = plf_clamp(fi >> 8, 0, PLF_NP - 2), f = fi & 255,
                         by = y0 * 256 + u[i0] + (((u[i0 + 1] - u[i0]) * f) >> 8) - 512, e = 150 + cx->beat / 3;
-                pl_arc(s, a, bx, by, 640, 0u, 0xFFFFFFFFu, e, a->colour[(c * 3) % 8]);
-                pl_splat(s, bx - 256, by - 256, e, PL_WT);
+                pl_arc(s, a, bx, by, 640, 0u, 0xFFFFFFFFu, e, pl_rc(cx, a, PLF_BEADS, (uint32_t)c));
+                pl_splat(s, bx - 256, by - 256, e, PL_PC(cx, PLF_GLINT));
             }
         }
 }
 
-#include "splash/filament.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_filament = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plf_t), PLF_NAME,
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 6u, {0, 0, 0},
@@ -281,10 +285,14 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_filament = {
     {{"HARP", {0, 86, 0, 86, 21, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), 0}, {99, 99, 50, 0}},
      {"BOWED", {26, 61, 0, 16, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u), UMB_LINK(UMB_SRC_LFO(0), 2u)}, {99, 99, 60, 30}},
      {"SNAP", {91, 21, 0, 100, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 0u), UMB_LINK(UMB_SRC_BEAT, 2u)}, {99, 99, 50, 30}}},
-    48u, {0, 0, 0}, SPL_FILAMENT,
+    48u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"BEADS", 3u, 1u, {0, 0}, {{"ON", 0}, {"COUNT", 30}, {"SLIDE", 40}}, "Glass beads threaded on the strings slide to and fro, riding the waves",
       {"Beads on or off", "How many on each string (one .. four)", "How fast they slide"}},
      {"FRETS", 3u, 1u, {0, 0}, {{"ON", 0}, {"FRETS", 50}, {"FLASH", 60}}, "Frets across the strings, as on a neck; a pluck lights the one nearest it",
-      {"Frets on or off", "How many frets (five .. twenty)", "How bright a pluck lights its fret"}}}};
+      {"Frets on or off", "How many frets (five .. twenty)", "How bright a pluck lights its fret"}}},
+    /* (API 7) its colours' parts */
+    6u, {0, 0, 0},
+    {{"STRING", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"REST", {PLF_REST_RGB}, PLF_REST_DEF}, {"FRETS", {34, 60, 96}, 1u | UMB_COLF_DIM},
+     {"FLASH", {120, 226, 214}, 2u}, {"BEADS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"GLINT", {236, 250, 246}, 3u}}};

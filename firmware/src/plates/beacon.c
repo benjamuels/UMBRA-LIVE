@@ -34,11 +34,13 @@ typedef struct {
 #define PLB_BY 214                                      /* .. its foot, its top (the gallery), the lamp */
 #define PLB_TY 96
 #define PLB_LY 84
-static const uint8_t PLB_RAY[3] = {200, 240, 236};
-static const uint8_t PLB_RAIN[3] = {110, 150, 210};    /* (NEW) the rain's grey-blue */
+static const uint8_t PLB_RAY[3] = {200, 240, 236};    /* (API 7) the BEAM part's own colour: while it is this, the lamp is white-teal */
 #define PLB_ST 170                                      /* a star comes out every 170 ms a note is held */
 #define PLB_NF 84                                       /* the sky's own stars (some fall on the tower or off the sky: fewer) */
-static const uint8_t PLB_SC[3][3] = {{236, 240, 255}, {255, 232, 196}, {196, 214, 255}};   /* a star's light: white, warm, cool */
+static const uint8_t PLB_SC[3][3] = {{236, 240, 255}, {255, 232, 196}, {196, 214, 255}};   /* a star's light: white, warm, cool
+                                                         * ((API 7) while the STARS part is its own, the first of these) */
+static const uint8_t PLB_LAMP[3] = {236, 250, 246};    /* the lamp's own white-teal */
+static int plb_eq(const uint8_t *c, const uint8_t *o) { return c[0] == o[0] && c[1] == o[1] && c[2] == o[2]; }
 static uint32_t plb_mix(uint32_t x)                     /* a dice from a number, well stirred (pl_hash's lie in lines) */
 {
     x ^= x >> 16;
@@ -109,6 +111,10 @@ static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     const plb_t *m = st;
     int32_t tw = 96 * cx->k[6] / 50, sea = cx->k[7], c = pl_sine(a, m->ang + 0x40000000u), ac = pl_abs(c), dir = c < 0 ? -1 : 1,
             L = (168 * ac) >> 15, fw = pl_sine(a, m->ang) >> 7, j, i, X = PLB_X * 256, y;
+    /* (API 7) the lamp, the gulls and a note's first star: white-teal while BEAM is its own colour, else BEAM's; the sky's
+     * stars white, warm and cool while STARS is its own, else all of them STARS' */
+    const uint8_t *wt = plb_eq(PL_PC(cx, 1), PLB_RAY) ? PLB_LAMP : PL_PC(cx, 1);
+    int so = plb_eq(PL_PC(cx, 3), PLB_SC[0]);
     pl_clear(S);
     /* the sky's own stars (the user, 2026-11-15: elegant, strewn as stars are): half of them along a band rising from the
      * lower left to the upper right (a triangle's spread either side, so they thicken toward its middle), half anywhere in
@@ -119,6 +125,7 @@ static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         uint32_t h = plb_mix((uint32_t)i * 2u + 977u), g = plb_mix(h ^ 0x9E3779B9u), q = h >> 24;
         int32_t x = (int32_t)(h % 236u) + 2, top = PL_TOP(cx) + 4, y,
                 b = 16 + (int32_t)(((q * q >> 8) * q >> 8) * 216u >> 8), e;
+        const uint8_t *sc = so ? PLB_SC[g >> 30 == 3u ? 0u : g >> 30] : PL_PC(cx, 3);
         if (i & 1)
             y = top + (int32_t)(g % (uint32_t)(196 - top));
         else
@@ -126,15 +133,15 @@ static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         if (y < top || y > 196 || (pl_abs(x - PLB_X) < 30 && y > PLB_TY - 52))
             continue;
         e = b * (224 + (pl_sine(a, m->sk * (900000u + (g >> 22) * 880u) + g) >> 10)) >> 8;
-        pl_glint(S, x * 256, y * 256, e, PLB_SC[g >> 30 == 3u ? 0u : g >> 30]);
+        pl_glint(S, x * 256, y * 256, e, sc);
         if (b > 150)
-            pl_star(S, x * 256, y * 256, (b > 200 ? 3 : 2) * 256, e >> 2, PLB_SC[g >> 30 == 3u ? 0u : g >> 30]);
+            pl_star(S, x * 256, y * 256, (b > 200 ? 3 : 2) * 256, e >> 2, sc);
     }
     /* the notes' stars: each a scatter of five round its note's place, its own for each track or lane (pat), as far out as
      * its note has been held, the first white, the rest its track's colour, twinkling */
     for (i = 0; i < PLB_NS; i++) {
         const plb_s_t *q = &m->sky[i];
-        const uint8_t *tc = a->colour[(q->tr * 3u) % 8u];
+        const uint8_t *tc = pl_rc(cx, a, 2u, q->tr);
         int32_t sx = (24 + (q->note % 12) * 16 + (q->note / 12 % 2) * 8) * 256, sy = (22 + (q->note / 24 % 3) * 18) * 256;
         for (j = 0; q->lit && j < 5; j++) {
             uint32_t h = plb_mix((uint32_t)q->pat * 8u + (uint32_t)j + 501u);
@@ -143,45 +150,45 @@ static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                     tx = sx + pl_pol(a, r, h + 0x40000000u), ty = sy + pl_pol(a, r * 3 / 4, h);
             e = e * (420 + (pl_sine(a, cx->now * 60000u + (uint32_t)(i * 5 + j) * 0x2F000000u) >> 9)) >> 8;   /* (twinkling) */
             if (e)
-                pl_glint(S, tx, ty, e > 255 ? 255 : e, j ? tc : PL_WT);
+                pl_glint(S, tx, ty, e > 255 ? 255 : e, j ? tc : wt);
             if (e > 96)
-                pl_star(S, tx, ty, (j ? 2 : 3) * 256, e > 255 ? 127 : e >> 1, j ? tc : PL_WT);
+                pl_star(S, tx, ty, (j ? 2 : 3) * 256, e > 255 ? 127 : e >> 1, j ? tc : wt);
         }
     }
     /* the sea: the horizon behind the tower, dashes under it that shimmer (more with the level) */
-    pl_line(S, 0, 204 * 256, 239 * 256, 204 * 256, 60 * sea / 50, PL_DEEP);
+    pl_line(S, 0, 204 * 256, 239 * 256, 204 * 256, 60 * sea / 50, PL_PC(cx, 4));
     for (i = 0; i < 14; i++) {
         uint32_t h = (uint32_t)i * 2654435761u;
         int32_t x = (int32_t)(h >> 8) % 220 + 10, w = 4 + (int32_t)(h >> 28), yy = 210 + (int32_t)((h >> 16) % 26u),
                 sh = 110 + ((pl_sine(a, cx->now * (90000u + (h >> 20) * 40u) + h) >> 9) * (64 + cx->level)) / 96;
         if (pl_abs(x - PLB_X) > 34 || yy > PLB_BY + 6)
-            pl_line(S, (x - w) * 256, yy * 256, (x + w) * 256, yy * 256, sh * sea / 50, PL_DEEP);
+            pl_line(S, (x - w) * 256, yy * 256, (x + w) * 256, yy * 256, sh * sea / 50, PL_PC(cx, 4));
     }
     /* the tower: its sides, the gallery, the lamp room and its roof, the door, the rock */
-    pl_line(S, X - 15 * 256, PLB_TY * 256, X - 27 * 256, PLB_BY * 256, tw, PL_INK);
-    pl_line(S, X + 15 * 256, PLB_TY * 256, X + 27 * 256, PLB_BY * 256, tw, PL_INK);
-    pl_line(S, X - 21 * 256, PLB_TY * 256, X + 21 * 256, PLB_TY * 256, tw, PL_INK);
-    pl_line(S, X - 21 * 256, (PLB_TY - 3) * 256, X + 21 * 256, (PLB_TY - 3) * 256, tw >> 1, PL_INK);
-    pl_line(S, X - 10 * 256, (PLB_TY - 3) * 256, X - 10 * 256, (PLB_TY - 24) * 256, tw, PL_INK);
-    pl_line(S, X + 10 * 256, (PLB_TY - 3) * 256, X + 10 * 256, (PLB_TY - 24) * 256, tw, PL_INK);
-    pl_line(S, X - 14 * 256, (PLB_TY - 24) * 256, X + 14 * 256, (PLB_TY - 24) * 256, tw, PL_INK);
-    pl_line(S, X - 14 * 256, (PLB_TY - 24) * 256, X, (PLB_TY - 38) * 256, tw, PL_INK);
-    pl_line(S, X + 14 * 256, (PLB_TY - 24) * 256, X, (PLB_TY - 38) * 256, tw, PL_INK);
-    pl_line(S, X, (PLB_TY - 38) * 256, X, (PLB_TY - 45) * 256, tw, PL_INK);
-    pl_line(S, X - 6 * 256, PLB_BY * 256, X - 6 * 256, (PLB_BY - 12) * 256, tw, PL_INK);
-    pl_line(S, X + 6 * 256, PLB_BY * 256, X + 6 * 256, (PLB_BY - 12) * 256, tw, PL_INK);
-    pl_arc(S, a, X, (PLB_BY - 12) * 256, 6 * 256, 0x80000000u, 0x80000000u, tw, PL_INK);
-    pl_line(S, X - 44 * 256, (PLB_BY + 5) * 256, X - 27 * 256, PLB_BY * 256, tw, PL_INK);
-    pl_line(S, X + 27 * 256, PLB_BY * 256, X + 50 * 256, (PLB_BY + 6) * 256, tw, PL_INK);
-    pl_line(S, X - 27 * 256, PLB_BY * 256, X + 27 * 256, PLB_BY * 256, tw >> 1, PL_INK);
+    pl_line(S, X - 15 * 256, PLB_TY * 256, X - 27 * 256, PLB_BY * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X + 15 * 256, PLB_TY * 256, X + 27 * 256, PLB_BY * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X - 21 * 256, PLB_TY * 256, X + 21 * 256, PLB_TY * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X - 21 * 256, (PLB_TY - 3) * 256, X + 21 * 256, (PLB_TY - 3) * 256, tw >> 1, PL_PC(cx, 0));
+    pl_line(S, X - 10 * 256, (PLB_TY - 3) * 256, X - 10 * 256, (PLB_TY - 24) * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X + 10 * 256, (PLB_TY - 3) * 256, X + 10 * 256, (PLB_TY - 24) * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X - 14 * 256, (PLB_TY - 24) * 256, X + 14 * 256, (PLB_TY - 24) * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X - 14 * 256, (PLB_TY - 24) * 256, X, (PLB_TY - 38) * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X + 14 * 256, (PLB_TY - 24) * 256, X, (PLB_TY - 38) * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X, (PLB_TY - 38) * 256, X, (PLB_TY - 45) * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X - 6 * 256, PLB_BY * 256, X - 6 * 256, (PLB_BY - 12) * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X + 6 * 256, PLB_BY * 256, X + 6 * 256, (PLB_BY - 12) * 256, tw, PL_PC(cx, 0));
+    pl_arc(S, a, X, (PLB_BY - 12) * 256, 6 * 256, 0x80000000u, 0x80000000u, tw, PL_PC(cx, 0));
+    pl_line(S, X - 44 * 256, (PLB_BY + 5) * 256, X - 27 * 256, PLB_BY * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X + 27 * 256, PLB_BY * 256, X + 50 * 256, (PLB_BY + 6) * 256, tw, PL_PC(cx, 0));
+    pl_line(S, X - 27 * 256, PLB_BY * 256, X + 27 * 256, PLB_BY * 256, tw >> 1, PL_PC(cx, 0));
     /* the windows: track 1's the lowest, left and right in turn; lit, filled with its track's colour */
     for (i = 0; i < (int32_t)UMB_NTRK; i++) {
         int32_t wx = (PLB_X + (i & 1 ? 4 : -10)) * 256, wy = (PLB_BY - 30 - i * 16) * 256, e = m->win[i];
-        const uint8_t *tc = a->colour[(i * 3) % 8];
-        pl_line(S, wx, wy, wx + 6 * 256, wy, tw >> 1, PL_INK);
-        pl_line(S, wx, wy + 9 * 256, wx + 6 * 256, wy + 9 * 256, tw >> 1, PL_INK);
-        pl_line(S, wx, wy, wx, wy + 9 * 256, tw >> 1, PL_INK);
-        pl_line(S, wx + 6 * 256, wy, wx + 6 * 256, wy + 9 * 256, tw >> 1, PL_INK);
+        const uint8_t *tc = pl_rc(cx, a, 2u, (uint32_t)i);
+        pl_line(S, wx, wy, wx + 6 * 256, wy, tw >> 1, PL_PC(cx, 0));
+        pl_line(S, wx, wy + 9 * 256, wx + 6 * 256, wy + 9 * 256, tw >> 1, PL_PC(cx, 0));
+        pl_line(S, wx, wy, wx, wy + 9 * 256, tw >> 1, PL_PC(cx, 0));
+        pl_line(S, wx + 6 * 256, wy, wx + 6 * 256, wy + 9 * 256, tw >> 1, PL_PC(cx, 0));
         for (y = 1; e && y < 9; y++)
             pl_line(S, wx + 256, wy + y * 256, wx + 5 * 256, wy + y * 256, e, tc);
     }
@@ -190,23 +197,23 @@ static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     for (j = -3; j <= 3 && L > 6; j++) {
         int32_t al = ((70 + m->flare / 2) * (80 + ((176 * ac) >> 15)) >> 8) * (5 - pl_abs(j)) / 5;
         al = fw >= 0 ? al * (256 + fw) >> 8 : al * 110 >> 8;
-        pl_line(S, X + dir * 11 * 256, PLB_LY * 256, X + dir * (11 + L) * 256, PLB_LY * 256 + j * L * (fw >= 0 ? 18 + fw / 6 : 6), al, PLB_RAY);
+        pl_line(S, X + dir * 11 * 256, PLB_LY * 256, X + dir * (11 + L) * 256, PLB_LY * 256 + j * L * (fw >= 0 ? 18 + fw / 6 : 6), al, PL_PC(cx, 1));
     }
     /* the lamp: bright facing you, dim facing away; as it faces you (fw past 0.7) a burst of eight rays and a ring of
      * glow; its flash a star */
-    pl_glint(S, X, PLB_LY * 256, 120 + ((135 * fw) >> 8), PL_WT);
+    pl_glint(S, X, PLB_LY * 256, 120 + ((135 * fw) >> 8), wt);
     if (fw > 180) {
         int32_t q = (fw - 180) * 256 / 76, r = (6 + q * 34 / 256) * 256;
         for (j = 0; j < 8; j++) {
             uint32_t ph = (uint32_t)j * 0x20000000u + m->ang / 8u;
             pl_line(S, X + pl_pol(a, 2560, ph + 0x40000000u), PLB_LY * 256 + pl_pol(a, 2560, ph), X + pl_pol(a, j & 1 ? r / 2 : r, ph + 0x40000000u),
-                    PLB_LY * 256 + pl_pol(a, j & 1 ? r / 2 : r, ph), q * 3 >> 2, PLB_RAY);
+                    PLB_LY * 256 + pl_pol(a, j & 1 ? r / 2 : r, ph), q * 3 >> 2, PL_PC(cx, 1));
         }
-        pl_arc(S, a, X, PLB_LY * 256, 1792, 0, ~0u, q, PL_WT);
-        pl_arc(S, a, X, PLB_LY * 256, r / 3, 0, ~0u, q >> 2, PLB_RAY);
+        pl_arc(S, a, X, PLB_LY * 256, 1792, 0, ~0u, q, wt);
+        pl_arc(S, a, X, PLB_LY * 256, r / 3, 0, ~0u, q >> 2, PL_PC(cx, 1));
     }
     if (m->lamp)
-        pl_star(S, X, PLB_LY * 256, (4 + m->lamp / 20) * 256, m->lamp, PL_WT);
+        pl_star(S, X, PLB_LY * 256, (4 + m->lamp / 20) * 256, m->lamp, wt);
     /* (NEW, API 6) GULLS: birds wheeling round the lamp, each a flapping V on its own loop; one in the beam's side shines */
     if (cx->xk[0][0]) {
         int32_t n = 1 + cx->xk[0][1] * 11 / 99;
@@ -216,8 +223,8 @@ static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             int32_t rx = (34 + (int32_t)(h >> 24) % 46) * 256, gx = X + pl_pol(a, rx, ph + 0x40000000u),
                     gy = (PLB_LY - 14 - (int32_t)(h >> 20) % 20) * 256 + pl_pol(a, rx / 4, ph),
                     fl = pl_sine(a, cx->now * 1400000u + h) >> 13, lit = (gx - X) * dir > 0 && L > 6 ? 240 : 120;
-            pl_line(S, gx - 5 * 256, gy - fl * 64, gx, gy + 256, lit, PL_WT);
-            pl_line(S, gx, gy + 256, gx + 5 * 256, gy - fl * 64, lit, PL_WT);
+            pl_line(S, gx - 5 * 256, gy - fl * 64, gx, gy + 256, lit, wt);
+            pl_line(S, gx, gy + 256, gx + 5 * 256, gy - fl * 64, lit, wt);
         }
     }
     /* (NEW, API 6) RAIN: slanting streaks across the whole sky, faster with FALL, leaning with SLANT; on the beat they flash */
@@ -226,12 +233,11 @@ static void plb_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         for (i = 0; i < 46; i++) {
             uint32_t h = pl_hash((uint32_t)i + 77u);
             int32_t x = (int32_t)(h >> 8) % 280 - 20, y = (int32_t)((cx->now * (uint32_t)fall / 256u + (h >> 16)) % 280u) - 20;
-            pl_line(S, x * 256, y * 256, x * 256 + sl, (y + 8) * 256, al, PLB_RAIN);
+            pl_line(S, x * 256, y * 256, x * 256 + sl, (y + 8) * 256, al, PL_PC(cx, 5));
         }
     }
 }
 
-#include "splash/beacon.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_beacon = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plb_t), "BEACON",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
@@ -242,7 +248,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_beacon = {
     {{"SWEEP", {81, 31, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), 0}, {99, 99, 60, 0}},
      {"FOG", {0, 31, 86, 36, 0, 0, 0, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 7u), UMB_LINK(UMB_SRC_LFO(0), 0u)}, {99, 99, 30, 30}},
      {"SIGNAL", {11, 91, 0, 0, 96, 91, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 3u), UMB_LINK(UMB_SRC_BEAT, 7u)}, {99, 99, 60, 40}}},
-    52u, {0, 0, 0}, SPL_BEACON,
+    52u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"GULLS", 3u, 1u, {0, 0}, {{"ON", 0}, {"FLOCK", 40}, {"WHEEL", 50}},
@@ -250,4 +256,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_beacon = {
       {"Gulls on or off", "How many gulls (1 to 12)", "How fast they circle the tower"}},
      {"RAIN", 3u, 1u, {0, 0}, {{"ON", 0}, {"FALL", 50}, {"SLANT", 65}},
       "Rain streaks across the night, flashing brighter on every beat",
-      {"Rain on or off", "How fast the rain falls", "Which way it leans (50 straight down)"}}}};
+      {"Rain on or off", "How fast the rain falls", "Which way it leans (50 straight down)"}}},
+    /* (API 7) its colours' parts */
+    6u, {0, 0, 0},
+    {{"TOWER", {120, 226, 214}, 2u}, {"BEAM", {200, 240, 236}, 3u}, {"NOTES", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK},
+     {"STARS", {236, 240, 255}, 3u}, {"SEA", {34, 60, 96}, 1u | UMB_COLF_DIM}, {"RAIN", {110, 150, 210}, 1u}}};

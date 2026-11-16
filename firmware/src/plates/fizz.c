@@ -168,7 +168,7 @@ static void ofz_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             uint32_t ph = ofz_ph(s, pf, y * 256, (uint32_t)j);
             int32_t nX = ofz_ax(cx, a, y) + pl_pol(a, W, ph), al = (40 + (((32768 + pl_sine(a, ph + 0x40000000u)) * sh * 3) >> 17) + fl) * (y - lo) / H;
             if (y < 240)
-                pl_line(S, pX, (y + 2) * 256, nX, y * 256, (al + pa) >> 1, j ? PL_INK : PL_WT);
+                pl_line(S, pX, (y + 2) * 256, nX, y * 256, (al + pa) >> 1, PL_PC(cx, j));
             pX = nX;
             pa = al;
         }
@@ -182,15 +182,15 @@ static void ofz_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             uint32_t ph = ofz_ph(s, pf, Y, (uint32_t)j);
             int32_t c = 32768 + pl_sine(a, ph + 0x40000000u);
             X[j] = ax + pl_pol(a, W, ph);
-            pl_arc(S, a, X[j], Y, 300 + ((c * 520) >> 16), 0u, 0xFFFFFFFFu, ((60 + ((c * sh * 3) >> 17) + fl + (cx->beat >> 3)) * e) >> 8, j ? PL_INK : PL_WT);
+            pl_arc(S, a, X[j], Y, 300 + ((c * 520) >> 16), 0u, 0xFFFFFFFFu, ((60 + ((c * sh * 3) >> 17) + fl + (cx->beat >> 3)) * e) >> 8, PL_PC(cx, j));
         }
-        pl_line(S, X[0], Y, X[1], Y, (90 * e) >> 8, PL_DEEP);
+        pl_line(S, X[0], Y, X[1], Y, (90 * e) >> 8, PL_PC(cx, 2));
     }
     for (i = 0; i < OFZ_NB; i++)                        /* BEAD: lit in the track's colour, a ring flashing out from it */
         if (s->bl[i]) {
             uint32_t ph = ofz_ph(s, pf, s->by[i] * 4, s->bj[i]), t = 700u + s->bv[i] * 5u - s->bl[i];
             int32_t c = 32768 + pl_sine(a, ph + 0x40000000u), X = ofz_ax(cx, a, s->by[i] >> 6) + pl_pol(a, W, ph), al = (90 + s->bv[i]) * s->bl[i] / 1000;
-            const uint8_t *col = pl_ncol(a, s->bc[i]);
+            const uint8_t *col = pl_rc(cx, a, 3u, s->bc[i]);
             al = al * (140 + (c >> 9)) >> 8;
             pl_arc(S, a, X, s->by[i] * 4, 700 + ((c * 500) >> 16), 0u, 0xFFFFFFFFu, al * 2, col);
             pl_arc(S, a, X, s->by[i] * 4, 300, 0u, 0xFFFFFFFFu, al * 2, col);
@@ -200,14 +200,14 @@ static void ofz_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     for (i = 0; i < OFZ_NK; i++)                        /* SPARK: a short streak flying out, going out */
         if (s->kl[i]) {
             int32_t X = ofz_ax(cx, a, s->ky[i] >> 4) + s->kx[i] * 16, Yk = s->ky[i] * 16;
-            pl_line(S, X - s->kv[i] * 20, Yk, X, Yk, s->kl[i] * 200 / 420, PL_WT);
+            pl_line(S, X - s->kv[i] * 20, Yk, X, Yk, s->kl[i] * 200 / 420, PL_PC(cx, 5));
         }
     /* (NEW, API 6) BUBBLES: each a ring orbiting the axis as it rises, near large and bright, far small and dim; its shine
      * a short arc inside; bursting: eight rays flying out */
     for (i = 0; i < OFZ_N; i++) {
         int32_t r = s->r[i], Yb = s->y[i] * 4, X, c, e, R;
         uint32_t ph = s->sd[i] * 16843009u + cx->now * (500000u + s->sd[i] * 3000u);
-        const uint8_t *col = s->c[i] < UMB_NTRK ? pl_ncol(a, s->c[i]) : PL_INK;
+        const uint8_t *col = s->c[i] < UMB_NTRK ? pl_rc(cx, a, 4u, s->c[i]) : PL_PC(cx, 1);
         if (!r || Yb + (r + 9) * 256 < S->y0 * 256 || Yb - (r + 9) * 256 > (S->y0 + S->h) * 256)
             continue;
         c = 32768 + pl_sine(a, ph + 0x40000000u);
@@ -225,7 +225,7 @@ static void ofz_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         }
         pl_arc(S, a, X, Yb, R, 0u, 0xFFFFFFFFu, e, col);
         if (r > 3)
-            pl_arc(S, a, X, Yb, R * 5 / 8, 0x90000000u, 0x28000000u, e, PL_WT);
+            pl_arc(S, a, X, Yb, R * 5 / 8, 0x90000000u, 0x28000000u, e, PL_PC(cx, 0));
     }
     /* (NEW, API 6) WAVES: each a wavy front running out from the helix's side, both ways (SPEED: 30 .. 150 px a second;
      * REACH: 30 .. 160 px), a fainter one behind; coming up as it leaves, going out as it goes, and at its ends */
@@ -240,7 +240,7 @@ static void ofz_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                         int32_t nX = ofz_ax(cx, a, y) + sg * (D + pl_pol(a, 768 + dd / 12, (uint32_t)y * 60000000u - cx->now * 1500000u + (uint32_t)i * 0x2A000000u)),
                                 env = pl_sine(a, (uint32_t)(y - lo) * (0x7FFFFFFFu / (uint32_t)H)) >> 7;
                         if (y > lo && D > W)
-                            pl_line(S, pX, py, nX, y * 256, ((al * env) >> (k ? 10 : 8)), PL_WT);
+                            pl_line(S, pX, py, nX, y * 256, ((al * env) >> (k ? 10 : 8)), PL_PC(cx, 5));
                         pX = nX;
                         py = y * 256;
                     }
@@ -248,7 +248,6 @@ static void ofz_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         }
 }
 
-#include "splash/fizz.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_fizz = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(ofz_t), "HELIX",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
@@ -259,7 +258,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_fizz = {
     {{"STRAND", {31, 61, 41, 61, 31, 21, 71, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 2u), UMB_LINK(UMB_SRC_BEAT, 6u)}, {99, 99, 40, 30}},
      {"VORTEX", {91, 86, 26, 51, 71, 61, 51, 11}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 30, 0}},
      {"STORM", {61, 31, 81, 100, 100, 100, 61, 71}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 30, 40}}},
-    65u, {0, 0, 0}, SPL_FIZZ,
+    65u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"BUBBLES", 3u, 1u, {0, 0}, {{"ON", 0}, {"RISE", 50}, {"MANY", 50}},
@@ -267,4 +266,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_fizz = {
       {"Bubbles on or off", "How fast they rise", "How many rise on their own (0 none: only the notes')"}},
      {"WAVES", 3u, 1u, {0, 0}, {{"ON", 0}, {"SPEED", 40}, {"REACH", 50}},
       "Ripples run out from the helix to both sides on the kick and the beat, fading as they go",
-      {"Waves on or off", "How fast they run out", "How far they reach before they are gone"}}}};
+      {"Waves on or off", "How fast they run out", "How far they reach before they are gone"}}},
+    /* (API 7) its colours' parts */
+    6u, {0, 0, 0},
+    {{"NEAR", {236, 250, 246}, 3u}, {"FAR", {120, 226, 214}, 2u}, {"RUNGS", {34, 60, 96}, 1u | UMB_COLF_DIM},
+     {"BEADS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"BUBBLE", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"SPARKS", {236, 250, 246}, 3u}}};

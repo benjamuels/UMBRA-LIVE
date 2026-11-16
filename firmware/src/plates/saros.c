@@ -18,7 +18,9 @@
 #define PLS_CY 120
 #define PLS_TH 48                                       /* threads at most */
 #define PLS_ND 12                                       /* .. the notes' points glowing */
-static const uint8_t PLS_TEAL[3] = {143, 217, 201}, PLS_REST[3] = {34, 60, 96};
+/* (API 7) its colours' parts: THREAD (the notes': the threads, the points), DIAL (the umbra's rim, the root's tick, the
+ * corona), TICKS, SPARK (and the white in the points), BEADS */
+enum { PLS_THREAD, PLS_DIAL, PLS_TICKS, PLS_SPARK, PLS_BEADS };
 typedef struct {
     uint8_t ta[PLS_TH], tb[PLS_TH], tc[PLS_TH], tf[PLS_TH];   /* a thread's notes (a < b), track, the note before */
     uint16_t te[PLS_TH];                                /* .. its energy (Q8: burned up to 2.5) */
@@ -137,7 +139,7 @@ static void pls_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
     }
     for (i = j = 0; i < m->nth; i++) {
         int32_t e = (pl_clamp(pls_glow(m, cx, a, i), 0, 512) + 8) & ~15, X, Y, n, dx, dy;   /* (16 steps a unit) */
-        const uint8_t *tc = a->colour[(m->tc[i] * 3u) % 8u];
+        const uint8_t *tc = pl_rc(cx, a, PLS_THREAD, m->tc[i]);
         if (!e)
             continue;
         m->ta[j] = m->ta[i];
@@ -175,13 +177,13 @@ static void pls_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     if (y0 < PLS_CY + (ru >> 8) + 6 && y0 + S->h > PLS_CY - (ru >> 8) - 6)
         for (i = 0; i < 180; i++) {                     /* the umbra's corona */
             int32_t s = pl_sine(a, (uint32_t)i * 23860929u), c = pl_sine(a, (uint32_t)i * 23860929u + 0x40000000u), r = ru * 55 / 52;
-            pl_splat(S, PLS_CX * 256 + ((c * r) >> 15), PLS_CY * 256 + ((s * r) >> 15), 51 * dl / 50, PLS_TEAL);
+            pl_splat(S, PLS_CX * 256 + ((c * r) >> 15), PLS_CY * 256 + ((s * r) >> 15), 51 * dl / 50, PL_PC(cx, PLS_DIAL));
             r = ru * 60 / 52;
-            pl_splat(S, PLS_CX * 256 + ((c * r) >> 15), PLS_CY * 256 + ((s * r) >> 15), 13 * dl / 50, PLS_TEAL);
+            pl_splat(S, PLS_CX * 256 + ((c * r) >> 15), PLS_CY * 256 + ((s * r) >> 15), 13 * dl / 50, PL_PC(cx, PLS_DIAL));
         }
     for (i = 0; i < 12; i++)                            /* the dial: the root's tick teal */
         pl_splat(S, PLS_CX * 256 + ((29696 * m->ux[i]) >> 15), PLS_CY * 256 + ((29696 * m->uy[i]) >> 15), (i ? 179 : 128) * dl / 50,
-                 i ? PLS_REST : PLS_TEAL);
+                 PL_PC(cx, i ? PLS_TICKS : PLS_DIAL));
     for (i = 0; i < m->nth; i++) {                      /* the threads, a sample a pixel (only the strip's) */
         int32_t X = m->lx[i], Y = m->ly[i], sx = m->lsx[i], sy = m->lsy[i], n = m->ln[i], k0 = 0, k1 = n;
         uint32_t age = cx->now - m->tt[i];
@@ -204,15 +206,15 @@ static void pls_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             x = Xa + (((Xb - Xa) >> 4) * f >> 4);
             y = Ya + (((Yb - Ya) >> 4) * f >> 4);
             if (!pls_umbra(ru, x, y)) {
-                pl_splat(S, x, y, 307, PL_WT);
+                pl_splat(S, x, y, 307, PL_PC(cx, PLS_SPARK));
                 for (k = 0; k < 4; k++)
-                    pl_splat(S, x + (k == 0 ? 256 : k == 1 ? -256 : 0), y + (k == 2 ? 256 : k == 3 ? -256 : 0), 77, PL_WT);
+                    pl_splat(S, x + (k == 0 ? 256 : k == 1 ? -256 : 0), y + (k == 2 ? 256 : k == 3 ? -256 : 0), 77, PL_PC(cx, PLS_SPARK));
             }
         }
     }
     for (i = 0; i < PLS_ND; i++) {                      /* the notes' points: a short glow (~1 s) */
         uint32_t age = cx->now - m->nt[i];
-        const uint8_t *tc = a->colour[(m->nc[i] * 3u) % 8u];
+        const uint8_t *tc = pl_rc(cx, a, PLS_THREAD, m->nc[i]), *wt = PL_PC(cx, PLS_SPARK);
         int32_t b, X, Y, dx, dy;
         if (!m->nv[i] || age > 3000u)
             continue;
@@ -226,8 +228,8 @@ static void pls_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             for (dx = -3; dx <= 3; dx++) {
                 int32_t w = 256 - (dx * dx + dy * dy) * 25;
                 if (w > 0)
-                    pl_px(S, X + dx, Y + dy, (b * ((w * w) >> 8)) >> 8, (tc[0] + PL_WT[0]) >> 1, (tc[1] + PL_WT[1]) >> 1,
-                          (tc[2] + PL_WT[2]) >> 1);
+                    pl_px(S, X + dx, Y + dy, (b * ((w * w) >> 8)) >> 8, (tc[0] + wt[0]) >> 1, (tc[1] + wt[1]) >> 1,
+                          (tc[2] + wt[2]) >> 1);
             }
     }
     /* (NEW, API 6) CORONA: streamers out of the rim, each its own length and lean, turning with the dial; the level draws
@@ -243,7 +245,7 @@ static void pls_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             for (k = 0; k < 4; k++) {                   /* (in four, each fainter, bending a little at the tip) */
                 int32_t ra = r0 + L * k / 4, rb = r0 + L * (k + 1) / 4;
                 pl_line(S, PLS_CX * 256 + (((k ? lc : co) >> 4) * (ra >> 4) >> 7), PLS_CY * 256 + (((k ? ls : si) >> 4) * (ra >> 4) >> 7),
-                        PLS_CX * 256 + ((lc >> 4) * (rb >> 4) >> 7), PLS_CY * 256 + ((ls >> 4) * (rb >> 4) >> 7), e * (4 - k) / 5, PLS_TEAL);
+                        PLS_CX * 256 + ((lc >> 4) * (rb >> 4) >> 7), PLS_CY * 256 + ((ls >> 4) * (rb >> 4) >> 7), e * (4 - k) / 5, PL_PC(cx, PLS_DIAL));
             }
         }
     }
@@ -256,17 +258,17 @@ static void pls_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             b = b > 255 ? 255 : b;
             X = PLS_CX * 256 + ((r * m->ux[i]) >> 15);
             Y = PLS_CY * 256 + ((r * m->uy[i]) >> 15);
-            pl_star(S, X, Y, (3 + b / 22) * 256, b, PL_WT);
+            pl_star(S, X, Y, (3 + b / 22) * 256, b, PL_PC(cx, PLS_BEADS));
             for (dy = -4; dy <= 4; dy++)                /* (its bead: a soft round of light) */
                 for (dx = -4; dx <= 4; dx++) {
                     int32_t w = 256 - (dx * dx + dy * dy) * 15;
                     if (w > 0)
-                        pl_px(S, (X >> 8) + dx, (Y >> 8) + dy, (b * ((w * w) >> 8)) >> 8, PL_WT[0], PL_WT[1], PL_WT[2]);
+                        pl_px(S, (X >> 8) + dx, (Y >> 8) + dy, (b * ((w * w) >> 8)) >> 8, PL_PC(cx, PLS_BEADS)[0], PL_PC(cx, PLS_BEADS)[1],
+                              PL_PC(cx, PLS_BEADS)[2]);
                 }
         }
 }
 
-#include "splash/saros.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_saros = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(pls_t), "SAROS",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 7u, {0, 0, 0},
@@ -277,7 +279,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_saros = {
     {{"ORBIT", {71, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), UMB_LINK(UMB_SRC_BEAT, 5u)}, {99, 99, 30, 50}},
      {"LOOM", {0, 86, 0, 91, 21, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 2u), 0}, {99, 99, 25, 0}},
      {"SPARKS", {0, 21, 0, 26, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_BEAT, 4u)}, {99, 99, 30, 40}}},
-    42u, {0, 0, 0}, SPL_SAROS,
+    42u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"CORONA", 3u, 1u, {0, 0}, {{"ON", 0}, {"RAYS", 45}, {"FLARE", 60}},
@@ -285,4 +287,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_saros = {
       {"Corona on or off", "How many streamers (8 to 48)", "How far the kick throws them out"}},
      {"BEADS", 3u, 1u, {0, 0}, {{"ON", 0}, {"SPARK", 50}, {"LINGER", 60}},
       "Baily's beads: each note lights a bright bead on the umbra's rim at its place on the dial",
-      {"Beads on or off", "How bright and long-rayed the beads are", "How long a bead stays lit"}}}};
+      {"Beads on or off", "How bright and long-rayed the beads are", "How long a bead stays lit"}}},
+    /* (API 7) its colours' parts */
+    5u, {0, 0, 0},
+    {{"THREAD", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"DIAL", {143, 217, 201}, 2u}, {"TICKS", {34, 60, 96}, 1u | UMB_COLF_DIM},
+     {"SPARK", {236, 250, 246}, 3u}, {"BEADS", {236, 250, 246}, 3u}}};

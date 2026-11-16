@@ -181,8 +181,8 @@ static void frv_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             by[j] = Y;
             X += ((int32_t)(h >> 24) - 128) * 40;
             Y += (8 + (int32_t)(h >> 28)) * 256;
-            pl_line(S, bx[j], by[j], X, Y, fl, PL_WT);
-            pl_line(S, bx[j] + 256, by[j], X + 256, Y, fl / 3, PL_INK);
+            pl_line(S, bx[j], by[j], X, Y, fl, PL_PC(cx, 3));
+            pl_line(S, bx[j] + 256, by[j], X + 256, Y, fl / 3, PL_PC(cx, 4));
         }
         for (k = 0; k < nf; k++) {
             int32_t f = 2 + k * 3, fx = bx[f], fy = by[f], dir = k & 1 ? 1 : -1;
@@ -190,7 +190,7 @@ static void frv_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 h = frv_mix(sd + 77u + (uint32_t)(k * 8 + j));
                 X = fx + dir * (4 + (int32_t)(h >> 29)) * 256 + ((int32_t)(h >> 24 & 15u) - 8) * 64;
                 Y = fy + (5 + (int32_t)(h >> 28)) * 256;
-                pl_line(S, fx, fy, X, Y, fl * (5 - j) / 8, PL_INK);
+                pl_line(S, fx, fy, X, Y, fl * (5 - j) / 8, PL_PC(cx, 4));
                 fx = X;
                 fy = Y;
             }
@@ -205,24 +205,23 @@ static void frv_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         cs >>= 3;
         int32_t ax = PX + (r0 * sn >> 12), ay = PY - (r0 * cs >> 12), bx = PX + (r1 * sn >> 12), by = PY - (r1 * cs >> 12),
                 ox = cs >> 3, oy = sn >> 3;                 /* (a px across the blade) */
-        pl_line(S, PX, PY, ax, ay, 200, PL_DEEP);
-        pl_line(S, PX + ox * 2, PY + oy * 2, ax + ox * 2, ay + oy * 2, 120, PL_DEEP);
-        pl_line(S, ax, ay, bx, by, 170 + (cx->beat >> 2), PL_INK);
-        pl_line(S, ax + ox, ay + oy, bx + ox, by + oy, 200, PL_WT);
-        pl_line(S, ax + ox * 2, ay + oy * 2, bx + ox * 2, by + oy * 2, 90, PL_INK);
+        pl_line(S, PX, PY, ax, ay, 200, PL_PC(cx, 5));
+        pl_line(S, PX + ox * 2, PY + oy * 2, ax + ox * 2, ay + oy * 2, 120, PL_PC(cx, 5));
+        pl_line(S, ax, ay, bx, by, 170 + (cx->beat >> 2), PL_PC(cx, 4));
+        pl_line(S, ax + ox, ay + oy, bx + ox, by + oy, 200, PL_PC(cx, 3));
+        pl_line(S, ax + ox * 2, ay + oy * 2, bx + ox * 2, by + oy * 2, 90, PL_PC(cx, 4));
     }
     for (i = 0; i < FRV_ND; i++) {                      /* the beads: a ring, a glint up and to the left */
         int32_t m = s->m[i], X = PL_C2P(s->x[i]), Y = PL_C2P(s->y[i]), r = 300 + ((m * (60 + 2 * (int32_t)cx->k[2])) >> 5);
         if (!m)
             continue;
-        pl_arc(S, a, X, Y, r, 0u, 0xFFFFFFFFu, 50 + (m >> 1) + (s->run[i] ? 60 : 0), s->c[i] ? pl_ncol(a, s->c[i] - 1u) : PL_INK);
-        pl_splat(S, X - r / 3, Y - r / 3, 100 + (m >> 1), PL_WT);
+        pl_arc(S, a, X, Y, r, 0u, 0xFFFFFFFFu, 50 + (m >> 1) + (s->run[i] ? 60 : 0), s->c[i] ? pl_rc(cx, a, 2u, s->c[i] - 1u) : PL_PC(cx, 4));
+        pl_splat(S, X - r / 3, Y - r / 3, 100 + (m >> 1), PL_PC(cx, 3));
         if (fl)                                         /* (NEW, API 6) STRIKE: the beads catch the flash */
-            pl_glint(S, X - r / 3, Y - r / 3, fl, PL_WT);
+            pl_glint(S, X - r / 3, Y - r / 3, fl, PL_PC(cx, 3));
     }
 }
 
-#include "splash/rivulet.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_rivulet = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(frv_t), "RIVULET",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 7u, {0, 0, 0},
@@ -233,7 +232,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_rivulet = {
     {{"SHOWER", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 50, 30}},
      {"DRIZZLE", {21, 91, 26, 31, 0, 91, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 6u), 0}, {99, 99, 25, 0}},
      {"STORM", {91, 31, 71, 96, 96, 0, 81, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 6u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 40, 30}}},
-    40u, {0, 0, 0}, SPL_RIVULET,
+    40u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"STRIKE", 3u, 1u, {0, 0}, {{"ON", 0}, {"CHANCE", 30}, {"FORKS", 50}},
@@ -241,4 +240,9 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_rivulet = {
       {"Lightning on or off", "How often a kick brings a strike", "How many forks branch off the bolt (0 to 3)"}},
      {"WIPER", 3u, 1u, {0, 0}, {{"ON", 0}, {"SWEEP", 40}, {"REACH", 50}},
       "A wiper blade swings across the glass, wiping the wet and the beads away",
-      {"Wiper on or off", "How fast it swings", "How long the blade is"}}}};
+      {"Wiper on or off", "How fast it swings", "How long the blade is"}}},
+    /* (API 7) its colours' parts: the cold palette's two (the wet), the notes' beads, the white (the beads' glints, the bolt's
+     * core, the blade's edge), the teal (the mist's beads, the bolt's forks, the blade), the deep blue (the wiper's arm) */
+    6u, {0, 0, 0},
+    {{"WET", {14, 38, 112}, 1u | UMB_COLF_RAMP}, {"SHINE", {132, 218, 228}, 2u}, {"BEADS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK},
+     {"GLINT", {236, 250, 246}, 3u}, {"MIST", {120, 226, 214}, 2u}, {"WIPER", {34, 60, 96}, 1u | UMB_COLF_DIM}}};

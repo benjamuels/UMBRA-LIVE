@@ -202,25 +202,30 @@ static void frp_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 int32_t l = frp_lump((uint32_t)k, (uint32_t)j), ex = (PL_COS(a, j * 4096) >> 7) * rx >> 6, ey = (PL_SIN(a, j * 4096) >> 7) * ry >> 6,
                         c = PL_COS(a, ln) >> 7, sn = PL_SIN(a, ln) >> 7, ux = ((ex * c - ey * sn) >> 8) * l >> 8, uy = ((ex * sn + ey * c) >> 8) * l >> 8;
                 if (j) {
-                    pl_line(S, X + px, Y + py, X + ux, Y + uy, 150, PL_INK);
+                    pl_line(S, X + px, Y + py, X + ux, Y + uy, 150, PL_PC(cx, 4));
                     if (j > 8)
-                        pl_line(S, X + qx, Y + qy - 256, X + ux * 5 / 8, Y + uy * 5 / 8 - 256, 80, PL_INK);
+                        pl_line(S, X + qx, Y + qy - 256, X + ux * 5 / 8, Y + uy * 5 / 8 - 256, 80, PL_PC(cx, 4));
                 }
                 px = ux;
                 py = uy;
                 qx = ux * 5 / 8;
                 qy = uy * 5 / 8;
             }
-            pl_arc(S, a, X, Y, rx * 4 + 256, 0x50000000u, 0x60000000u, fo, PL_WT);
-            pl_arc(S, a, X, Y, rx * 4 + 1024 + s->surge * 4, 0x58000000u, 0x50000000u, fo * 2 / 3, PL_WT);
+            pl_arc(S, a, X, Y, rx * 4 + 256, 0x50000000u, 0x60000000u, fo, PL_PC(cx, 3));
+            pl_arc(S, a, X, Y, rx * 4 + 1024 + s->surge * 4, 0x58000000u, 0x50000000u, fo * 2 / 3, PL_PC(cx, 3));
         }
     if (cx->xk[1][0])                                   /* (NEW, API 6) LEAVES: a leaf's outline and its rib, warm */
         for (k = 0; k < 1 + cx->xk[1][1] / 20; k++) {
             int32_t X = PL_C2P(s->lx[k]), Y = PL_C2P(s->ly[k]), cs = PL_COS(a, s->la[k]) >> 7, sn = PL_SIN(a, s->la[k]) >> 7,
                     ax = cs * 5, ay = sn * 5, bx = -sn * 2, by = cs * 2;   /* (half its length along, its half width across) */
-            const uint8_t *c = PL_WARM[k & 1];
+            /* (API 7) the part LEAVES is a leaf's colour (its own: yellow); every other leaf is browner: each channel
+             * this much of it (Q8; 257: all), which from yellow gives the orange that was here exactly (255 122 28) */
+            static const uint16_t FRP_LF[2][3] = {{257, 257, 257}, {257, 152, 112}};
+            uint8_t c[3];
             if (!s->ly[k])
                 continue;
+            for (i = 0; i < 3; i++)
+                c[i] = (uint8_t)((PL_PC(cx, 5)[i] * FRP_LF[k & 1][i]) >> 8);
             pl_line(S, X - ax, Y - ay, X + bx, Y + by, 220, c);
             pl_line(S, X + bx, Y + by, X + ax, Y + ay, 220, c);
             pl_line(S, X + ax, Y + ay, X - bx, Y - by, 220, c);
@@ -229,10 +234,9 @@ static void frp_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         }
     for (i = 0; i < FRP_NP; i++)                        /* the heads */
         if (s->b[i])
-            pl_splat(S, PL_C2P(s->x[i]), PL_C2P(s->y[i]), s->b[i] + 40, s->c[i] ? pl_ncol(a, s->c[i] - 1u) : PL_WT);
+            pl_splat(S, PL_C2P(s->x[i]), PL_C2P(s->y[i]), s->b[i] + 40, s->c[i] ? pl_rc(cx, a, 2u, s->c[i] - 1u) : PL_PC(cx, 3));
 }
 
-#include "splash/rapids.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_rapids = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(frp_t), "RAPIDS",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 7u, {0, 0, 0},
@@ -243,7 +247,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_rapids = {
     {{"RUN", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 50, 30}},
      {"BROOK", {21, 86, 16, 31, 0, 31, 81, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 25, 0}},
      {"TORRENT", {91, 31, 96, 96, 96, 91, 100, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 30, 40}}},
-    70u, {0, 0, 0}, SPL_RAPIDS,
+    70u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"STONES", 3u, 1u, {0, 0}, {{"ON", 0}, {"ROCKS", 50}, {"FOAM", 50}},
@@ -251,4 +255,9 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_rapids = {
       {"Stones on or off", "How many rocks (1 to 5)", "How white the foam on their upstream side"}},
      {"LEAVES", 3u, 1u, {0, 0}, {{"ON", 0}, {"LEAVES", 40}, {"SPIN", 30}},
       "Autumn leaves ride the water, turning as they go; the drums set them spinning",
-      {"Leaves on or off", "How many leaves (1 to 5)", "How fast they turn on their own"}}}};
+      {"Leaves on or off", "How many leaves (1 to 5)", "How fast they turn on their own"}}},
+    /* (API 7) its colours' parts: the cold palette's two, the notes' heads, the white (the stream's own heads, the foam on
+     * the stones), the stones' outline, the leaves */
+    6u, {0, 0, 0},
+    {{"WATER", {14, 38, 112}, 1u | UMB_COLF_RAMP}, {"THREAD", {132, 218, 228}, 2u}, {"HEADS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK},
+     {"FOAM", {236, 250, 246}, 3u}, {"STONES", {120, 226, 214}, 2u}, {"LEAVES", {255, 206, 64}, 4u}}};

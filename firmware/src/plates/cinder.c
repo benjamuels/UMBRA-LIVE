@@ -140,9 +140,10 @@ static void plc_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)   /* t
     if ((uint32_t)(cx->now - s->ms) >= 50u)
         s->ms = cx->now;
 }
-static const uint8_t PLC_SMOKE[3] = {84, 104, 150};   /* (NEW, API 6) SMOKE's grey-blue */
-static const uint8_t PLC_EMB[4][3] = {{255, 232, 130}, {255, 150, 30}, {230, 54, 10}, {120, 12, 2}};   /* (NEW, API 6) an
-                                                         * ember cooling: new, orange, red, deep red */
+/* (NEW, API 6) an ember cooling: new, orange, red, deep red. (API 7) its colour new is the part EMBERS (its own: 255 232
+ * 130); as it cools each channel is left this much of it (Q8; 257: all), which from its own colour gives the table that
+ * was here exactly: {255, 232, 130}, {255, 150, 30}, {230, 54, 10}, {120, 12, 2} */
+static const uint16_t PLC_EMB[4][3] = {{257, 257, 257}, {257, 166, 60}, {231, 60, 20}, {121, 14, 4}};
 /* (NEW, API 6) EMBERS: ember h (its dice) c px up, swirling sw (px, Q8 at the foot): where across (px, Q8) */
 static int32_t plc_emb(const umb_api_t *a, uint32_t h, int32_t c, int32_t sw, uint32_t now)
 {
@@ -180,7 +181,7 @@ static void plc_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             for (cxx = 0; cxx < S->w; cxx++) {
                 uint32_t t;
                 if (bb[cxx] >= PL_WLO && (t = (uint32_t)PL_LERP(vv, xi[cxx], xf[cxx])) != 0u)
-                    row[cxx] = pl_wpx(a, bb[cxx], t | (T[xi[cxx] + (xf[cxx] >> 7)] & 128u), vg, PL_D2[dq | ((x0 + cxx) & 1)]);
+                    row[cxx] = pl_wpx(a, cx->pc + 2, bb[cxx], t | (T[xi[cxx] + (xf[cxx] >> 7)] & 128u), vg, PL_D2[dq | ((x0 + cxx) & 1)]);
             }
         }
     }
@@ -195,8 +196,8 @@ static void plc_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 int32_t y = by - j * H / 24, x = bx * 256 + ((pl_sine(a, (uint32_t)j * 120000000u - cx->now * 1300000u + h) * cu * j) >> 11)
                                                  + j * (int32_t)(h >> 24 & 7u) * 16;
                 if (j) {                                /* (two strands, a pixel apart: a wisp, not a hair) */
-                    pl_line(S, ox, oy, x, y * 256, (24 - j) * (60 + cx->level / 3) / 24, PLC_SMOKE);
-                    pl_line(S, ox + 384, oy, x + 384, y * 256, (24 - j) * (30 + cx->level / 5) / 24, PLC_SMOKE);
+                    pl_line(S, ox, oy, x, y * 256, (24 - j) * (60 + cx->level / 3) / 24, PL_PC(cx, 5));
+                    pl_line(S, ox + 384, oy, x + 384, y * 256, (24 - j) * (30 + cx->level / 5) / 24, PL_PC(cx, 5));
                 }
                 ox = x;
                 oy = y * 256;
@@ -217,8 +218,10 @@ static void plc_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                          + (pl_sine(a, cx->now * 23000000u + h * 3u) >> 10)) >> 8;
             uint8_t cl[3];
             e = e * (210 + (pl_sine(a, (uint32_t)c * (60000000u + (h >> 26) * 1600000u) * (h & 1u ? 1u : ~0u) + h + cx->now * 6000u) >> 10)) >> 8;
-            for (j = 0; j < 3; j++)
-                cl[j] = (uint8_t)(PLC_EMB[g][j] + (((PLC_EMB[g + 1][j] - PLC_EMB[g][j]) * f) >> 8));
+            for (j = 0; j < 3; j++) {
+                int32_t c0 = (PL_PC(cx, 4)[j] * PLC_EMB[g][j]) >> 8, c1 = (PL_PC(cx, 4)[j] * PLC_EMB[g + 1][j]) >> 8;
+                cl[j] = (uint8_t)(c0 + (((c1 - c0) * f) >> 8));
+            }
             e = pl_clamp(e, 0, 255);
             for (j = 3; j < 12 && j < c; j += 3)        /* (the trail: three pieces along its path, going out) */
                 pl_line(S, plc_emb(a, h, c - j, sw, cx->now), (y + j) * 256, plc_emb(a, h, c - j + 3, sw, cx->now), (y + j - 3) * 256,
@@ -229,7 +232,6 @@ static void plc_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     }
 }
 
-#include "splash/cinder.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_cinder = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plc_t), "CINDER",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 6u, {0, 0, 0},
@@ -240,10 +242,14 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_cinder = {
     {{"PULSE", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 60, 50}},
      {"SMOLDER", {21, 76, 31, 0, 0, 21, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 40, 0}},
      {"FLARE", {71, 31, 0, 81, 0, 91, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 5u), UMB_LINK(UMB_SRC_BEAT, 0u)}, {99, 99, 60, 25}}},
-    62u, {0, 0, 0}, SPL_CINDER,
+    62u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"EMBERS", 3u, 1u, {0, 0}, {{"ON", 0}, {"COUNT", 50}, {"SWIRL", 50}}, "Red embers swirl up off the coals, cooling from yellow-orange to deep red, flickering out",
       {"Embers on or off", "How many rise at once", "How wide they spiral as they climb"}},
      {"SMOKE", 3u, 1u, {0, 0}, {{"ON", 0}, {"CURL", 50}, {"HEIGHT", 50}}, "Faint wisps of smoke climb over the embers, thicker as the music swells",
-      {"Smoke on or off", "How much the wisps curl", "How high they climb"}}}};
+      {"Smoke on or off", "How much the wisps curl", "How high they climb"}}},
+    /* (API 7) its colours' parts: the cold palette's two, the warm tints (track 3's heat, track 4's), an ember new, the smoke */
+    6u, {0, 0, 0},
+    {{"HEAT", {14, 38, 112}, 1u | UMB_COLF_RAMP}, {"GLOW", {132, 218, 228}, 2u}, {"WARM 1", {255, 206, 64}, 4u},
+     {"WARM 2", {255, 122, 28}, 5u}, {"EMBERS", {255, 232, 130}, 4u}, {"SMOKE", {84, 104, 150}, 1u | UMB_COLF_DIM}}};

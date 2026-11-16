@@ -126,7 +126,7 @@ static void oko_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         uint32_t age = cx->now - s->rt[i];
         if (s->rt[i] && age < 700u)
             pl_arc(S, a, s->rx[i] * 256, s->ry[i] * 256, (3 + (int32_t)age / 28) * 256, 0u, 0xFFFFFFFFu, pl_out(s->rv[i], age, 700u) / 2,
-                   s->rc[i] < UMB_NTRK ? pl_ncol(a, s->rc[i]) : PL_WT);
+                   s->rc[i] < UMB_NTRK ? pl_rc(cx, a, 1u, s->rc[i]) : PL_PC(cx, 0));
     }
     /* (NEW, API 6) LILIES: pads (a ring with its notch) drifting slowly, each its own turn, swelling on the beat; on some a
      * lotus, its petals open with BLOOM and the mix's level */
@@ -136,23 +136,23 @@ static void oko_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             int32_t R = (8 + (int32_t)(h >> 29) * 2) * 256 + cx->beat * 3, top = PL_TOP(cx) + 14,
                     X = (int32_t)(((h2 >> 8) % 280u + cx->now / (90u + (h >> 27))) % 280u) * 256 - 20 * 256,
                     Y = (top + (int32_t)((h2 >> 20) % (uint32_t)(226 - top))) * 256 + pl_pol(a, 3 * 256, cx->now * 200000u + h);
-            pl_arc(S, a, X, Y, R, ph + 0x0C000000u, 0xE8000000u, 110, PL_INK);
-            pl_line(S, X, Y, X + pl_pol(a, R, ph + 0x4C000000u), Y + pl_pol(a, R, ph + 0x0C000000u), 80, PL_INK);
-            pl_line(S, X, Y, X + pl_pol(a, R, ph + 0x34000000u), Y + pl_pol(a, R, ph - 0x0C000000u), 80, PL_INK);
+            pl_arc(S, a, X, Y, R, ph + 0x0C000000u, 0xE8000000u, 110, PL_PC(cx, 4));
+            pl_line(S, X, Y, X + pl_pol(a, R, ph + 0x4C000000u), Y + pl_pol(a, R, ph + 0x0C000000u), 80, PL_PC(cx, 4));
+            pl_line(S, X, Y, X + pl_pol(a, R, ph + 0x34000000u), Y + pl_pol(a, R, ph - 0x0C000000u), 80, PL_PC(cx, 4));
             if (h & 0x100u && cx->xk[0][2]) {           /* (its lotus: six petals, opening) */
                 int32_t l = (2 + (cx->xk[0][2] * (64 + cx->level) >> 11)) * 256;
                 for (k = 0; k < 6; k++) {
                     uint32_t q = ph * 3u + (uint32_t)k * 715827883u;
-                    pl_line(S, X, Y, X + pl_pol(a, l, q + 0x40000000u), Y + pl_pol(a, l, q), 200, a->colour[6]);
+                    pl_line(S, X, Y, X + pl_pol(a, l, q + 0x40000000u), Y + pl_pol(a, l, q), 200, PL_PC(cx, 5));
                 }
-                pl_dot(S, X >> 8, Y >> 8, 230, PL_WARM[0]);
+                pl_dot(S, X >> 8, Y >> 8, 230, PL_PC(cx, 2));
             }
         }
     for (i = 0; i < n; i++) {
         int32_t X = s->x[i] * 4, Y = s->y[i] * 4, cs = PL_COS(a, s->h[i]) >> 3, sn = PL_SIN(a, s->h[i]) >> 3, px[6], py[6], sx[2], sy[2], e,
                 ox, oy;
         uint8_t m[3];
-        e = pl_mix(m, PL_WT, pl_ncol(a, s->c[i]), gl, s->e[i]);
+        e = pl_mix(m, PL_PC(cx, 0), pl_rc(cx, a, 1u, s->c[i]), gl, s->e[i]);
         for (k = 0; k < 6; k++) {                       /* its back: six joints from the head, the tail's beat growing down it */
             int32_t w = pl_pol(a, k * L / 3, ((uint32_t)s->wg[i] << 16) - (uint32_t)k * 0x18000000u), al = k * L;
             px[k] = X - ((cs * al) >> 12) - ((sn * w) >> 12);
@@ -178,7 +178,7 @@ static void oko_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                     pl_line(S, sx[j], sy[j], sx[j] + 2 * ox - ((cs * L) >> 13), sy[j] + 2 * oy - ((sn * L) >> 13), e / 2, m);
             }
         }
-        pl_dot(S, px[2] >> 8, py[2] >> 8, e, PL_WARM[i & 1]);   /* its patch */
+        pl_dot(S, px[2] >> 8, py[2] >> 8, e, PL_PC(cx, 2 + (i & 1)));   /* its patch */
         /* (NEW, API 6) WAKE: from its tail a V of ripples, four pairs of arcs left behind and widening, bright (TRAIL: how
          * far back, FAN: how wide), longer and brighter the faster it goes: after a note, frightened */
         if (cx->xk[1][0]) {
@@ -190,14 +190,13 @@ static void oko_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                         bx = px[5] - ((cs * d) >> 12), by = py[5] - ((sn * d) >> 12), r = L / 4 + ((d * fan) >> 8),
                         a2 = pl_clamp(al, 0, 255) * (1024 - f) >> 10;
                 uint32_t hh = (uint32_t)s->h[i] << 16;
-                pl_arc(S, a, bx, by, r, hh + 0x34000000u, 0x30000000u, a2, PL_WT);
-                pl_arc(S, a, bx, by, r, hh - 0x64000000u, 0x30000000u, a2, PL_WT);
+                pl_arc(S, a, bx, by, r, hh + 0x34000000u, 0x30000000u, a2, PL_PC(cx, 0));
+                pl_arc(S, a, bx, by, r, hh - 0x64000000u, 0x30000000u, a2, PL_PC(cx, 0));
             }
         }
     }
 }
 
-#include "splash/koi.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_koi = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(oko_t), "KOI",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
@@ -208,7 +207,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_koi = {
     {{"POND", {21, 81, 0, 0, 26, 0, 36, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 7u), 0}, {99, 99, 30, 0}},
      {"FEED", {71, 41, 0, 100, 0, 0, 100, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 4u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 50, 40}},
      {"GHOST", {0, 91, 71, 0, 0, 81, 0, 6}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 7u), 0}, {99, 99, 25, 0}}},
-    45u, {0, 0, 0}, SPL_KOI,
+    45u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"LILIES", 3u, 1u, {0, 0}, {{"ON", 0}, {"PADS", 40}, {"BLOOM", 50}},
@@ -216,4 +215,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_koi = {
       {"Lily pads on or off", "How many pads (1 to 10)", "How far the lotus flowers open (0 none)"}},
      {"WAKE", 3u, 1u, {0, 0}, {{"ON", 0}, {"TRAIL", 50}, {"FAN", 40}},
       "Each fish leaves a V of ripples behind it, longer and brighter when it darts or takes fright",
-      {"Wakes on or off", "How far back the ripples run", "How wide the V opens"}}}};
+      {"Wakes on or off", "How far back the ripples run", "How wide the V opens"}}},
+    /* (API 7) its colours' parts */
+    6u, {0, 0, 0},
+    {{"FISH", {236, 250, 246}, 3u}, {"NOTES", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"PATCH 1", {255, 206, 64}, 4u},
+     {"PATCH 2", {255, 122, 28}, 5u}, {"LILY", {120, 226, 214}, 2u}, {"LOTUS", {232, 124, 196}, 6u}}};

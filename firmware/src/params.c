@@ -255,11 +255,7 @@ static const param_desc_t GP[G_COUNT] = {
 static const param_desc_t LOFI_RTRG = {"RTRG", F_ONOFF, 0, 1, 1, 0, 0};   /* (0.6.12) P_LRTRG on a MATH track (V10.6d: ON its default) */
 static const param_desc_t TRK_CHANCE = {"CHANCE", F_PCTINV, 0, 127, 0, 0, 0};   /* (0.6.37) P_TCHAN: 0 = 100 % */
 static const param_desc_t MORPH_DESC = {"MORPH", F_PCT, 0, 127, 0, 0, 0};   /* (0.6.45) P_MORPH */
-static const char *const N_CLEN[] = {"OFF", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
-                                     "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29",
-                                     "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43",
-                                     "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57",
-                                     "58", "59", "60", "61", "62", "63", "64", 0};
+static const char *const N_CLEN[] = {"\001\101\000OFF", 0};   /* (UMBRA LIVE, 2026-11-16: the room) "OFF", "1" .. "64" (pd_name) */
 static const param_desc_t CLEN_DESC = {"C.LEN", F_ENUM, 0, 64, 0, N_CLEN, 0};   /* (0.6.47) P_CLEN */
 static const param_desc_t DXIMG_DESC = {"IMAGE", F_INT, 0, 127, 0, 0, 0};       /* (0.6.48) P_DXIMG */
 /* (V10.6) SEQ > EUCLID / MODES' knobs (ui_euclid.c: ids ID_EU0 + EK_*, the views of the selected track's settings) */
@@ -439,9 +435,33 @@ static int32_t enum_rank(const param_desc_t *d, int32_t v)   /* v's place in the
 /* a knob turned `steps` (signed) from v: clamped, over the shown order, past aliases (enum_step) */
 /* (p1, main 0.9.16) a value with names (F_INT, its range split evenly over them: engine desc hooks): its name's index,
  * *k the names */
+/* (UMBRA LIVE, 2026-11-16: the app slot's room) names that are a letter and a number are not kept, they are made: a
+ * table whose first name starts with byte 1 says so: then how many there are, then their letter ("B01" .. from 1, two
+ * digits), or none and the first one's word ("OFF", then "1" ..: the number the index). d's name i (good until the next one asked for) */
+static char pd_nb[4] __attribute__((section(".pool")));
+static const char *pd_name(const param_desc_t *d, int32_t i)
+{
+    const char *s = d->names[0];
+    if (s[0] != 1)
+        return d->names[i];
+    if (!s[2]) {
+        if (!i)
+            return s + 3;
+        fmt_int(pd_nb, i);
+    } else {
+        pd_nb[0] = s[2];
+        pd_nb[1] = (char)('0' + (i + 1) / 10);
+        pd_nb[2] = (char)('0' + (i + 1) % 10);
+        pd_nb[3] = 0;
+    }
+    return pd_nb;
+}
 static uint32_t name_of(const param_desc_t *d, int32_t v, uint32_t *k)
 {
     uint32_t n = 0;
+    if (d->names[0][0] == 1)
+        n = (uint8_t)d->names[0][1];
+    else
     while (d->names[n])
         n++;
     *k = n;
@@ -599,7 +619,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
         *unit = "st";
         break;
     case F_ENUM:
-        str_cpy(val, d->names[v < d->min ? d->min : v > d->max ? d->max : v], 6);
+        str_cpy(val, pd_name(d, v < d->min ? d->min : v > d->max ? d->max : v), 6);
         if (d->unit)
             *unit = d->unit;
         break;
@@ -620,7 +640,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
     default:
         if (d->names) {                               /* F_INT with a 0-terminated name list: the range */
             uint32_t k;                               /* split evenly over the names (engine desc hooks) */
-            str_cpy(val, d->names[name_of(d, v, &k)], 6);
+            str_cpy(val, pd_name(d, (int32_t)name_of(d, v, &k)), 6);
         } else {
             fmt_int(val, v);
         }

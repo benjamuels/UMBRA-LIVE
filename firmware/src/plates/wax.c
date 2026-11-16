@@ -16,7 +16,9 @@
 #define FWX_NR 6                                        /* blobs always there (the last of them a small one); then as many
                                                          * of the notes', and beads */
 #define FWX_NB (3 * FWX_NR)
-static const uint8_t FWX_ST[4][3] = {{104, 10, 0}, {218, 62, 0}, {255, 150, 22}, {255, 238, 176}};   /* its palette */
+/* (API 7) its colours' parts: GLOW, SHADE, BODY, RIM (the palette's four stops: the ember red round the wax, its body's
+ * dark and light, the pale rim and core), GLASS (the bottle's walls and sheen) */
+enum { FWX_GLOW, FWX_SHADE, FWX_BODY, FWX_RIM, FWX_GLASS };
 typedef struct {
     uint8_t f[PL_S];                                    /* the field, a byte a cell */
     uint16_t lut[2][256];                               /* the palette as the panel takes it */
@@ -29,6 +31,7 @@ typedef struct {
                                                          * across it keeps to (cells), the steps left to it (0: for good) */
     uint16_t heave;                                     /* the kick's heave (Q8) */
     uint32_t rs, ms, t;                                 /* the dice, the steps' clock, the steps */
+    uint32_t psum;                                      /* (API 7) the parts' colours the palette was made from */
 } fwx_t;
 
 static void fwx_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
@@ -38,7 +41,6 @@ static void fwx_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
     (void)a;
     s->rs = 3301u + cx->now;
     s->ms = cx->now;
-    pl_lut(s->lut, FWX_ST, 4);
     for (i = 0; i < FWX_NR; i++) {
         s->hx[i] = (uint8_t)(7u + i * 9u + pl_rnd(&s->rs) % 5u);
         s->x[i] = (int16_t)(s->hx[i] * 256);
@@ -132,7 +134,7 @@ static void fwx_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 {
     fwx_t *s = st;
     uint32_t n = pl_owed(cx->now, &s->ms, 50u);
-    int32_t i, g = (int32_t)cx->k[6];
+    int32_t i, g = (int32_t)cx->k[6], nw = pl_pcnew(cx, &s->psum);   /* (API 7) the parts' colours changed */
     if (s->kg != cx->k[6] + 1u) {                       /* the curve: the glow outside (in steps: a blob moving changes
                                                          * little of it), the rim at 96, the body within and its core, each
                                                          * one level: only their edges change as the wax moves */
@@ -152,8 +154,8 @@ static void fwx_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
         fwx_hue(st[3], h2, 256, 180);
         pl_lut(s->lut, st, 4);
         s->lc = 1;
-    } else if (!cx->xk[0][0] && s->lc) {
-        pl_lut(s->lut, FWX_ST, 4);
+    } else if (cx->xk[0][0] ? nw && !s->lc : nw || s->lc) {   /* (API 7) its parts' palette: COLOR off, or not yet made */
+        pl_lut(s->lut, (const uint8_t (*)[3])cx->pc, 4);   /* (GLOW, SHADE, BODY, RIM: the first four, in a row) */
         s->lc = 0;
     }
     while (n--)
@@ -162,6 +164,7 @@ static void fwx_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 static void fwx_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
 {
     const fwx_t *s = st;
+    const uint8_t *gc = PL_PC(cx, FWX_GLASS);
     int32_t y;
     pl_fdraw(S, s->f, s->cv, s->lut, 1);
     /* (NEW, API 6) GLASS: the bottle, widest low down, narrowing (TAPER) to the cap and the foot; outside it black, its
@@ -174,15 +177,14 @@ static void fwx_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             for (x = 0; x < S->w; x++)
                 if (pl_abs(S->x0 + x - 120) > hw)
                     row[x] = 0;
-            pl_px(S, 120 - hw, py, 150, FWX_ST[3][0], FWX_ST[3][1], FWX_ST[3][2]);
-            pl_px(S, 120 + hw, py, 150, FWX_ST[3][0], FWX_ST[3][1], FWX_ST[3][2]);
+            pl_px(S, 120 - hw, py, 150, gc[0], gc[1], gc[2]);
+            pl_px(S, 120 + hw, py, 150, gc[0], gc[1], gc[2]);
             e = (cx->xk[1][2] * 2 + 30) * (100 + cx->beat) / 160 * (256 - d * 256 / 160) >> 8;
             for (x = 0; x < 4; x++)
-                pl_px(S, 120 - hw + 8 + x, py, e * (4 - pl_abs(x - 1)) / 4, FWX_ST[3][0], FWX_ST[3][1], FWX_ST[3][2]);
+                pl_px(S, 120 - hw + 8 + x, py, e * (4 - pl_abs(x - 1)) / 4, gc[0], gc[1], gc[2]);
         }
 }
 
-#include "splash/wax.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_wax = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(fwx_t), "WAX",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 7u, {0, 0, 0},
@@ -193,7 +195,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_wax = {
     {{"LAMP", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 6u)}, {99, 99, 50, 40}},
      {"TAR", {11, 96, 81, 31, 21, 0, 26, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 25, 0}},
      {"BOIL", {96, 11, 31, 0, 91, 96, 81, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 30, 40}}},
-    22u, {0, 0, 0}, SPL_WAX,
+    22u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"COLOR", 3u, 1u, {0, 0}, {{"ON", 0}, {"HUE", 60}, {"SHIFT", 30}},
@@ -201,4 +203,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_wax = {
       {"Colour on or off (off: the embers)", "The wax's colour, round the hues", "How far its body drifts from that colour (0: one colour)"}},
      {"GLASS", 3u, 1u, {0, 0}, {{"ON", 0}, {"TAPER", 50}, {"SHEEN", 50}},
       "The lamp's glass: a waisted bottle, black outside it, a sheen down its side lit by the beat",
-      {"Glass on or off", "How much the bottle narrows to its cap and foot", "How bright the sheen on the glass is"}}}};
+      {"Glass on or off", "How much the bottle narrows to its cap and foot", "How bright the sheen on the glass is"}}},
+    /* (API 7) its colours' parts */
+    5u, {0, 0, 0},
+    {{"GLOW", {104, 10, 0}, 5u | UMB_COLF_DIM}, {"SHADE", {218, 62, 0}, 5u}, {"BODY", {255, 150, 22}, 4u}, {"RIM", {255, 238, 176}, 3u},
+     {"GLASS", {255, 238, 176}, 3u}}};

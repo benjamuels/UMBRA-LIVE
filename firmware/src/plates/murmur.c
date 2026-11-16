@@ -186,7 +186,7 @@ static void omu_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         by = s->vy[i] * (w / 2) / m;
         ox = -s->vy[i] * f / m;
         oy = s->vx[i] * f / m;
-        e = pl_mix(col, PL_WT, pl_ncol(a, s->c[i]), 120, s->e[i]);
+        e = pl_mix(col, PL_PC(cx, 0), pl_rc(cx, a, 1u, s->c[i]), 120, s->e[i]);
         pl_line(S, X, Y, X - bx + ox, Y - by + oy, e, col);
         pl_line(S, X, Y, X - bx - ox, Y - by - oy, e, col);
     }
@@ -217,10 +217,10 @@ static void omu_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 int32_t a0 = HW[j][0] * 256 + (j < 6 ? f * HW[j][1] / 25 : 0), a1 = HW[j][2] * 256 + (j < 6 ? f * HW[j][3] / 25 : 0),
                         c0 = k * HW[j][1] * (j < 6 ? sp / 100 : 256), c1 = k * HW[j][3] * (j < 6 ? sp / 100 : 256);
                 pl_line(S, p[2] * 4 + ((ux * a0 - uy * c0) >> 8), p[3] * 4 + ((uy * a0 + ux * c0) >> 8),
-                        p[2] * 4 + ((ux * a1 - uy * c1) >> 8), p[3] * 4 + ((uy * a1 + ux * c1) >> 8), j < 4 ? 230 : 180, PL_WARM[0]);
+                        p[2] * 4 + ((ux * a1 - uy * c1) >> 8), p[3] * 4 + ((uy * a1 + ux * c1) >> 8), j < 4 ? 230 : 180, PL_PC(cx, 2));
             }
         }
-        pl_glint(S, p[2] * 4 + ux * 8, p[3] * 4 + uy * 8, 255, PL_WT);
+        pl_glint(S, p[2] * 4 + ux * 8, p[3] * 4 + uy * 8, 255, PL_PC(cx, 3));
     }
     if (cx->xk[1][0])                                   /* (NEW, API 6) CALLS: each ring and its echoes behind it */
         for (i = 0; i < 4; i++) {
@@ -232,12 +232,11 @@ static void omu_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 r = (int32_t)age * (R / life) - k * 9 * 256;
                 e = pl_out(90 + s->cv[i], age, (uint32_t)life) * (ne - k) / ne;
                 if (r > 256)
-                    pl_arc(S, a, s->rx[i] * 4, s->ry[i] * 4, r, 0u, 0xFFFFFFFFu, e, pl_ncol(a, s->cc[i]));
+                    pl_arc(S, a, s->rx[i] * 4, s->ry[i] * 4, r, 0u, 0xFFFFFFFFu, e, pl_rc(cx, a, 1u, s->cc[i]));
             }
         }
 }
 
-#include "splash/murmur.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_murmur = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(omu_t), "MURMUR",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
@@ -248,7 +247,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_murmur = {
     {{"DUSK", {31, 81, 0, 0, 0, 31, 100, 71}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 7u), 0}, {99, 99, 30, 0}},
      {"STARTLE", {81, 0, 0, 0, 100, 100, 0, 31}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 4u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 50, 40}},
      {"RIBBON", {61, 100, 71, 100, 21, 0, 100, 1}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 2u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 30, 40}}},
-    60u, {0, 0, 0}, SPL_MURMUR,
+    60u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"HAWK", 3u, 1u, {0, 0}, {{"ON", 0}, {"STOOP", 50}, {"SHY", 50}},
@@ -256,4 +255,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_murmur = {
       {"Hawk on or off", "How far in it dives on the kick", "How far the birds keep from it"}},
      {"CALLS", 3u, 1u, {0, 0}, {{"ON", 0}, {"REACH", 50}, {"ECHOES", 50}},
       "Rings of sound spread from where each note calls the flock, in the note's colour",
-      {"Calls on or off", "How far the rings spread", "How many rings follow each call (1 to 4)"}}}};
+      {"Calls on or off", "How far the rings spread", "How many rings follow each call (1 to 4)"}}},
+    /* (API 7) its colours' parts */
+    4u, {0, 0, 0},
+    {{"BIRDS", {236, 250, 246}, 3u}, {"NOTES", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"HAWK", {255, 206, 64}, 4u}, {"EYE", {236, 250, 246}, 3u}}};

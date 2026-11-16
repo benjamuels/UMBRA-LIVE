@@ -117,7 +117,7 @@ static void ome_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     for (i = 0; i < OME_NS; i++) {                      /* the sparks: 0.8 s, rising a little */
         uint32_t age = cx->now - s->st[i];
         if (s->st[i] && age < 800u)
-            pl_glint(S, s->sx[i] * 256, s->sy[i] * 256 - (int32_t)age * 4, pl_out(s->sv[i], age, 800u), PL_WT);
+            pl_glint(S, s->sx[i] * 256, s->sy[i] * 256 - (int32_t)age * 4, pl_out(s->sv[i], age, 800u), PL_PC(cx, 2));
     }
     /* (NEW, API 6) SNOW: motes sinking (SINK: how fast) and swaying, FLAKES of them; brighter with the mix, some glittering
      * on the beat */
@@ -128,9 +128,9 @@ static void ome_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                     x = (int32_t)((h >> 8) % 240u) * 256 + pl_pol(a, (2 + (int32_t)(h >> 29)) * 256, cx->now * (90000u + (h >> 25) * 3000u) + h2),
                     al = 100 + (cx->level >> 2) + ((h2 & 3u) == 0 ? cx->beat >> 1 : 0);
             if (h & 0x40u)
-                pl_glint(S, x, y * 256, al, PL_WT);
+                pl_glint(S, x, y * 256, al, PL_PC(cx, 3));
             else
-                pl_line(S, x, y * 256, x + 256, y * 256 + 256, al, PL_INK);
+                pl_line(S, x, y * 256, x + 256, y * 256 + 256, al, PL_PC(cx, 0));
         }
     for (i = 0; i < OME_N; i++) {
         int32_t w = (9 + cx->k[2] * 9 / 50) * (8 + i * 3 % 5) / 10, q = s->p[i] >> 8, rx = w * (256 - ((q * 77) >> 8)), ry = w * (230 + ((q * 40) >> 8)),
@@ -141,7 +141,7 @@ static void ome_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         if (Y + 5 * len + 1024 + (cx->xk[0][0] ? rx + 21500 : 0) < S->y0 * 256 ||   /* ((NEW, API 6) and its HALO's reach) */
             Y - ry - 512 - (cx->xk[0][0] ? rx + 21500 : 0) > (S->y0 + S->h) * 256)
             continue;
-        e = pl_mix(m, PL_INK, pl_ncol(a, s->c[i]), 70 + q / 4, s->e[i]) * s->al[i] >> 8;
+        e = pl_mix(m, PL_PC(cx, 0), pl_rc(cx, a, 1u, s->c[i]), 70 + q / 4, s->e[i]) * s->al[i] >> 8;
         x0 = X - rx;                                    /* the bell: half a round over its rim, drawn in by the beat */
         y0 = Y;
         for (k = 1; k <= 12; k++) {
@@ -178,7 +178,6 @@ static void ome_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     }
 }
 
-#include "splash/medusa.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_medusa = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(ome_t), "MEDUSA",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
@@ -189,7 +188,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_medusa = {
     {{"BLOOM", {0, 0, 31, 0, 0, 0, 100, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 40, 30}},
      {"ABYSS", {15, 91, 91, 0, 26, 100, 1, 100}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 7u), 0}, {99, 99, 30, 0}},
      {"SURGE", {85, 21, 0, 100, 100, 0, 61, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 4u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 50, 30}}},
-    30u, {0, 0, 0}, SPL_MEDUSA,
+    30u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"HALO", 3u, 1u, {0, 0}, {{"ON", 0}, {"REACH", 40}, {"RINGS", 50}},
@@ -197,4 +196,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_medusa = {
       {"Halos on or off", "How far the rings spread", "How many rings follow each beat (1 to 3)"}},
      {"SNOW", 3u, 1u, {0, 0}, {{"ON", 0}, {"FLAKES", 50}, {"SINK", 30}},
       "Marine snow: motes sink and sway through the water, brighter with the mix, glittering on the beat",
-      {"Marine snow on or off", "How many motes (8 to 64)", "How fast they sink"}}}};
+      {"Marine snow on or off", "How many motes (8 to 64)", "How fast they sink"}}},
+    /* (API 7) its colours' parts (SNOW: the motes that glint; the ones drawn as short strokes are JELLY's teal) */
+    4u, {0, 0, 0},
+    {{"JELLY", {120, 226, 214}, 2u}, {"NOTES", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"SPARKS", {236, 250, 246}, 3u},
+     {"SNOW", {236, 250, 246}, 3u}}};

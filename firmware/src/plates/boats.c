@@ -126,7 +126,7 @@ static void obo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 uint32_t ph = (uint32_t)k * (0xFFFFFFFFu / (uint32_t)na) + (s->sp << 12) + (uint32_t)((114 - r) * tw / 104) * 16777216u;
                 int32_t x = X + pl_pol(a, r * 256, ph + 0x40000000u), y = Y + ((pl_pol(a, r * 256, ph) * fl) >> 8);
                 if (j)
-                    pl_line(S, ox, oy, x, y, (al * (r - 4)) / 110, PL_INK);
+                    pl_line(S, ox, oy, x, y, (al * (r - 4)) / 110, PL_PC(cx, 3));
                 ox = x;
                 oy = y;
             }
@@ -135,12 +135,12 @@ static void obo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     if (sw)                                             /* the swell: a ring from the middle to the rim */
         for (k = 0; k < 48; k++) {
             int32_t R = (int32_t)(cx->now - s->kt) * 64;
-            pl_splat(S, X + pl_pol(a, R, (uint32_t)k * 89478485u + 0x40000000u), Y + ((pl_pol(a, R, (uint32_t)k * 89478485u) * fl) >> 8), sw / 2, PL_WT);
+            pl_splat(S, X + pl_pol(a, R, (uint32_t)k * 89478485u + 0x40000000u), Y + ((pl_pol(a, R, (uint32_t)k * 89478485u) * fl) >> 8), sw / 2, PL_PC(cx, 4));
         }
     for (i = 0; i < OBO_N; i++) {
         uint32_t ph = (uint32_t)s->a[i] << 16, dth;
         int32_t r = s->r[i] * 4 + sw * 12, bx, by, u, t, e, dn = s->sk[i] ? 600 - s->sk[i] : 0, p[7][2];   /* (the swell: out 12 px and back) */
-        const uint8_t *col = s->c[i] < UMB_NTRK ? pl_ncol(a, s->c[i]) : PL_WT;
+        const uint8_t *col = s->c[i] < UMB_NTRK ? pl_rc(cx, a, 0u, s->c[i]) : PL_PC(cx, 1);
         if (!s->r[i])
             continue;
         bx = X + pl_pol(a, r, ph + 0x40000000u);
@@ -158,13 +158,13 @@ static void obo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         }
         for (k = 0; k < 6; k++)
             pl_line(S, p[OBO_L[k][0]][0], p[OBO_L[k][0]][1], p[OBO_L[k][1]][0], p[OBO_L[k][1]][1], e, col);
-        pl_splat(S, p[5][0], p[5][1] - 512, (50 + s->lamp / 2) * (600 - dn) / 600, PL_WARM[0]);   /* its lamp */
+        pl_splat(S, p[5][0], p[5][1] - 512, (50 + s->lamp / 2) * (600 - dn) / 600, PL_PC(cx, 2));   /* its lamp */
         if (s->lamp > 40 && !dn)
-            pl_star(S, p[5][0], p[5][1] - 512, s->lamp * 6, s->lamp, PL_WARM[0]);
+            pl_star(S, p[5][0], p[5][1] - 512, s->lamp * 6, s->lamp, PL_PC(cx, 2));
         dth = 3418000000u / (uint32_t)(r >> 8);         /* its wake: four points behind it, 5 px apart */
         for (k = 1; k <= 4 && !dn; k++)
             pl_splat(S, X + pl_pol(a, r, ph - (uint32_t)k * dth + 0x40000000u), Y + ((pl_pol(a, r, ph - (uint32_t)k * dth) * fl) >> 8) + 9 * u,
-                     cx->k[7] * 2 * (5 - k) / 5, PL_INK);
+                     cx->k[7] * 2 * (5 - k) / 5, PL_PC(cx, 3));
     }
     /* (NEW, API 6) FISH: each leaps in an arc (0.7 s; LEAP its height), head along its way, a tail fin behind; a ring of
      * splash where it falls back in */
@@ -176,7 +176,7 @@ static void obo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                     q[6][2];
             if (age >= 700) {                            /* (the splash: a ring, out and gone) */
                 int32_t R = (age - 700) * 40, e = pl_out(150, (uint32_t)(age - 700), 300u);
-                pl_arc(S, a, bx + w * 256, by, R + 512, 0u, 0xFFFFFFFFu, e, PL_WT);
+                pl_arc(S, a, bx + w * 256, by, R + 512, 0u, 0xFFFFFFFFu, e, PL_PC(cx, 5));
                 continue;
             }
             fx = bx + w * t;                             /* (across: w px over the leap; up: 4 H t (1 - t)) */
@@ -191,14 +191,13 @@ static void obo_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 q[k][1] = fy + (OBO_FP[k][0] * uy + OBO_FP[k][1] * ux) / 2;
             }
             for (k = 0; k < 4; k++)
-                pl_line(S, q[k][0], q[k][1], q[(k + 1) & 3][0], q[(k + 1) & 3][1], 220, PL_WT);
-            pl_line(S, q[2][0], q[2][1], q[4][0], q[4][1], 180, PL_WT);
-            pl_line(S, q[2][0], q[2][1], q[5][0], q[5][1], 180, PL_WT);
-            pl_line(S, q[4][0], q[4][1], q[5][0], q[5][1], 120, PL_WT);
+                pl_line(S, q[k][0], q[k][1], q[(k + 1) & 3][0], q[(k + 1) & 3][1], 220, PL_PC(cx, 5));
+            pl_line(S, q[2][0], q[2][1], q[4][0], q[4][1], 180, PL_PC(cx, 5));
+            pl_line(S, q[2][0], q[2][1], q[5][0], q[5][1], 180, PL_PC(cx, 5));
+            pl_line(S, q[4][0], q[4][1], q[5][0], q[5][1], 120, PL_PC(cx, 5));
         }
 }
 
-#include "splash/boats.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_boats = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(obo_t), "BOATS",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
@@ -209,10 +208,14 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_boats = {
     {{"REGATTA", {0, 31, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), UMB_LINK(UMB_SRC_LEVEL, 7u)}, {99, 99, 50, 40}},
      {"LANTERN", {21, 16, 71, 0, 26, 100, 81, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u), 0}, {99, 99, 60, 0}},
      {"WRECK", {91, 96, 0, 0, 100, 0, 1, 91}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 0u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 40, 30}}},
-    25u, {0, 0, 0}, SPL_BOATS,
+    25u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"SPIRAL", 3u, 1u, {0, 0}, {{"ON", 0}, {"ARMS", 40}, {"TWIST", 50}}, "Lines of foam wind in to the middle, turning with the water, brighter on the beat",
       {"Spiral on or off", "How many arms (two .. six)", "How far round each winds (a quarter .. one and a half turns)"}},
      {"FISH", 3u, 1u, {0, 0}, {{"ON", 0}, {"LEAP", 50}, {"SCHOOL", 30}}, "A kick throws fish up out of the whirlpool; each splashes back in",
-      {"Fish on or off", "How high they leap", "How many each kick throws (one .. three)"}}}};
+      {"Fish on or off", "How high they leap", "How many each kick throws (one .. three)"}}},
+    /* (API 7) its colours' parts */
+    6u, {0, 0, 0},
+    {{"BOATS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"PAPER", {236, 250, 246}, 3u}, {"LAMP", {255, 206, 64}, 4u},
+     {"WAKE", {120, 226, 214}, 2u}, {"SWELL", {236, 250, 246}, 3u}, {"FISH", {236, 250, 246}, 3u}}};

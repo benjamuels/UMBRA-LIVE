@@ -555,8 +555,43 @@ EXPORT const void *web_umx_mod(uint32_t pl) { return pl < UMB_NPLT && umb_has(pl
  * set; read back; where the new elements lie in umb_plate_t, and each one's size (the page reads them from the module) */
 EXPORT void web_umx_x(uint32_t pl, uint32_t j, uint32_t v) { umx_put(pl, UMB_NCTL + j, (int32_t)v); }   /* (LIVE VIZ CTRLS' record) */
 EXPORT uint32_t web_umx_xget(uint32_t pl, uint32_t j) { return umx_raw(pl, UMB_NCTL + j); }
+/* (plate API 7) the palettes and the parts' colours, for the plates page's player: palette i's colour j set (rgb: r << 16
+ * | g << 8 | b) or read; the palette in use set (i < 4) or read (i: 255); plate pl's part j's choice (UMB_COL_*) set or
+ * read; where the parts lie in umb_plate_t: web_umx_xoff(4) ncol's offset, (5) a part's size */
+EXPORT void web_pal(uint32_t i, uint32_t j, uint32_t rgb)
+{
+    umc_load();
+    umc.pal[i % UMP_NPAL][j % UMB_NCOL][0] = (uint8_t)(rgb >> 16);
+    umc.pal[i % UMP_NPAL][j % UMB_NCOL][1] = (uint8_t)(rgb >> 8);
+    umc.pal[i % UMP_NPAL][j % UMB_NCOL][2] = (uint8_t)rgb;
+}
+EXPORT uint32_t web_pal_get(uint32_t i, uint32_t j)
+{
+    const uint8_t *c;
+    umc_load();
+    c = umc.pal[i % UMP_NPAL][j % UMB_NCOL];
+    return (uint32_t)c[0] << 16 | (uint32_t)c[1] << 8 | c[2];
+}
+EXPORT uint32_t web_pal_cur(uint32_t i)
+{
+    umb_pal_set(i);
+    return umc.palcur;
+}
+EXPORT void web_colc(uint32_t pl, uint32_t j, uint32_t v)
+{
+    const umb_plate_t *p = pl < UMB_NPLT && umb_has(pl) ? umb_mod(pl) : 0;
+    if (p && p->api >= 7u && j < p->ncol && v <= UMB_COL_TRK)
+        umb_colc_set(p, j, v);
+}
+EXPORT uint32_t web_colc_get(uint32_t pl, uint32_t j)
+{
+    const umb_plate_t *p = pl < UMB_NPLT && umb_has(pl) ? umb_mod(pl) : 0;
+    return p && p->api >= 7u && j < p->ncol ? umb_colc(p, j) : 0u;
+}
 EXPORT uint32_t web_umx_xoff(uint32_t i)
 {
+    if (i >= 4u)
+        return i == 4u ? (uint32_t)__builtin_offsetof(umb_plate_t, ncol) : (uint32_t)sizeof(umb_colr_t);
     return i == 0u ? (uint32_t)__builtin_offsetof(umb_plate_t, nxe) : i == 1u ? (uint32_t)sizeof(umb_xel_t)
            : i == 2u ? (uint32_t)__builtin_offsetof(umb_xel_t, what) : (uint32_t)__builtin_offsetof(umb_xel_t, pw);
 }

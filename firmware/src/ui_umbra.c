@@ -393,6 +393,15 @@ static const char *umb_bank(uint32_t i, int *cur)
 #define UMC_NPRE 4u                                     /* a page's presets: BASIC, then three (a plate's own: umb_pre_t) */
 #define UMC_OFF 0xFFFFu                                 /* a cell: nothing there */
 #define UMC_MAGIC 0x31434D55u                           /* "UMC1" */
+#define UMP_NPAL 4u                                     /* the palettes kept */
+#define UMP_PALOK 0xA7u
+/* the palettes at first: UMBRA (the colours the plates were drawn in: azure, teal, white-teal, sodium, ember, rose), EMBER,
+ * AURORA, BONE */
+static const uint8_t UMP_PAL0[UMP_NPAL][UMB_NCOL][3] = {
+    {{64, 110, 230}, {120, 226, 214}, {236, 250, 246}, {255, 206, 64}, {255, 122, 28}, {232, 124, 196}},
+    {{210, 44, 20}, {255, 122, 28}, {255, 236, 200}, {255, 206, 64}, {255, 80, 120}, {176, 70, 255}},
+    {{96, 64, 232}, {40, 220, 140}, {214, 255, 226}, {110, 255, 150}, {60, 200, 255}, {255, 120, 220}},
+    {{120, 124, 140}, {204, 204, 210}, {255, 255, 255}, {168, 164, 150}, {96, 100, 116}, {236, 224, 200}}};
 typedef struct {
     uint16_t key;                                       /* the page's name's key (0: free) */
     uint8_t v[UMB_NCTL];                                /* each element's value + 1 (0: its default) */
@@ -428,7 +437,18 @@ typedef struct {
     uint16_t rsv;
     umc_rec_t rec[UMC_NREC];
     umc_cell_t cell[NSONG_USE][CHAIN_ROWS][2];          /* each song's rows: MAIN (the ground), OVER (LAYER 1) */
-    umc_x_t x[UMC_NREC];                                /* (API 6) each record's more (last: an older store reads short) */
+    umc_x_t x[UMC_NREC];                                /* (API 6) each record's more (an older store reads short) */
+    /* (plate API 7, 2026-11-16: the palettes; a store from before reads short: the palettes made anew, the rest 0) */
+    uint8_t pal[UMP_NPAL][UMB_NCOL][3];                 /* the four palettes, six colours each, r g b */
+    uint8_t palok;                                      /* UMP_PALOK: the palettes are there */
+    uint8_t palcur;                                     /* the palette in use, 0 .. UMP_NPAL - 1 */
+    uint8_t rsv2[2];
+    uint8_t cc[UMC_NREC][UMB_NCOL / 2u];                /* each record's page's parts: the choice + 1 (0: the plate's own
+                                                         * at first, umb_colr_t.def), four bits each, kept in the page's
+                                                         * own record's place */
+    uint8_t cp[NSONG_USE][CHAIN_ROWS];                  /* TIMELINE's COLOR track: a row's palette + 1 (0: as before it) */
+    uint8_t kn[NTRK][4];                                /* HOME > BEING > KNOBS: each track's four knobs, what each turns
+                                                         * + 1 (0: its engine's own, engine_t.knob) */
 } umc_t;
 static umc_t umc __attribute__((section(".pool")));
 static umc_rec_t umc_tmp;                               /* (umc_pre) */
@@ -564,18 +584,15 @@ static void umc_load(void)                             /* the store read, once (
     if (umc_flash(&umc, sizeof umc, 0) || umc.magic != UMC_MAGIC)
         memset(&umc, 0, sizeof umc);
     umc.magic = UMC_MAGIC;
+    if (umc.palok != UMP_PALOK) {
+        memcpy(umc.pal, UMP_PAL0, sizeof umc.pal);
+        umc.palok = UMP_PALOK;
+        umc.palcur = 0;
+    }
     umc.lay[1] = umc.lay[2] = 0;                        /* (LAYER 2: dropped 2026-11-13; LAYER 3 too, the user 2026-11-15:
                                                          * BODIES a veil on OVER like the others, SEL its button) */
-    if (umc.rsv != 1u) {                                /* (a store from before the BUTTONS page, 2026-11-13: ENV toggles OVER
-                                                         * now and LFO took its tap, so what ENV TAP moved LFO TAP moves) */
-        uint32_t i, k;
-        for (i = 0; i < UMC_NREC * UMC_NL; i++) {
-            uint8_t *l = &umc.rec[i / UMC_NL].ls[i % UMC_NL];
-            if ((k = (*l & 31u) - UMQ_TAP) < 2u)
-                *l = (uint8_t)(*l - k + (k ^ 1u));
-        }
-        umc.rsv = 1;
-    }
+    umc.rsv = 1;                                        /* (a store from before the BUTTONS page, 2026-11-13: its taps no longer
+                                                         * moved over, for the room) */
     umc_gen++;
 }
 /* the record of the page called name (kind: 0 a plate, its first nctl elements KNOB 1..3's; 1 BODIES; 2 SCREEN;
@@ -596,6 +613,7 @@ static umc_rec_t *umc_rec(const char *name, uint32_t kind, uint32_t nctl)
     r = &umc.rec[f];                                    /* (a free one; all taken: the last one's place) */
     memset(r, 0, sizeof *r);
     memset(&umc.x[f], 0, sizeof umc.x[f]);
+    memset(umc.cc[f], 0, sizeof umc.cc[f]);
     r->key = (uint16_t)k;
     for (i = 0; i < 3u; i++)
         if (kind == 3u || (!kind && i < nctl)) {
@@ -760,9 +778,15 @@ static umc_cell_t *umv_cell(uint32_t r, uint32_t tk)
 }
 /* row r as the picture: each track's cell, or the last one before it that says something (none: left as it is), laid where
  * it belongs with its preset (a page not there now: left) */
+static void umb_pal_set(uint32_t i);
 static void umv_apply(uint32_t r)
 {
     uint32_t tk, j, pl;
+    for (j = r % CHAIN_ROWS + 1u; j-- > 0u;)            /* (COLOR: the row's palette, or the last one called for before it) */
+        if ((pl = umc.cp[song_cur % NSONG_USE][j]) != 0u) {
+            umb_pal_set(pl - 1u);
+            break;
+        }
     for (tk = 0; tk < 2u; tk++) {
         const umc_cell_t *c = 0;
         for (j = r % CHAIN_ROWS + 1u; j-- > 0u && !(c = umv_cell(j, tk))->key;)
@@ -815,17 +839,23 @@ static void umv_name(const umc_cell_t *c, char *b)     /* a cell's page as words
     umx_desc_t d;
     str_cpy(b, !c->key ? "--" : c->key == UMC_OFF ? "OFF" : umx_desc(pl, &d) ? d.name : "?", 12);
 }
+static uint32_t umv_cp(uint32_t r) { umc_load(); return umc.cp[song_cur % NSONG_USE][r % CHAIN_ROWS]; }   /* row r's palette + 1 */
 /* (ui_input.c row_copy, project.c: a new song) the current song's row d's cells become row s's (s past the rows: none);
  * d past the rows: every row's none */
 static void umv_rows(uint32_t d, uint32_t s)
 {
     umc_cell_t *c = umv_cell(d, 0);
-    if (d >= CHAIN_ROWS)
+    uint8_t *cp = umc.cp[song_cur % NSONG_USE];         /* (COLOR's palettes go with their rows) */
+    if (d >= CHAIN_ROWS) {
         memset(umv_cell(0, 0), 0, sizeof umc.cell[0]);
-    else if (s < CHAIN_ROWS)
+        memset(cp, 0, CHAIN_ROWS);
+    } else if (s < CHAIN_ROWS) {
         memcpy(c, umv_cell(s, 0), sizeof umc.cell[0][0]);
-    else
+        cp[d] = cp[s];
+    } else {
         memset(c, 0, sizeof umc.cell[0][0]);
+        cp[d] = 0;
+    }
     umc_touch();
 }
 /* OVER's page as a number (UMB_NONE: none, or not there), found again when the bank or the layers change */
@@ -874,6 +904,90 @@ static int umb_ok(const umb_plate_t *p, uint32_t mode, uint32_t room)
 #define UMB_THS 54                                      /* a TIMELINE preview's side (umb_thumb) */
 static uint16_t umb_tl[2 * UMB_THS] __attribute__((section(".pool")));   /* .. a row of the screen for it */
 static uint8_t umb_th;                                  /* .. being drawn: the strip is that row, not the canvas */
+/* (HOME > BEING > KNOBS) track t's knob k: what it turns (ui.c home_param) */
+static uint32_t umk_kn(uint32_t t, uint32_t k)
+{
+    umc_load();
+    return umc.kn[t % NTRK][k & 3u];
+}
+/* (plate API 7) plate p's part j: what was chosen for it (UMB_COL_*) */
+static uint32_t umb_colc(const umb_plate_t *p, uint32_t j)
+{
+    uint32_t v = umc.cc[umc_rec(p->name, 0u, p->nctl) - umc.rec][j >> 1] >> 4u * (j & 1u) & 15u;
+    v = v ? v - 1u : p->col[j].def & 7u;
+    return v == UMB_COL_TRK && !(p->col[j].def & UMB_COLF_TRK) ? UMB_COL_OWN : v;
+}
+static void umb_colc_set(const umb_plate_t *p, uint32_t j, uint32_t v)
+{
+    uint8_t *q = &umc.cc[umc_rec(p->name, 0u, p->nctl) - umc.rec][j >> 1];
+    *q = (uint8_t)((*q & (j & 1u ? 0x0Fu : 0xF0u)) | (v + 1u) << 4u * (j & 1u));
+    umc_touch();
+}
+static void umb_pal_set(uint32_t i)                    /* the palette in use */
+{
+    umc_load();
+    if (i < UMP_NPAL && umc.palcur != i) {
+        umc.palcur = (uint8_t)i;
+        umc_touch();
+    }
+}
+static uint16_t umb_pal_trk(uint32_t t)               /* (ui_engvis.c: a BODY's accent) track t's colour of the palette in use */
+{
+    const uint8_t *c;
+    umc_load();
+    c = umc.pal[umc.palcur % UMP_NPAL][t % UMB_NCOL];
+    return RGB(c[0], c[1], c[2]);
+}
+/* (editor_plate.c, web/emu) the palettes over the editor's protocol: see there */
+static uint32_t umb_pal_io(uint32_t i, uint8_t *c, int put)
+{
+    uint32_t k;
+    umc_load();
+    if (i >= UMP_NPAL) {
+        if (put)
+            umb_pal_set(i - 64u);
+        return umc.palcur;
+    }
+    for (k = 0; k < 18u; k++)
+        if (put)
+            umc.pal[i][k / 3u][k % 3u] = (uint8_t)(c[k] << 1 | c[k] >> 6);
+        else
+            c[k] = umc.pal[i][k / 3u][k % 3u] >> 1;
+    if (put)
+        umc_touch();
+    return umc.palcur;
+}
+/* .. the colours of a layer's context: each part's, the palette's as the tracks'; a ground's (li 0): the cold palette made
+ * from its two (a part flagged UMB_COLF_RAMP and the next), or as it ever was (none flagged, or both their own) */
+static void umb_cols(umb_lctx_t *c, const umb_plate_t *p, uint32_t li)
+{
+    const uint8_t (*pal)[3] = umc.pal[umc.palcur % UMP_NPAL];
+    uint32_t j, n = p->api >= 7u ? p->ncol > UMB_NCOL ? UMB_NCOL : p->ncol : 0u, rp = UMB_NCOL, own = 0;
+    memset(c->pc, 0, sizeof c->pc + sizeof c->pm);
+    memcpy(c->tc, pal, sizeof c->tc);
+    c->rsv5[0] = c->rsv5[1] = 0;
+    for (j = 0; j < n; j++) {
+        const umb_colr_t *d = &p->col[j];
+        uint32_t v = umb_colc(p, j), k;
+        if (d->def & UMB_COLF_RAMP)
+            rp = j;
+        if (v == UMB_COL_TRK)
+            c->pm[j] = UMB_PM_TRACKS;
+        else if (v == UMB_COL_OWN) {
+            c->pm[j] = d->def & UMB_COLF_TRK ? UMB_PM_NOTES : UMB_PM_ONE;
+            memcpy(c->pc[j], d->rgb, 3);
+            own |= 1u << j;
+        } else
+            for (k = 0; k < 3u; k++)
+                c->pc[j][k] = (uint8_t)(pal[v - 1u][k] >> (d->def & UMB_COLF_DIM ? 1 : 0));
+    }
+    if (!li) {
+        if (rp + 1u < n && (own >> rp & 3u) != 3u)
+            ump_lut_for(c->pc[rp], c->pc[rp + 1u]);
+        else
+            ump_lut_for(0, 0);
+    }
+}
 /* layer li's plate p, its state at st, over the canvas as the screen's x0, y0 .., in draw mode mode, its light lq (Q8) */
 static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0, int32_t y0, uint32_t mode, int32_t lq)
 {
@@ -901,6 +1015,7 @@ static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0
             umc_ev(r, UMB_NCTL + j, x->p[j % UMB_NXP].def, x->tog >> j % UMB_NXP & 1u ? 1u : 99u) : 0u);
     }
     umb_lay_tracks(&c);
+    umb_cols(&c, p, li);
     if (p != L->pp || st != L->st || L->gen != ups_gen) {   /* another plate in its place, its state moved, or the bank
                                                          * changed under it: it starts afresh, the notes from now */
         L->pp = p;
@@ -909,6 +1024,7 @@ static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0
         memset(st, 0, p->state);
         L->qr = umb_q.w;
         L->last = umb_now;
+        L->f0 = ui.frame - 1u;                          /* (its frame before its first strip: a palette of its own made) */
         p->init(st, &c, &umb_api);
     }
     if (L->f0 != ui.frame) {                            /* once a frame: the notes since (a burst: the newest), its frame */
@@ -955,8 +1071,8 @@ static void umb_lay_draw(uint32_t li, const umb_plate_t *p, void *st, int32_t x0
 static int32_t umb_prep(void)                          /* before a frame's plates: the tables, the clock, the layers; LIGHT (Q8) */
 {
     umb_tabs();                                         /* (the noise, once) */
-    if (!ump_lut[3][255])                               /* (the palette as the panel takes it: once) */
-        ump_lut_make();
+    if (!ump_sig)                                       /* (the palette as the panel takes it: there before any plate) */
+        ump_lut_for(0, 0);
     umb_clock();
     umx_layers();
     return ((int32_t)umq_o[G_LIGHT] * 256 + 49) / 99;   /* (99: 256) */

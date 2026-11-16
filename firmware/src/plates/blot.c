@@ -16,10 +16,14 @@
  * drip runs down; INK: how far it gets): a note's drop runs down the paper in a thin streak. */
 #include "plate_lib.h"
 
-static const uint8_t FBL_ST[5][4][3] = {               /* its palettes: the notes' ink; the kick's, snare's, hats', the rest's */
-    {{34, 12, 84}, {92, 50, 178}, {156, 112, 236}, {240, 226, 255}}, {{70, 6, 36}, {180, 24, 84}, {250, 96, 150}, {255, 226, 236}},
-    {{6, 44, 62}, {14, 140, 160}, {80, 220, 224}, {226, 255, 250}}, {{62, 30, 4}, {176, 104, 16}, {248, 184, 64}, {255, 244, 212}},
-    {{12, 30, 84}, {36, 100, 210}, {110, 180, 255}, {232, 244, 255}}};
+/* (API 7) its palettes, each from one part (INK the notes', KICK, SNARE, HATS, TOMS the rest's): the part's colour is the
+ * palette's third stop of four, the two under it that colour darkened and the one over it that colour toward white, each
+ * channel by the share the plate's own palettes had (Q8), so a part on its own colour gives them back exactly:
+ * 34 12 84, 92 50 178, 156 112 236, 240 226 255 for the ink .. */
+static const uint8_t FBL_W[5][3][3] = {                /* each palette: stop 0's, stop 1's share of the part; stop 3's of the way to white */
+    {{57, 29, 92}, {152, 116, 194}, {217, 204, 250}}, {{72, 17, 63}, {185, 65, 145}, {235, 209, 209}},
+    {{21, 52, 71}, {46, 164, 183}, {213, 252, 212}}, {{65, 43, 18}, {182, 146, 66}, {240, 215, 198}},
+    {{29, 44, 85}, {85, 143, 211}, {215, 217, 216}}};
 typedef struct {
     uint8_t w[PL_S];                                    /* the ink, a byte a cell */
     uint8_t rp[PL_N], rc[PL_N];                         /* the step's rows as they were: the one above, this one */
@@ -34,25 +38,35 @@ typedef struct {
     int32_t px, py;                                     /* .. where its nib was (cells, Q8; px 0: not yet down) */
     uint16_t dx[6], dy[6];                              /* DRIP: each one where (cells, Q8) .. */
     uint8_t dl[6], dw[6], nd;                           /* .. the ink left to it (0: none), its wander; the next */
+    uint32_t psum;                                      /* (API 7) the parts' colours the palettes were made from */
 } fbl_t;
+
+/* (API 7) the palettes from their parts: the drums' made in the notes' place, then halved; the notes' last */
+static PL_SMALL void fbl_pal(fbl_t *s, const umb_lctx_t *cx)
+{
+    uint8_t st[4][3];
+    int32_t r, k, i;
+    for (r = 4; r >= 0; r--) {
+        const uint8_t *p = PL_PC(cx, r);
+        for (k = 0; k < 3; k++) {
+            st[0][k] = (uint8_t)((p[k] * FBL_W[r][0][k]) >> 8);
+            st[1][k] = (uint8_t)((p[k] * FBL_W[r][1][k]) >> 8);
+            st[2][k] = p[k];
+            st[3][k] = (uint8_t)(p[k] + (((256 - p[k]) * FBL_W[r][2][k]) >> 8));
+        }
+        pl_lut(s->lut, st, 4);
+        for (i = 0; r && i < 256; i++)
+            s->dk[r - 1][i >> 7][i & 127] = s->lut[i >> 7][(i & 127) * 2 + 1];
+    }
+}
 
 static void fbl_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
 {
     fbl_t *s = st;
-    int32_t k, i;
     (void)a;
     s->rs = 2791u + cx->now;
     s->ms = cx->now;
     s->xr = 5309u + cx->now;                            /* (NEW, API 6) DRIP's dice, apart from the plate's own */
-    pl_lut(s->lut, FBL_ST[0], 4);
-    for (k = 0; k < 4; k++) {                           /* (the drums' made in the ink's field, bare as yet, then halved) */
-        uint16_t (*t)[256] = (uint16_t (*)[256])(void *)s->w;
-        pl_lut(t, FBL_ST[k + 1], 4);
-        for (i = 0; i < 256; i++)
-            s->dk[k][i >> 7][i & 127] = t[i >> 7][(i & 127) * 2 + 1];
-    }
-    for (i = 0; i < 1024; i++)
-        s->w[i] = 0;
 }
 /* the cells round X, Y (cells, Q8; where note n's track has moved it) within r given ink hu */
 static void fbl_hue(fbl_t *s, const umb_note_t *n, int32_t X, int32_t Y, int32_t r, uint32_t hu)
@@ -142,6 +156,8 @@ static void fbl_frame(void *st, const umb_lctx_t *cx, const umb_api_t *a)
     fbl_t *s = st;
     uint32_t n = pl_owed(cx->now, &s->ms, 80u);
     int32_t i, pk = 84 + (int32_t)cx->k[6] * 171 / 99;
+    if (pl_pcnew(cx, &s->psum))                         /* (API 7) the palettes, when their parts' colours change */
+        fbl_pal(s, cx);
     if (s->kr != cx->k[6] + 1u) {                       /* the curve: up to the rim in 12 levels, down to the body by 44,
                                                          * the body one level (drying, only a blot's edge changes) */
         s->kr = (uint8_t)(cx->k[6] + 1u);
@@ -206,7 +222,6 @@ static void fbl_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     }
 }
 
-#include "splash/blot.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_blot = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(fbl_t), "BLOT",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 7u, {0, 0, 0},
@@ -217,10 +232,14 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_blot = {
     {{"STAIN", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 6u)}, {99, 99, 50, 30}},
      {"WASH", {96, 16, 26, 31, 0, 0, 21, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 0u), 0}, {99, 99, 20, 0}},
      {"SPATTER", {21, 86, 81, 0, 96, 96, 100, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 6u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 40, 30}}},
-    18u, {0, 0, 0}, SPL_BLOT,
+    18u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"PEN", 3u, 1u, {0, 0}, {{"ON", 0}, {"SPEED", 40}, {"NIB", 40}}, "A pen writes loops across the wet paper, its line bleeding as it goes",
       {"Pen on or off", "How fast the nib travels", "How wide it writes (it presses harder as the music swells)"}},
      {"DRIP", 3u, 1u, {0, 0}, {{"ON", 0}, {"RUN", 50}, {"INK", 50}}, "Each note's drop runs down the paper in a thin streak",
-      {"Drips on or off", "How fast a drip runs down", "How far it gets before its ink is spent"}}}};
+      {"Drips on or off", "How fast a drip runs down", "How far it gets before its ink is spent"}}},
+    /* (API 7) its colours' parts: each ink's colour (its palette made from it: FBL_W) */
+    5u, {0, 0, 0},
+    {{"INK", {156, 112, 236}, 1u}, {"KICK", {250, 96, 150}, 6u}, {"SNARE", {80, 220, 224}, 2u}, {"HATS", {248, 184, 64}, 4u},
+     {"TOMS", {110, 180, 255}, 3u}}};

@@ -101,20 +101,20 @@ static void plz_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     int32_t fd = cx->now - m->dkt >= 512u ? 256 : (int32_t)(cx->now - m->dkt) / 2, g;   /* (the change: 0.5 s) */
     pl_clear(S);
     for (t = 0; t < UMB_NTRK && t < cx->tracks; t++) {
-        const uint8_t *tc = a->colour[(t * 3u) % 8u];
+        const uint8_t *tc = pl_rc(cx, a, 0u, t);
         if (!(g = t == m->dk ? 256 - fd : t == m->pdk ? fd : 256))   /* (the dark one going, the last coming back) */
             continue;
         for (i = PLZ_JO[t]; i < PLZ_JO[t + 1u]; i++) {
             uint32_t p = PLZ_PO[t] + PLZ_J[i][0], q = PLZ_PO[t] + PLZ_J[i][1];
             int32_t e = m->e[p] > m->e[q] ? m->e[p] : m->e[q];
-            pl_line(S, m->x[p] * 16, m->y[p] * 16, m->x[q] * 16, m->y[q] * 16, (e ? 30 + e / 2 : 70) * cx->k[4] / 50 * g >> 8, e ? tc : PL_DEEP);
+            pl_line(S, m->x[p] * 16, m->y[p] * 16, m->x[q] * 16, m->y[q] * 16, (e ? 30 + e / 2 : 70) * cx->k[4] / 50 * g >> 8, e ? tc : PL_PC(cx, 2));
         }
         for (i = PLZ_PO[t]; i < PLZ_PO[t + 1u]; i++) {
             int32_t e = m->e[i];
             if (e)
                 pl_star(S, m->x[i] * 16, m->y[i] * 16, (1 + e / 50) * 256, (60 + e * 3 / 4) * g >> 8, tc);
             else
-                pl_glint(S, m->x[i] * 16, m->y[i] * 16, 110 * g >> 8, PL_INK);
+                pl_glint(S, m->x[i] * 16, m->y[i] * 16, 110 * g >> 8, PL_PC(cx, 1));
         }
     }
     /* (NEW, API 6) METEORS: each falls 0.7 s along its own slant, a white head and a tail (TAIL: how long) going to ink */
@@ -130,8 +130,8 @@ static void plz_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             y = (int32_t)((h >> 16) % 120u + 10u) * 256 + dy * d;
             for (k = 0; k < 4; k++)                     /* (the tail in four, each fainter) */
                 pl_line(S, x - dx * tl * k / 4, y - dy * tl * k / 4, x - dx * tl * (k + 1) / 4, y - dy * tl * (k + 1) / 4, e * (4 - k) / 5,
-                        k ? PL_INK : PL_WT);
-            pl_glint(S, x, y, e, PL_WT);
+                        k ? PL_PC(cx, 1) : PL_PC(cx, 3));
+            pl_glint(S, x, y, e, PL_PC(cx, 3));
         }
     /* (NEW, API 6) MOON: round the pole past the signs, lit on its pole side (WAX: a thin crescent .. full), the rest of it
      * a dim rim; the song's level brightens it */
@@ -139,20 +139,19 @@ static void plz_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         int32_t R = 11, co = pl_sine(a, m->moon + 0x40000000u) >> 3, si = pl_sine(a, m->moon) >> 3, rr = 104 * 256,
                 mx = 120 * 256 + ((rr >> 2) * co >> 10), my = (cx->bare ? 120 : 142) * 256 + ((rr >> 2) * si >> 10),
                 f = 256 - cx->xk[1][2] * 512 / 99, e = 90 + cx->level / 2, yy, xx;
-        pl_arc(S, a, mx, my, R * 256, 0u, 0xFFFFFFFFu, 60, PL_DEEP);
+        pl_arc(S, a, mx, my, R * 256, 0u, 0xFFFFFFFFu, 60, PL_PC(cx, 2));
         for (yy = pl_clamp((my >> 8) - R - 1, S->y0, S->y0 + S->h); yy < pl_clamp((my >> 8) + R + 2, S->y0, S->y0 + S->h); yy++)
             for (xx = (mx >> 8) - R - 1; xx <= (mx >> 8) + R + 1; xx++) {   /* (its lit face, a pixel at a time, mottled) */
                 int32_t dx = xx * 256 + 128 - mx, dy = yy * 256 + 128 - my, u = -(dx * co + dy * si) >> 12, v = (dy * co - dx * si) >> 12,
                         r2 = (dx * dx + dy * dy) >> 8, w = R * R * 256 - (v * v >> 8);
                 if (r2 >= R * R * 256 || u <= ((f * (int32_t)pl_isqrt((uint32_t)(w > 0 ? w : 0)) * 16) >> 8))
                     continue;
-                pl_px(S, xx, yy, (e * (150 + (a->noise[((yy - (my >> 8)) & 31) * 32 + ((xx - (mx >> 8)) & 31)] >> 1))) >> 8, PL_WT[0], PL_WT[1], PL_WT[2]);
+                pl_px(S, xx, yy, (e * (150 + (a->noise[((yy - (my >> 8)) & 31) * 32 + ((xx - (mx >> 8)) & 31)] >> 1))) >> 8, PL_PC(cx, 4)[0], PL_PC(cx, 4)[1], PL_PC(cx, 4)[2]);
             }
-        pl_arc(S, a, mx, my, R * 256, m->moon + 0x40000000u, 0x80000000u, e, PL_WT);
+        pl_arc(S, a, mx, my, R * 256, m->moon + 0x40000000u, 0x80000000u, e, PL_PC(cx, 4));
     }
 }
 
-#include "splash/zodiac.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_zodiac = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plz_t), "ZODIAC",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 6u, {0, 0, 0},
@@ -163,7 +162,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_zodiac = {
     {{"WHEEL", {76, 0, 0, 0, 0, 81, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), 0}, {99, 99, 50, 0}},
      {"CHART", {6, 0, 76, 36, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 3u), 0}, {99, 99, 50, 0}},
      {"TWINKLE", {0, 26, 0, 96, 11, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_LFO(0), 5u)}, {99, 99, 20, 30}}},
-    32u, {0, 0, 0}, SPL_ZODIAC,
+    32u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"METEORS", 3u, 1u, {0, 0}, {{"ON", 0}, {"SHOWER", 50}, {"TAIL", 50}},
@@ -171,4 +170,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_zodiac = {
       {"Meteors on or off", "How many of the hits make a meteor", "How long their tails are"}},
      {"MOON", 3u, 1u, {0, 0}, {{"ON", 0}, {"ORBIT", 30}, {"WAX", 35}},
       "A moon wheels round the signs, lit on the pole's side, brighter as the song is louder",
-      {"Moon on or off", "How fast it goes round (0 still)", "Its phase: a thin crescent to full"}}}};
+      {"Moon on or off", "How fast it goes round (0 still)", "Its phase: a thin crescent to full"}}},
+    /* (API 7) its colours' parts (a meteor's tail goes to STARS' colour; the moon's dark rim is JOINS') */
+    5u, {0, 0, 0},
+    {{"SIGNS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"STARS", {120, 226, 214}, 2u}, {"JOINS", {34, 60, 96}, 1u | UMB_COLF_DIM},
+     {"METEOR", {236, 250, 246}, 3u}, {"MOON", {236, 250, 246}, 3u}}};

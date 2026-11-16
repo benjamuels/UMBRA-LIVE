@@ -18,7 +18,7 @@
 #define UMB_PLATE_H
 #include <stdint.h>
 
-#define UMB_API 6u                                      /* (2: the context's tracks' offsets and roots, the
+#define UMB_API 7u                                      /* (2: the context's tracks' offsets and roots, the
                                                          * services' tables: what the field plates read; 3: the
                                                          * controls are elements: the tracks chosen for each, the level
                                                          * and the beat in the context, UMB_EL_* in the header; 4: the
@@ -26,11 +26,10 @@
                                                          * 5: how lively it reads and its still picture in the header;
                                                          * 6: up to three more elements beside the eight,
                                                          * each with up to three parameters of its own, one an on/off
-                                                         * toggle: umb_xel_t, umb_lctx_t.xk) */
-#define UMB_SPL 64u                                     /* (API 5) a plate's still picture: UMB_SPL px square; 16 colours as
-                                                         * the panel takes them (RGB565, the high byte first), then its
-                                                         * rows, a nibble a pixel (the left one the byte's high) */
-#define UMB_SPL_BYTES (32u + UMB_SPL * UMB_SPL / 2u)
+                                                         * toggle: umb_xel_t, umb_lctx_t.xk;
+                                                         * 7: its colours are parts with names, each one of the palette's
+                                                         * six colours, its own, or the tracks': umb_colr_t, umb_lctx_t.pc;
+                                                         * no still picture any more) */
 #define UMB_PLATE_MAGIC 0x544C5055u                     /* "UPLT", first in a plate's header */
 #define UMB_NTRK 6u                                     /* tracks (a note's track is 0 .. UMB_NTRK - 1) */
 #define UMB_NCTL 8u                                     /* controls a plate may declare: its elements, as LIVE VIZ CTRLS
@@ -89,6 +88,26 @@ typedef struct {
     const char *pw[UMB_NXP];                            /* .. what each parameter does */
 } umb_xel_t;
 
+/* (API 7; the user, 2026-11-16: "a color palette system") a plate's colours are parts with names (KOI: FISH, NOTES, PATCH 1
+ * ..): UMBRA > COLOR chooses for each its own colour (as the plate was drawn before palettes), one of the six colours of
+ * the palette in use (four are kept; a TIMELINE row can call for one), or the tracks' (track n the palette's colour n).
+ * The firmware hands a layer what was chosen, worked out: umb_lctx_t.pc, .pm, .tc */
+#define UMB_NCOL 6u                                     /* the parts a plate may name, and a palette's colours */
+#define UMB_COL_OWN 0u                                  /* a part's choice: its own colour; 1 .. UMB_NCOL the palette's .. */
+#define UMB_COL_TRK 7u                                  /* .. the tracks': track n the palette's colour n */
+#define UMB_COLF_TRK 0x80u                              /* umb_colr_t.def: the part follows the notes: its own colour is the
+                                                         * notes' own (umb_api_t.colour), and the tracks' is offered */
+#define UMB_COLF_RAMP 0x40u                             /* .. (a ground) this part the cold palette's deep colour and the next
+                                                         * its bright one: umb_api_t.pal runs black, this, the next, white */
+#define UMB_COLF_DIM 0x20u                              /* .. a palette's colour comes at half its light (what rests) */
+typedef struct {
+    char name[8];                                       /* the part's name, 0-ended (7 letters) */
+    uint8_t rgb[3];                                     /* its own colour (a part that follows the notes: unused) */
+    uint8_t def;                                        /* its choice at first (bits 0..2: UMB_COL_*) | UMB_COLF_* */
+} umb_colr_t;
+/* how a part's colour reaches the plate (umb_lctx_t.pm) */
+enum { UMB_PM_ONE = 0u, UMB_PM_NOTES = 1u, UMB_PM_TRACKS = 2u };   /* pc[part]; the notes' own; tc[track] */
+
 typedef struct {                                        /* (API 4) a preset: the elements set another way, what moves them */
     char name[8];                                       /* as LIVE VIZ CTRLS shows it, 0-ended */
     uint8_t v[UMB_NCTL];                                /* each element's value + 1 (0: its default) */
@@ -119,6 +138,11 @@ typedef struct {                                        /* a layer, worked out o
     /* (API 6) */
     uint8_t xk[UMB_NXE][UMB_NXP];                       /* each new element's parameters now (a toggle 0 or 1, else 0..99) */
     uint8_t rsv4[3];
+    /* (API 7) */
+    uint8_t pc[UMB_NCOL][3];                            /* each part's colour now, r g b */
+    uint8_t pm[UMB_NCOL];                               /* .. how it is to be taken: UMB_PM_* */
+    uint8_t tc[UMB_NTRK][3];                            /* the palette's colours as the tracks' */
+    uint8_t rsv5[2];
 } umb_lctx_t;
 
 typedef struct {                                        /* the strip being drawn */
@@ -171,10 +195,13 @@ typedef struct umb_plate_s {                            /* (not umb_plate: ui_um
     /* (API 5: read only where api >= 5) */
     uint8_t energy, rsv5[3];                            /* how lively it reads, 0 still .. 99 (GENE: a part's plate the one
                                                          * nearest the part's own) */
-    const uint8_t *splash;                              /* its still picture, UMB_SPL_BYTES (PLATES' side boxes; 0: none) */
+    const uint8_t *splash;                              /* (API 5, 6: its still picture; API 7: 0, read by nothing) */
     /* (API 6: read only where api >= 6) */
     uint8_t nxe, rsv6[3];                               /* its new elements (xel[0 .. nxe - 1]) */
     umb_xel_t xel[UMB_NXE];
+    /* (API 7: read only where api >= 7) */
+    uint8_t ncol, rsv7[3];                              /* its colours' parts (col[0 .. ncol - 1]) */
+    umb_colr_t col[UMB_NCOL];
 } umb_plate_t;
 
 #endif

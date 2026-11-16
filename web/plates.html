@@ -3,7 +3,8 @@
      tools/build.py plate_files; each one's picture, docs/live/plate-*.png), a player that runs the plate chosen (the
      firmware itself with every plate built in: web/emu/build.sh plates.wasm, run by the emulator's worklet), a loading
      bank laid out as the FM-1's slots, and the FM-1's own bank read and written over USB-MIDI SysEx: EDITOR_PROTOCOL.md
-     "Plates" (cmds 96..100; firmware/src/editor_plate.c, umb_slot.c). Chrome or Edge (Web MIDI) to reach the FM-1.
+     "Plates" (cmds 96..102; firmware/src/editor_plate.c, umb_slot.c). (Plate API 7) The FM-1's four palettes: edited,
+     generated, taken from an image, imported and exported here, tried on the plate playing, read from and sent to the FM-1. Chrome or Edge (Web MIDI) to reach the FM-1.
      Two scripts: "core" (the plate files, the protocol, the loading bank: tests/plate_page_test.mjs runs it alone) and
      the page's own (what is drawn, the player). -->
 <html lang="en">
@@ -139,6 +140,56 @@
   #status { grid-column: 1 / -1; min-height: 1.5em; font-size: 12.5px; color: var(--teal); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   #status.bad { color: var(--warn); }
   #status button { padding: 3px 12px; font-size: 12px; }
+  /* the palettes: four rows of six, one in use; the tools that fill the one chosen */
+  .lead a { color: var(--teal); }
+  #pal { margin-top: 44px; padding-top: 22px; border-top: 1px solid var(--line); scroll-margin-top: 16px; }
+  #pal .bar { margin-bottom: 8px; }
+  #palfm { font-size: 12.5px; color: var(--faint); }
+  #palfm.bad { color: var(--warn); }
+  .prow { display: grid; grid-template-columns: 104px minmax(0, 1fr) 84px; gap: 8px; align-items: stretch; padding: 6px; margin: 0 -6px;
+    border: 1px solid transparent; border-radius: 8px; }
+  .prow.sel { border-color: var(--edge); background: var(--panel); }
+  .prow .pn, .prow .pu { padding: 4px 8px; font-size: 11px; letter-spacing: .14em; border-color: var(--line); color: var(--dim); }
+  .prow .pn { text-align: left; }
+  .prow .pn[aria-pressed=true], .prow .pu[aria-pressed=true] { border-color: var(--teal); color: var(--teal); }
+  .sws { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+  .swt { height: 46px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 5px; display: flex; flex-direction: column;
+    justify-content: space-between; align-items: flex-start; font-size: 11px; line-height: 1.2; font-variant-numeric: tabular-nums; overflow: hidden; }
+  .swt b { font-weight: 600; }
+  .swt:hover:not(:disabled) { border-color: var(--ink); color: inherit; }
+  .swt[aria-pressed=true] { border-color: #000; box-shadow: 0 0 0 2px var(--ink); }
+  .swt[aria-pressed=true] b::after { content: " ●"; }
+  .ped { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 12px 0 18px; }
+  .ped > label, .ptool h3, .ptool .f > label { font-size: 11px; letter-spacing: .14em; font-weight: 500; color: var(--faint); margin: 0; }
+  .ped > label { color: var(--dim); min-width: 170px; }
+  .ped .sp { flex: 1; }
+  input[type=color] { width: 44px; height: 32px; padding: 2px; border: 1px solid var(--edge); border-radius: 6px; background: none; cursor: pointer; }
+  input[type=text], textarea { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--edge); border-radius: 6px; padding: 6px 8px; }
+  input[type=text] { width: 9ch; box-sizing: content-box; }
+  input[aria-invalid=true] { border-color: var(--warn); }
+  textarea { width: 100%; min-height: 74px; resize: vertical; }
+  .ptools { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .ptool { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 12px; display: flex; flex-direction: column; gap: 9px; }
+  .ptool.over { border-color: var(--teal); }
+  .ptool p { margin: 0; font-size: 12.5px; line-height: 1.4; }
+  .ptool .f { display: grid; grid-template-columns: 64px minmax(0, 1fr) 26px; gap: 10px; align-items: center; }
+  .ptool .f output { font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
+  .ptool .f select, .ptool .f input[type=color] { grid-column: 2 / 4; }
+  .ptool .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+  .chk { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim); cursor: pointer; }
+  .chk input { accent-color: var(--teal); margin: 0; }
+  /* a plate's parts in the player: what each takes its colour from */
+  .cpart { padding: 6px 0 4px; }
+  .cpart .top { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+  .cpart .top b { font-size: 12px; font-weight: 500; letter-spacing: .1em; margin-right: auto; }
+  .cpart .top output { font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .chip { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--edge); background: #000; flex: none; }
+  .chips6 { display: inline-flex; gap: 1px; }
+  .chips6 .chip { width: 7px; border-radius: 2px; }
+  .cseg { gap: 3px; }
+  .cseg button { display: inline-flex; align-items: center; gap: 4px; padding: 3px 5px; font-size: 11.5px; }
+  .cseg .chip { width: 10px; height: 10px; }
   footer { margin-top: 48px; font-size: 12px; color: var(--faint); }
   footer a { color: inherit; }
 
@@ -151,7 +202,13 @@
     .acts { justify-content: flex-start; }
     .slots { grid-template-columns: repeat(9, minmax(0, 1fr)); }
     .cell { height: 40px; }
+    .prow { grid-template-columns: minmax(0, 1fr) 84px; }
+    .prow .sws { grid-column: 1 / -1; grid-row: 2; }
     :root { --dock: 330px; }
+  }
+  @media (max-width: 600px) {
+    .swt { padding: 3px 4px; }
+    .swt span { display: none; }                        /* (its hex is beside the colour input, and in its label) */
   }
   @media (prefers-reduced-motion: no-preference) {
     .tile, .cell, button { transition: border-color .12s, color .12s, background-color .12s; }
@@ -163,9 +220,11 @@
   <h1>UMBRA LIVE · PLATES</h1>
   <p class="lead">Every plate there is, to watch, try out and choose from. The FM-1's bank holds sixteen, and CORONA is always
     there besides. Pick a plate to play it and turn its controls; drag the ones you want into the loading bank below, then
-    connect the FM-1 and load them. Loading stops playback and pauses the sound for a moment, so do it between sets.</p>
+    connect the FM-1 and load them. Loading stops playback and pauses the sound for a moment, so do it between sets.
+    Under the plates are the <a href="#pal">palettes</a> their colours come from.</p>
 
   <div class="work">
+    <div>
     <section aria-label="Plates">
       <div class="bar">
         <h2 id="count">PLATES</h2>
@@ -175,6 +234,53 @@
       </div>
       <div id="tiles"></div>
     </section>
+    <section id="pal" aria-label="Palettes">
+      <div class="bar">
+        <h2>PALETTES</h2>
+        <button id="palget" disabled>Read from the FM-1</button>
+        <button id="palput" class="go" disabled>Send palettes to the FM-1</button>
+      </div>
+      <p class="lead">The FM-1 keeps four palettes of six colours and uses one at a time. A plate's parts take their colours
+        from the one in use: which part takes which is under COLOURS in the player. Pick a palette, then a colour, to change
+        it. A plate playing here follows at once.</p>
+      <p id="palfm"></p>
+      <div id="pals"></div>
+      <div class="ped">
+        <label for="pcol" id="pedl">PALETTE 1 · COLOUR 1</label>
+        <input type="color" id="pcol" value="#000000">
+        <input type="text" id="phex" aria-label="The colour as hex" spellcheck="false" autocomplete="off" maxlength="9">
+        <span class="sp"></span>
+        <button id="pundo" disabled>Undo</button>
+        <button id="pfac" title="This palette as an install brings it">Factory colours</button>
+      </div>
+      <div class="ptools">
+        <div class="ptool" role="group" aria-labelledby="gh">
+          <h3 id="gh">GENERATE</h3>
+          <div class="f"><label for="gbase">BASE</label><input type="color" id="gbase" value="#406ee6"></div>
+          <div class="f"><label for="gsch">SCHEME</label><select id="gsch"></select></div>
+          <div class="f"><label for="gspr">SPREAD</label><input type="range" id="gspr" min="0" max="100"><output for="gspr"></output></div>
+          <div class="f"><label for="gsat" title="How much the six differ in saturation">SAT</label><input type="range" id="gsat" min="0" max="100"><output for="gsat"></output></div>
+          <div class="f"><label for="glit" title="How much the six differ in lightness">LIGHT</label><input type="range" id="glit" min="0" max="100"><output for="glit"></output></div>
+          <label class="chk"><input type="checkbox" id="gdark">Allow dark colours</label>
+          <p>Plates add these colours as light over black, so dark ones barely show. SAT and LIGHT set how much the six differ.</p>
+          <div class="row"><button id="gshuf">Shuffle</button><button id="ggen" class="go">Generate</button></div>
+        </div>
+        <div class="ptool" id="pdrop" role="group" aria-labelledby="ih">
+          <h3 id="ih">FROM AN IMAGE</h3>
+          <p>Six colours that stand apart, taken from a picture and laid out by hue. Drop one here or choose a file. It stays
+            in this browser.</p>
+          <div class="row"><label class="file" id="imglbl" tabindex="0">Choose an image…<input type="file" id="img" accept="image/*"></label></div>
+        </div>
+        <div class="ptool" role="group" aria-labelledby="xh">
+          <h3 id="xh">IMPORT / EXPORT</h3>
+          <textarea id="ptext" aria-label="Colours to import" spellcheck="false" placeholder="#264653 #2a9d8f #e9c46a, a coolors.co link, JSON…"></textarea>
+          <div class="row"><button id="pimp" class="go">Import</button>
+            <label class="file" id="pfilelbl" tabindex="0">Load a file…<input type="file" id="pfile" accept=".json,.txt,.gpl,.hex,application/json,text/plain"></label>
+            <button id="pexp" title="All four palettes as one JSON file, which Import reads back">Export</button></div>
+        </div>
+      </div>
+    </section>
+    </div>
 
     <aside id="player" aria-label="Plate player">
       <div id="screen"><canvas id="cv" width="240" height="240" hidden></canvas>
@@ -189,9 +295,11 @@
       <div class="ctl"><label>PRESET</label><div class="seg" id="pres"></div></div>
       <div id="params"></div>
       <div id="xels"></div>
+      <div id="cols"></div>
       <div class="foot"><button id="defs">Defaults</button><span class="sp"></span><button id="padd" class="go">Add to the bank</button></div>
       <p id="pnote">What you set here is for trying the plate out: it is not sent to the FM-1. There, the same controls are on
-        HOME &gt; UMBRA &gt; LIVE VIZ CTRLS (the elements with an ON switch under the eight there too).</p>
+        HOME &gt; UMBRA &gt; LIVE VIZ CTRLS (the elements with an ON switch under the eight there too), and the parts' colours on
+        HOME &gt; UMBRA &gt; COLOR.</p>
     </aside>
   </div>
 
@@ -279,7 +387,7 @@ const ALL = ["CINDER", "GRANULE", "TARN", "SEPIA", "GYRE", "AURORA", "FATHOM", "
 const HIDE = ["FIL EMBER"];                           /* (a test's plate file: no tile of its own) */
 
 /* ------------------------------------------------------------------ plate files */
-const CMD = { LIST: 96, BEGIN: 97, WRITE: 98, END: 99, ERASE: 100 };
+const CMD = { LIST: 96, BEGIN: 97, WRITE: 98, END: 99, ERASE: 100, PAL_GET: 101, PAL_SET: 102 };
 const RC = { 1: "the FM-1 refused the request", 2: "the file was refused (its checksum or header): the slot is empty",
              3: "stop playback first", 4: "a flash write failed" };
 const BANK = 0x20000, RELOC = 0x434C5255;               /* the bank's flash (umb_slot.c: its slots share it evenly, 16 of
@@ -305,10 +413,12 @@ const CRC = (() => { const t = new Uint32Array(256);
   return (b) => { let c = 0xFFFFFFFF; for (const x of b) c = t[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }; })();
 const cstr = (b, at, n) => { let s = ""; for (let i = at; i < at + n && b[i]; i++) s += String.fromCharCode(b[i]); return s; };
 /* a plate's header (umb_plate.h umb_plate_t, as a 32-bit target lays it out: a plate file's first bytes, the player's
- * module): its name, kind, controls, line, presets and energy; null: not one */
+ * module): its name, kind, controls, line, presets, energy and (API 7) its colours' parts; null: not one */
+const COL_AT = 396, COL_SZ = 12;                        /* ncol's place (after API 6's nxe at 236, its 4 bytes and three umb_xel_t
+                                                         * of 52), a part's size: the player says the same (web_umx_xoff 4, 5) */
 function head(b) {
   if (!b || b.length < 112 || cstr(b, 0, 4) !== "UPLT") return null;
-  const api = b[4] | b[5] << 8, nctl = Math.min(8, b[20]), h = { name: cstr(b, 8, 10), api, kind: b[18] === 2 ? "v" : "g", ctl: [], desc: "", pre: [], energy: null };
+  const api = b[4] | b[5] << 8, nctl = Math.min(8, b[20]), h = { name: cstr(b, 8, 10), api, kind: b[18] === 2 ? "v" : "g", ctl: [], desc: "", pre: [], energy: null, col: [] };
   for (let i = 0; i < nctl; i++) h.ctl.push({ name: cstr(b, 24 + 8 * i, 7), def: b[31 + 8 * i] });
   if (api >= 4 && b.length >= 228) {
     h.desc = cstr(b, 112, 40);
@@ -316,6 +426,11 @@ function head(b) {
       h.pre.push({ name: cstr(b, 156 + 24 * i, 8), v: h.ctl.map((c, j) => (b[164 + 24 * i + j] ? b[164 + 24 * i + j] - 1 : c.def)) });
   }
   if (api >= 5 && b.length >= 232) h.energy = b[228];
+  if (api >= 7 && b.length >= COL_AT + 4 + 6 * COL_SZ)   /* (umb_colr_t: its colours' parts) */
+    for (let j = 0; j < Math.min(6, b[COL_AT]); j++) {
+      const at = COL_AT + 4 + COL_SZ * j;
+      h.col.push({ name: cstr(b, at, 8), rgb: [b[at + 8], b[at + 9], b[at + 10]], def: b[at + 11] });
+    }
   return h;
 }
 /* a plate file (tools/build.py plate_files): its image, linked for slot 0, and the places in it that hold an address;
@@ -338,14 +453,14 @@ function moved(p, slot) {                             /* its image for slot: eac
 
 /* ------------------------------------------------------------------ the library: every plate the page can show */
 /* name -> { name, kind, tags, desc, ctl: [{name, def, what}], pre: [{name, v}], energy, file (its plate file's name here),
- * p (the file, parsed: what goes to the FM-1), len (its image's bytes), own (a file of the user's), builtin (CORONA) } */
+ * col (its colours' parts: [{name, rgb, def}]), p (the file, parsed: what goes to the FM-1), len (its image's bytes), own (a file of the user's), builtin (CORONA) } */
 const LIB = new Map();
 function entry(name, h, more) {
   const m = META[name] || { k: h ? h.kind : "g", t: [] }, doc = DOC[name] || [];
   const ctl = h ? h.ctl.map((c) => ({ ...c, what: (doc.find((d) => d[0] === c.name) || [])[2] || "" }))
                 : doc.map((d) => ({ name: d[0], def: d[1], what: d[2] }));
   const e = { name, kind: h ? h.kind : m.k, tags: m.t, desc: h ? h.desc : "", ctl, pre: h ? h.pre : [], energy: h ? h.energy : null,
-              file: null, p: null, len: 0, own: false, builtin: false, ...more };
+              col: h ? h.col : [], file: null, p: null, len: 0, own: false, builtin: false, ...more };
   LIB.set(name, e);
   return e;
 }
@@ -492,6 +607,200 @@ async function load() {
     if (dev) say(s.text, s.bad);
   }
 }
+
+/* ------------------------------------------------------------------ the palettes (plate API 7) */
+/* The FM-1 keeps four palettes of six colours, one of them in use; a plate's parts (umb_plate.h umb_colr_t) each take
+ * their own colour, one of the six, or the tracks'. pals[i][j]: [r, g, b]; palUse: the one in use (0..3) */
+const PAL0 = [
+  [[64, 110, 230], [120, 226, 214], [236, 250, 246], [255, 206, 64], [255, 122, 28], [232, 124, 196]],     /* 1 UMBRA */
+  [[210, 44, 20], [255, 122, 28], [255, 236, 200], [255, 206, 64], [255, 80, 120], [176, 70, 255]],        /* 2 EMBER */
+  [[96, 64, 232], [40, 220, 140], [214, 255, 226], [110, 255, 150], [60, 200, 255], [255, 120, 220]],      /* 3 AURORA */
+  [[120, 124, 140], [204, 204, 210], [255, 255, 255], [168, 164, 150], [96, 100, 116], [236, 224, 200]]];  /* 4 BONE */
+const palCopy = (p) => p.map((q) => q.map((c) => c.slice()));
+let pals = palCopy(PAL0), palUse = 0;
+const LMIN = 0.45;                                    /* (OKLCH lightness) the plates add these colours as light over black:
+                                                       * nothing darker, unless asked */
+const hex = (c) => "#" + c.map((v) => (v < 16 ? "0" : "") + v.toString(16)).join("");
+function unhex(s) {                                   /* "#abc", "aabbcc", "#AABBCC" -> [r, g, b]; null: not a colour */
+  const m = /^\s*#?([0-9a-f]{6}|[0-9a-f]{3})\s*$/i.exec(String(s));
+  if (!m) return null;
+  const h = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+}
+/* sRGB <-> OKLab (Ottosson's), OKLCH: [L 0..1, C, h in degrees] */
+function lab(c) {
+  const [r, g, b] = c.map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b),
+        s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+          0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+}
+function unlab(L, a, b) {                             /* -> linear r g b, as they come (outside 0..1: not a screen's colour) */
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+          -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
+}
+const lch = (c) => { const [L, a, b] = lab(c); return [L, Math.hypot(a, b), (Math.atan2(b, a) * 180 / Math.PI + 360) % 360]; };
+function unlch(L, C, h) {                             /* -> [r, g, b]: its chroma lowered until a screen can show it */
+  const t = h * Math.PI / 180, at = (c) => unlab(L, c * Math.cos(t), c * Math.sin(t)), ok = (v) => v.every((x) => x >= -0.0005 && x <= 1.0005);
+  L = Math.min(1, Math.max(0, L));
+  let v = at(Math.max(0, C));
+  if (!ok(v)) {
+    let lo = 0, hi = Math.max(0, C);
+    for (let i = 0; i < 16; i++) { const mid = (lo + hi) / 2; if (ok(at(mid))) lo = mid; else hi = mid; }
+    v = at(lo);
+  }
+  return v.map((x) => { x = Math.min(1, Math.max(0, x)); return Math.round(255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055)); });
+}
+const palLift = (cols, lo = LMIN) => cols.map((c) => { const [L, C, h] = lch(c); return L >= lo ? c : unlch(lo + 0.01, C, h); });
+
+/* the generator: six colours from a base. scheme: one of SCHEMES; spread, sat, light 0..100 (how far the hues fan out,
+ * how much the colours differ in saturation and in lightness); dark: colours under LMIN allowed. Each row: a colour's hue
+ * off the base's, its lightness and chroma off it (-1..1 of what the sliders give), 1: it shares its hue with another
+ * (kept apart in lightness whatever the slider says) */
+const SCHEMES = { analogous: "Analogous", complementary: "Complementary", split: "Split-complementary", triad: "Triad",
+                  tetrad: "Tetrad", mono: "Monochrome" };
+function palGen(o) {
+  const u = (v, d) => Math.min(1, Math.max(0, (v == null ? d : +v) / 100)) || 0;
+  const sp = u(o.spread, 50), sv = u(o.sat, 30), lv = u(o.light, 40), lo = o.dark ? 0.16 : LMIN + 0.01, hi = 0.96;
+  const [L0, C0, h0] = lch(o.base || [128, 128, 128]), f = 12 * sp, w = 20 + 40 * sp, q = 40 + 50 * sp, a = 8 + 32 * sp;
+  const rows = {
+    analogous: [[-2 * a, -0.6, 0.4, 0], [-a, 0.5, -0.6, 0], [0, 0, 0, 0], [a, -0.4, 0.5, 0], [2 * a, 0.7, -0.3, 0], [3 * a, -0.8, 0.8, 0]],
+    complementary: [[0, 0, 0, 1], [f, 1, -0.6, 1], [-f, -1, 0.5, 1], [180, 0, 0, 1], [180 + f, 1, -0.6, 1], [180 - f, -1, 0.5, 1]],
+    split: [[0, 0, 0, 1], [0, 1, -0.7, 1], [180 - w, 0, 0.3, 1], [180 - w, -1, -0.5, 1], [180 + w, 0, 0.3, 1], [180 + w, 1, -0.5, 1]],
+    triad: [[0, 0, 0, 1], [f, 1, -0.7, 1], [120, 0, 0.3, 1], [120 + f, -1, -0.5, 1], [240, 0, 0.3, 1], [240 + f, 1, -0.5, 1]],
+    tetrad: [[0, 0, 0, 1], [q, 0.4, 0.5, 0], [180, -0.3, 0, 1], [180 + q, 0.5, -0.5, 0], [0, 1, -0.7, 1], [180, -1, 0.6, 1]],
+    mono: [[-2 * f, -0.8, 0.6, 1], [-f, -0.4, -0.3, 1], [0, 0, 0, 1], [f, 0.4, 0.4, 1], [2 * f, 0.8, -0.5, 1], [3 * f, 1.2, -0.9, 1]],
+  }[o.scheme] || null;
+  if (!rows) return palGen({ ...o, scheme: "analogous" });
+  const Ls = rows.map(([, tl, , rep]) => L0 + tl * (rep ? Math.max(0.13, 0.24 * lv) : 0.24 * lv));
+  const up = lo - Math.min(...Ls), dn = Math.max(...Ls) - hi;   /* (the whole set moved into what may be shown, then held there) */
+  return rows.map(([dh, , tc], k) => unlch(Math.min(hi, Math.max(lo, Ls[k] + (up > 0 ? up : dn > 0 ? -dn : 0))),
+                                           C0 * (1 + 0.7 * sv * tc), (h0 + dh + 720) % 360));
+}
+function palShuffle(rnd = Math.random) {              /* a base and a scheme at random */
+  const k = Object.keys(SCHEMES);
+  return { base: unlch(0.6 + 0.22 * rnd(), 0.1 + 0.1 * rnd(), 360 * rnd()), scheme: k[Math.min(k.length - 1, Math.floor(rnd() * k.length))] };
+}
+/* a picture's colours: px its pixels (r g b a, a byte each), n how many at most. k-means in OKLab from centres spread
+ * as far apart as the picture allows; the colours in the order of their hues (from the widest gap round), greys last */
+function palCluster(px, n = 6) {
+  const pts = [], step = 4 * Math.max(1, Math.floor(px.length / 4 / 4096));
+  for (let i = 0; i + 3 < px.length; i += step) if (px[i + 3] >= 128) pts.push(lab([px[i], px[i + 1], px[i + 2]]));
+  if (!pts.length) return [];
+  const d2 = (p, q) => (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2;
+  const mean = [0, 1, 2].map((k) => pts.reduce((s, p) => s + p[k], 0) / pts.length);
+  let cen = [pts.reduce((b, p) => (d2(p, mean) < d2(b, mean) ? p : b))];
+  const near = pts.map((p) => d2(p, cen[0]));
+  while (cen.length < n) {                            /* (the next centre: the pixel furthest from those chosen) */
+    let far = 0;
+    near.forEach((d, i) => { if (d > near[far]) far = i; });
+    if (near[far] < 1e-5) break;                      /* (no colour left that differs) */
+    cen.push(pts[far]);
+    pts.forEach((p, i) => { near[i] = Math.min(near[i], d2(p, pts[far])); });
+  }
+  let cnt = [];
+  for (let it = 0; it < 12; it++) {
+    const sum = cen.map(() => [0, 0, 0]); cnt = cen.map(() => 0);
+    for (const p of pts) {
+      let b = 0;
+      for (let k = 1; k < cen.length; k++) if (d2(p, cen[k]) < d2(p, cen[b])) b = k;
+      sum[b][0] += p[0]; sum[b][1] += p[1]; sum[b][2] += p[2]; cnt[b]++;
+    }
+    cen = cen.map((c, k) => (cnt[k] ? sum[k].map((v) => v / cnt[k]) : c));
+  }
+  const got = cen.filter((c, k) => cnt[k] > 0 && !cen.some((e, j) => j < k && cnt[j] > 0 && d2(c, e) < 4e-4))
+    .map((c) => ({ C: Math.hypot(c[1], c[2]), h: (Math.atan2(c[2], c[1]) * 180 / Math.PI + 360) % 360, L: c[0] }));
+  const hue = got.filter((c) => c.C >= 0.035).sort((a, b) => a.h - b.h), grey = got.filter((c) => c.C < 0.035).sort((a, b) => a.L - b.L);
+  let at = 0, gap = -1;                               /* (round the wheel from after its widest gap) */
+  hue.forEach((c, i) => { const g = (c.h - hue[(i + hue.length - 1) % hue.length].h + 360) % 360 || 360; if (g > gap) { gap = g; at = i; } });
+  return [...hue.slice(at), ...hue.slice(0, at), ...grey].map((c) => unlch(c.L, c.C, c.h));
+}
+/* fewer than six made six: the ones there again, each round lighter (a light one: darker); more: the first six */
+function palFill(cols) {
+  const n = Math.min(6, cols.length), out = cols.slice(0, 6).map((c) => c.slice());
+  for (let i = n; n && i < 6; i++) {
+    const [L, C, h] = lch(out[i % n]), r = Math.floor(i / n);
+    out.push(unlch(L > 0.84 ? L - 0.12 * r : Math.min(0.97, L + 0.1 * r), C * 0.85 ** r, h));
+  }
+  return { cols: out, had: cols.length, added: n ? 6 - n : 0 };
+}
+/* colours out of text, never run as code: the page's own export (all four palettes: all, use), a JSON array of hex strings
+ * or of [r, g, b], a GIMP palette, or any text with hex colours in it (#abc, #aabbcc, aabbcc, a coolors.co URL) or rgb(..) */
+function palParse(text) {
+  const t = String(text == null ? "" : text).trim(), out = { cols: [], all: null, use: null };
+  const tri = (a) => (Array.isArray(a) && (a.length === 3 || a.length === 4) && a.every((v) => typeof v === "number" && v >= 0 && v <= 255) ? a.slice(0, 3).map(Math.round) : null);
+  const walk = (v, into, deep) => {
+    if (into.length >= 64 || deep > 6) return;
+    if (typeof v === "string") { const c = unhex(v); if (c) into.push(c); }
+    else if (tri(v)) into.push(tri(v));
+    else if (Array.isArray(v)) v.forEach((x) => walk(x, into, deep + 1));
+    else if (v && typeof v === "object") Object.values(v).forEach((x) => walk(x, into, deep + 1));
+  };
+  if (/^[[{]/.test(t)) {
+    let j = null;
+    try { j = JSON.parse(t); } catch (e) { j = null; }
+    if (j && !Array.isArray(j) && j.umbra_palettes && Array.isArray(j.palettes) && j.palettes.length === 4) {
+      const all = j.palettes.map((p) => { const c = []; walk(p, c, 0); return c; });
+      if (all.every((p) => p.length >= 6)) {
+        out.all = all.map((p) => p.slice(0, 6)); out.cols = out.all[0];
+        out.use = Number.isInteger(j.in_use) && j.in_use >= 1 && j.in_use <= 4 ? j.in_use - 1 : 0;
+        return out;
+      }
+    }
+    if (j != null) walk(j, out.cols, 0);
+    if (out.cols.length) return out;
+  }
+  if (/^GIMP Palette/i.test(t)) {                     /* (its rows: r g b, then a name) */
+    for (const ln of t.split(/\r?\n/)) {
+      const m = /^\s*(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})(?:\s|$)/.exec(ln);
+      if (m && m.slice(1).every((v) => +v <= 255)) out.cols.push(m.slice(1).map(Number));
+    }
+    return out;
+  }
+  const re = /rgba?\(\s*(\d{1,3})[\s,]+(\d{1,3})[\s,]+(\d{1,3})|#([0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3})(?![0-9a-f])|(?:^|[^0-9a-z#&])([0-9a-f]{6})(?![0-9a-z])/gi;
+  for (let m; out.cols.length < 64 && (m = re.exec(t));) {
+    if (m[1] != null) { if (+m[1] <= 255 && +m[2] <= 255 && +m[3] <= 255) out.cols.push([+m[1], +m[2], +m[3]]); }
+    else out.cols.push(unhex((m[4] || m[5]).slice(0, m[4] && m[4].length === 3 ? 3 : 6)));
+  }
+  return out;
+}
+/* the page's export: all four, and the one in use (1..4) */
+const palExport = () => JSON.stringify({ umbra_palettes: 1, palettes: pals.map((p) => p.map(hex)), in_use: palUse + 1 }, null, 1);
+/* a part's colour as chosen (v: 0 its own, 1..6 the palette's, 7 the tracks'): { kind: "own" | "notes" | "pal" | "tracks",
+ * rgb (null: the notes' own colours, or the tracks': the palette's six) } */
+function partCol(part, v, pal) {
+  if (v === 7) return { kind: "tracks", rgb: null };
+  if (!v) return part.def & 0x80 ? { kind: "notes", rgb: null } : { kind: "own", rgb: part.rgb };
+  return { kind: "pal", rgb: pal[v - 1].map((x) => (part.def & 0x20 ? x >> 1 : x)) };   /* (0x20: at half its light) */
+}
+
+/* .. and the FM-1's (EDITOR_PROTOCOL.md "Plates": 101 PAL_GET, 102 PAL_SET). A channel travels halved (7 bits); the FM-1
+ * makes v << 1 | v >> 6 of it */
+const NOPAL = "This FM-1's firmware has no palettes yet (it needs plate API 7): update the FM-1 first.";
+const palEnc = (p) => p.flat().map((v) => v >> 1);
+const palDec = (b) => [0, 1, 2, 3, 4, 5].map((j) => [0, 1, 2].map((k) => { const v = b[3 * j + k] & 127; return v << 1 | v >> 6; }));
+const palSame = (a, b) => a.every((p, i) => palEnc(p).join() === palEnc(b[i]).join());   /* (as alike as the FM-1 can tell) */
+const palCan = () => !!dev && devApi >= 7;
+async function palRead(ms = 1500) {                   /* -> { pals, use }: what the FM-1 keeps */
+  if (!dev) throw new Error("Connect the FM-1 first.");
+  if (devApi < 7) throw new Error(NOPAL);
+  let a;
+  try { a = await request(CMD.PAL_GET, [], ms); } catch (e) { throw new Error(NOPAL); }
+  if (a[0] !== 4 || a[1] > 3 || a.length < 2 + 4 * 18) throw new Error("The FM-1's answer was not four palettes.");
+  return { use: a[1], pals: [0, 1, 2, 3].map((i) => palDec(a.slice(2 + 18 * i, 20 + 18 * i))) };
+}
+async function palSend(ps, use, ms = 1500) {          /* the four palettes, then the one in use */
+  if (!dev) throw new Error("Connect the FM-1 first.");
+  if (devApi < 7) throw new Error(NOPAL);
+  const one = async (args, what) => {
+    let a;
+    try { a = await request(CMD.PAL_SET, args, ms); } catch (e) { throw new Error(NOPAL); }
+    if (a[0] !== args[0] || a[1]) throw new Error(`${what}: ${RC[a[1]] || "the FM-1's answer was not understood"}.`);
+  };
+  for (let i = 0; i < 4; i++) await one([i, ...palEnc(ps[i])], `Palette ${i + 1}`);
+  await one([64 + use], `Palette ${use + 1} in use`);
+}
 </script>
 
 <script>
@@ -502,7 +811,8 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 const pic = (name) => (META[name] ? `img/${name.toLowerCase()}.png` : "");
 const KEY = "umbra-plates";
 const keep = (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } })();
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ plan: planOwn ? plan : null, sel, xv, genre: keep.genre, sound: keep.sound, over: keep.over })); } catch (e) { /* not kept */ } };
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ plan: planOwn ? plan : null, sel, xv, genre: keep.genre, sound: keep.sound, over: keep.over,
+  pal: pals, paluse: palUse, cc, gen: gs })); } catch (e) { /* not kept */ } };
 let sel = keep.sel && typeof keep.sel === "string" ? keep.sel : "CORONA";
 let fkind = "all", ftheme = "all", asking = false;
 if (Array.isArray(keep.plan)) { plan = keep.plan.slice(0, 32).map((n) => (typeof n === "string" ? n : null)); fit(Math.max(16, plan.length)); planOwn = true; }
@@ -620,7 +930,7 @@ function drawDock() {
   $("load").disabled = !dev || busy || !ch;
   ["std", "clear"].forEach((i) => { $(i).disabled = busy; });
 }
-UI.draw = () => { drawTiles(); drawDock(); drawAdd(); save(); };
+UI.draw = () => { drawTiles(); drawDock(); drawAdd(); drawPalFm(); save(); };
 
 /* loading asks first: it erases */
 $("load").onclick = () => {
@@ -647,7 +957,8 @@ $("file").onchange = async (ev) => {
 
 /* ------------------------------------------------------------------ the player */
 /* The firmware with every plate built in (plates.wasm), run by the emulator's worklet: TOTALITY alone on the screen, a song
- * of the generator's playing for the plate to follow. vals[name][preset]: the controls as set here (never sent to the FM-1) */
+ * of the generator's playing for the plate to follow. vals[name][preset]: the controls as set here (never sent to the FM-1).
+ * (API 7) The page's palettes are the player's: each change goes to it at once; a plate's parts' choices too (cc) */
 const vals = {};
 const preOf = {};                                      /* name -> its preset here (0 BASIC): a veil and the ground under it each their own */
 const P = (e) => preOf[e.name] || 0;
@@ -765,11 +1076,12 @@ function drawPlayer() {
   });
   if (!t.ctl.length) box.appendChild(el("p", "", "This plate declares no controls here."));
   drawX(t);
+  drawC(t);
   drawAdd();
 }
 $("defs").onclick = () => {
   const e = target(); if (!e) return;
-  delete (vals[e.name] || {})[P(e)]; delete xv[e.name]; save(); drawPlayer(); show();
+  delete (vals[e.name] || {})[P(e)]; delete xv[e.name]; delete cc[e.name]; save(); drawPlayer(); show();
 };
 $("padd").onclick = () => add(sel);
 /* the plate chosen onto the player's screen: a ground alone; a veil on LAYER 1, over the ground chosen for it or over none;
@@ -790,6 +1102,7 @@ function show() {
     send({ type: "umb", i: 93, v: pages[p.name] | P(p) << 8 });
     vset(p, P(p)).forEach((v, j) => send({ type: "umx", pl: pages[p.name], j, v }));
     xsend(p);
+    csend(p);
   }
 }
 function song(fresh) {
@@ -823,6 +1136,7 @@ async function start() {
       pages[p.name] = p.pl;
       const h = p.head && head(p.head), e = LIB.get(p.name);   /* (CORONA has no file: its header from the firmware) */
       if (e) e.xel = p.xel || [];                      /* (the elements beside the eight: the player reads them from the plate) */
+      if (e && p.col && p.col.length) e.col = p.col;   /* (API 7: its colours' parts too) */
       if (h && e && !e.p && !e.own) { const was = e.ctl; Object.assign(e, { desc: h.desc || e.desc, pre: h.pre, energy: h.energy,
         ctl: h.ctl.map((c) => ({ ...c, what: (was.find((w) => w.name === c.name) || {}).what || "" })) }); }
     }
@@ -832,6 +1146,9 @@ async function start() {
     $("pmusic").hidden = false;
     send({ type: "visible", on: true, fps: 30 });
     send({ type: "umb", i: 98, v: 0 });                /* TOTALITY, no word at its foot */
+    palPush();                                         /* (the page's palettes are the player's from here on) */
+    if (info.coff && (info.coff[0] !== COL_AT || info.coff[1] !== COL_SZ))   /* (a plate file's parts read where the player's are not) */
+      console.warn(`plates page: the player has a plate's colours at ${info.coff[0]} (${info.coff[1]} bytes each), the page reads plate files at ${COL_AT} (${COL_SZ})`);
     song(false);                                       /* (first: the generator lays plates of its own for a new song) */
     for (const p of info.pages)                        /* (whatever lies there taken off, BODIES' figures too: the plate alone) */
       if (p.head || p.name === "BODIES") send({ type: "umb", i: 97, v: p.pl });
@@ -853,6 +1170,242 @@ $("sound").onclick = () => {
 if (keep.sound === false) { $("sound").textContent = "Sound off"; $("sound").setAttribute("aria-pressed", "false"); }
 $("over").onchange = () => { keep.over = $("over").value; edit = "top"; drawTiles(); drawPlayer(); show(); };
 document.addEventListener("visibilitychange", () => send({ type: "visible", on: !document.hidden, fps: 30 }));
+
+/* ------------------------------------------------------------------ the palettes */
+/* pe: the palette and the colour being edited; gs: the generator as set; cc: name -> each part's choice in the player
+ * (like the controls there: never sent to the FM-1) */
+const pe = { p: 0, c: 0 };
+const gs = Object.assign({ base: "#406ee6", scheme: "analogous", spread: 50, sat: 30, light: 40, dark: false }, keep.gen && typeof keep.gen === "object" ? keep.gen : {});
+const cc = keep.cc && typeof keep.cc === "object" ? keep.cc : {};
+const byte = (v) => Number.isInteger(v) && v >= 0 && v <= 255;
+const isPal = (p) => Array.isArray(p) && p.length === 6 && p.every((c) => Array.isArray(c) && c.length === 3 && c.every(byte));
+if (Array.isArray(keep.pal) && keep.pal.length === 4 && keep.pal.every(isPal)) pals = palCopy(keep.pal);
+if (Number.isInteger(keep.paluse) && keep.paluse >= 0 && keep.paluse < 4) palUse = keep.paluse;
+if (!unhex(gs.base) || !SCHEMES[gs.scheme]) { gs.base = "#406ee6"; gs.scheme = "analogous"; }
+pe.p = palUse;
+let palWas = null, genOut = null;                      /* (what Undo puts back; what the generator last made, and where) */
+const ink = (c) => (lab(c)[0] > 0.62 ? "#000" : "#fff");   /* (what can be read on it) */
+const css = (c) => `rgb(${c.join(",")})`;
+
+function buildPals() {                                 /* the rows, once: syncPals keeps them */
+  const box = $("pals");
+  pals.forEach((p, i) => {
+    const row = el("div", "prow"), pn = el("button", "pn", `PALETTE ${i + 1}`), sws = el("div", "sws"), pu = el("button", "pu");
+    pn.onclick = () => { pe.p = i; syncPals(); };
+    p.forEach((c, j) => {
+      const b = el("button", "swt");
+      b.append(el("b", "", String(j + 1)), el("span"));
+      b.onclick = () => { pe.p = i; pe.c = j; syncPals(); };
+      sws.appendChild(b);
+    });
+    sws.setAttribute("role", "group"); sws.setAttribute("aria-label", `Palette ${i + 1}'s colours`);
+    pu.onclick = () => palSetUse(i);
+    row.append(pn, sws, pu); box.appendChild(row);
+  });
+}
+function syncPals() {
+  [...$("pals").children].forEach((row, i) => {
+    const [pn, sws, pu] = row.children, use = i === palUse;
+    row.classList.toggle("sel", i === pe.p);
+    pn.setAttribute("aria-pressed", String(i === pe.p));
+    pn.title = i === pe.p ? "The palette being changed" : `Change palette ${i + 1}`;
+    pu.textContent = use ? "IN USE" : "USE";
+    pu.setAttribute("aria-pressed", String(use));
+    pu.title = use ? "The plates take their colours from this palette" : `Put palette ${i + 1} in use`;
+    pu.setAttribute("aria-label", use ? `Palette ${i + 1} is in use` : `Put palette ${i + 1} in use`);
+    [...sws.children].forEach((b, j) => {
+      const c = pals[i][j], on = i === pe.p && j === pe.c;
+      b.style.background = css(c); b.style.color = ink(c);
+      b.lastChild.textContent = hex(c);
+      b.setAttribute("aria-pressed", String(on));
+      b.setAttribute("aria-label", `Palette ${i + 1}, colour ${j + 1}, ${hex(c)}`);
+    });
+  });
+  const c = pals[pe.p][pe.c];
+  $("pedl").textContent = `PALETTE ${pe.p + 1} · COLOUR ${pe.c + 1}`;
+  $("pcol").value = hex(c);
+  if (document.activeElement !== $("phex")) { $("phex").value = hex(c); $("phex").removeAttribute("aria-invalid"); }
+  $("pundo").disabled = !palWas;
+  $("pfac").disabled = pals[pe.p].join() === PAL0[pe.p].join();
+}
+const palKeep = () => { palWas = { pals: palCopy(pals), use: palUse }; };
+function palPush(i) {                                  /* palette i (none: all four, and the one in use) to the player */
+  for (const k of i == null ? [0, 1, 2, 3] : [i]) pals[k].forEach((c, j) => send({ type: "pal", i: k, j, rgb: c[0] << 16 | c[1] << 8 | c[2] }));
+  if (i == null) send({ type: "palcur", i: palUse });
+}
+function palChanged() { syncPals(); drawC(target()); drawPalFm(); save(); }
+function palSetCol(i, j, c) { pals[i][j] = c.slice(); send({ type: "pal", i, j, rgb: c[0] << 16 | c[1] << 8 | c[2] }); palChanged(); }
+function palSetAll(i, cols) { palKeep(); pals[i] = cols.map((c) => c.slice()); genOut = null; palPush(i); palChanged(); }
+function palSetUse(i) { if (i === palUse) return; palUse = i; send({ type: "palcur", i }); palChanged(); say(`Palette ${i + 1} is in use.`); }
+
+let colWas = "";                                       /* (one Undo for a drag of the colour input, not one a step) */
+$("pcol").oninput = () => {
+  const c = unhex($("pcol").value), k = `${pe.p}.${pe.c}`;
+  if (!c) return;
+  if (colWas !== k) { palKeep(); colWas = k; }
+  genOut = null; palSetCol(pe.p, pe.c, c);
+};
+$("pcol").onchange = () => { colWas = ""; };
+$("phex").onchange = () => {
+  const c = unhex($("phex").value);
+  if (!c) { $("phex").setAttribute("aria-invalid", "true"); say("That is not a hex colour: six digits, like #40a0e6.", true); return; }
+  $("phex").removeAttribute("aria-invalid");
+  palKeep(); genOut = null; palSetCol(pe.p, pe.c, c); $("phex").value = hex(c); say("");
+};
+$("phex").onkeydown = (ev) => { if (ev.key === "Enter") $("phex").onchange(); };
+$("pundo").onclick = () => {
+  if (!palWas) return;
+  const w = palWas; palWas = null; genOut = null;
+  pals = w.pals; palUse = w.use; palPush(); palChanged(); say("Put back as it was.");
+};
+$("pfac").onclick = () => { palSetAll(pe.p, PAL0[pe.p]); say(`Palette ${pe.p + 1} is as an install brings it.`); };
+
+/* the generator */
+for (const [v, t] of Object.entries(SCHEMES)) { const o = el("option", "", t); o.value = v; $("gsch").appendChild(o); }
+const GF = [["gspr", "spread"], ["gsat", "sat"], ["glit", "light"]];
+function syncGen() {
+  $("gbase").value = gs.base; $("gsch").value = gs.scheme; $("gdark").checked = !!gs.dark;
+  GF.forEach(([id, k]) => { $(id).value = gs[k]; $(id).nextElementSibling.textContent = String(gs[k]); });
+}
+function generate(told) {
+  const cols = palGen({ ...gs, base: unhex(gs.base) });
+  if (genOut && genOut.p === pe.p && genOut.cols === pals[pe.p].join()) { pals[pe.p] = cols; palPush(pe.p); palChanged(); }   /* (the same one, made again) */
+  else palSetAll(pe.p, cols);
+  genOut = { p: pe.p, cols: pals[pe.p].join() };
+  if (told) say(`Palette ${pe.p + 1} generated: ${SCHEMES[gs.scheme].toLowerCase()} from ${gs.base}.`);
+}
+/* a control moved: the palette follows while it still holds what the generator made */
+const regen = () => { save(); if (genOut && genOut.p === pe.p && genOut.cols === pals[pe.p].join()) generate(false); };
+$("gbase").oninput = () => { gs.base = $("gbase").value; regen(); };
+$("gsch").onchange = () => { gs.scheme = $("gsch").value; regen(); };
+$("gdark").onchange = () => { gs.dark = $("gdark").checked; regen(); };
+GF.forEach(([id, k]) => { $(id).oninput = () => { gs[k] = +$(id).value; $(id).nextElementSibling.textContent = $(id).value; regen(); }; });
+$("ggen").onclick = () => generate(true);
+$("gshuf").onclick = () => { const s = palShuffle(); gs.base = hex(s.base); gs.scheme = s.scheme; syncGen(); generate(true); };
+
+/* six taken, or made six: said */
+function palTake(cols, from) {
+  const f = palFill(cols), n = pe.p + 1;
+  if (!f.cols.length) return false;
+  palSetAll(pe.p, f.cols);
+  say(`Palette ${n} ${from}` + (f.had > 6 ? `: the first six of ${f.had} colours.` : f.added ? `: ${f.had} colour${f.had === 1 ? "" : "s"} found, the other ${f.added === 1 ? "one a lighter or darker repeat" : f.added + " lighter or darker repeats"}.` : ": six colours."));
+  return true;
+}
+/* from an image: drawn small, its pixels to palCluster */
+async function fromImage(f) {
+  if (!f) return;
+  let bmp;
+  try { bmp = await createImageBitmap(f); } catch (e) { say(`${f.name} could not be read as an image.`, true); return; }
+  const k = Math.min(1, 64 / Math.max(bmp.width, bmp.height)), w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const x = c.getContext("2d", { willReadFrequently: true });
+  x.drawImage(bmp, 0, 0, w, h);
+  if (bmp.close) bmp.close();
+  let cols = palCluster(x.getImageData(0, 0, w, h).data, 6);
+  if (!cols.length) { say(`${f.name} has nothing to take colours from.`, true); return; }
+  const lit = gs.dark ? cols : palLift(cols), n = lit.filter((c2, i) => c2 !== cols[i]).length;
+  if (palTake(lit, `from ${f.name}`) && n) say(status.text + ` ${n === 1 ? "A dark one was" : `${n} dark ones were`} lightened to show on black.`);
+}
+$("img").onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ""; fromImage(f); };
+const drop = $("pdrop");
+drop.ondragover = (ev) => { if ([...ev.dataTransfer.types].includes("Files")) { ev.preventDefault(); drop.classList.add("over"); } };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (ev) => { ev.preventDefault(); drop.classList.remove("over"); fromImage(ev.dataTransfer.files[0]); };
+for (const id of ["imglbl", "pfilelbl"])               /* (a label that opens a file: reachable by the keyboard) */
+  $(id).onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); $(id).querySelector("input").click(); } };
+
+/* import, export */
+function importText(t, from) {
+  const r = palParse(t);
+  if (r.all) {
+    palKeep(); pals = palCopy(r.all); palUse = r.use; genOut = null; pe.p = palUse; palPush(); palChanged();
+    say(`All four palettes ${from}; palette ${palUse + 1} is in use.`);
+  } else if (!palTake(r.cols, from)) say(from === "imported" ? "No colours found in that text: it wants hex colours like #264653." : "No colours found in that file.", true);
+}
+$("pimp").onclick = () => importText($("ptext").value, "imported");
+$("pfile").onchange = async (ev) => {
+  const f = ev.target.files[0]; ev.target.value = "";
+  if (!f) return;
+  if (f.size > 1 << 20) { say(`${f.name} is too large for a palette file.`, true); return; }
+  importText(await f.text(), `from ${f.name}`);
+};
+$("pexp").onclick = () => {
+  const a = el("a"), u = URL.createObjectURL(new Blob([palExport() + "\n"], { type: "application/json" }));
+  a.href = u; a.download = "umbra-palettes.json"; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 1000);
+  say("The four palettes saved as umbra-palettes.json: Import reads it back.");
+};
+
+/* the FM-1's palettes */
+function drawPalFm() {
+  const can = palCan(), p = $("palfm");
+  $("palget").disabled = $("palput").disabled = !can || busy;
+  p.className = dev && !can ? "bad" : "";
+  p.textContent = !dev ? "Connect the FM-1 to read its palettes or send these." : !can ? NOPAL :
+    "Sending replaces the FM-1's four palettes with these; it saves them itself a moment later (not while its song plays).";
+}
+const palWork = async (f) => { busy = true; UI.draw(); try { await f(); } catch (e) { say(e.message, true); } finally { busy = false; UI.draw(); } };
+$("palget").onclick = () => palWork(async () => {
+  const r = await palRead();
+  if (palSame(pals, r.pals)) {
+    const was = palUse; palUse = r.use; if (was !== palUse) { send({ type: "palcur", i: palUse }); palChanged(); }
+    say(`These are the FM-1's palettes already; palette ${r.use + 1} is in use there.`); return;
+  }
+  const take = () => { palKeep(); pals = r.pals; palUse = r.use; genOut = null; palPush(); palChanged(); say(`The FM-1's palettes read; palette ${r.use + 1} is in use. Undo puts yours back.`); };
+  const s = $("status"); s.className = ""; s.textContent = "The FM-1's palettes differ from the ones here. This replaces the four here with the FM-1's. ";
+  const yes = el("button", "go", "Replace"), no = el("button", "", "Cancel");
+  yes.onclick = take; no.onclick = () => say("");
+  s.append(yes, no); asking = true; yes.focus();
+});
+$("palput").onclick = () => palWork(async () => {
+  say("Sending the palettes…");
+  await palSend(pals, palUse);
+  say(`The FM-1 has the four palettes; palette ${palUse + 1} is in use.`);
+});
+
+/* a plate's parts in the player: each one's colour its own, one of the palette in use, or the tracks' */
+function cget(e) {
+  const d = (e.col || []).map((c) => c.def & 7), v = cc[e.name];
+  if (!Array.isArray(v) || v.length !== d.length || v.some((x, j) => !Number.isInteger(x) || x < 0 || x > 7 || (x === 7 && !(e.col[j].def & 0x80)))) cc[e.name] = d;
+  return cc[e.name];
+}
+function csend(e) {
+  if (!pages || pages[e.name] == null || !(e.col || []).length) return;
+  cget(e).forEach((v, j) => send({ type: "colc", pl: pages[e.name], j, v }));
+}
+const chip = (c) => { const s = el("span", "chip"); s.style.background = css(c); return s; };
+function drawC(e) {
+  const box = $("cols"); box.textContent = "";
+  if (!e || !(e.col || []).length) return;
+  const v = cget(e), pal = pals[palUse], g = el("div", "xel"), top = el("div", "xt");
+  top.append(el("b", "", "COLOURS"), el("span", "tag", `PALETTE ${palUse + 1}`));
+  g.append(top, el("small", "", "What each part takes its colour from: its own, one of the six of the palette in use, or the tracks' (track 1 the palette's colour 1, and so on)."));
+  e.col.forEach((part, j) => {
+    const r = el("div", "cpart"), t = el("div", "top"), now = partCol(part, v[j], pal), seg = el("div", "seg cseg");
+    t.appendChild(el("b", "", part.name));
+    if (now.rgb) t.append(chip(now.rgb), el("output", "", hex(now.rgb) + (now.kind === "pal" && part.def & 0x20 ? " (half light)" : "")));
+    else if (now.kind === "tracks") { const six = el("span", "chips6"); pal.forEach((c) => six.appendChild(chip(c))); t.append(six, el("output", "", "TRACKS")); }
+    else t.appendChild(el("output", "", "THE NOTES' OWN"));
+    seg.setAttribute("role", "group"); seg.setAttribute("aria-label", `${part.name}: its colour`);
+    [0, 1, 2, 3, 4, 5, 6, 7].forEach((k) => {
+      if (k === 7 && !(part.def & 0x80)) return;
+      const b = el("button");
+      if (k >= 1 && k <= 6) b.appendChild(chip(pal[k - 1]));
+      b.append(k === 0 ? "OWN" : k === 7 ? "TRACKS" : String(k));
+      b.setAttribute("aria-pressed", String(v[j] === k));
+      b.setAttribute("aria-label", k === 0 ? `${part.name}: its own colour` : k === 7 ? `${part.name}: the tracks' colours` : `${part.name}: colour ${k} of the palette, ${hex(pal[k - 1])}`);
+      b.onclick = () => {
+        v[j] = k; save();
+        if (pages && pages[e.name] != null) send({ type: "colc", pl: pages[e.name], j, v: k });
+        drawC(e); $("cols").querySelectorAll(".cseg")[j].querySelector("[aria-pressed=true]").focus();
+      };
+      seg.appendChild(b);
+    });
+    r.append(t, seg); g.appendChild(r);
+  });
+  box.appendChild(g);
+}
+buildPals(); syncGen(); syncPals(); drawPalFm();
 
 if (!navigator.requestMIDIAccess) { $("connect").disabled = true; say("This browser has no Web MIDI, which reaching the FM-1 needs: use Chrome or Edge. The plates play here all the same.", true); }
 library().then(() => {

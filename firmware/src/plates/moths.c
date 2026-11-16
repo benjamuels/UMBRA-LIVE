@@ -103,15 +103,15 @@ static void plm_web(const umb_strip_t *S, const umb_api_t *a, const umb_lctx_t *
     for (k = 0; k < 10; k++) {                          /* (its threads, to the corner's edges) */
         uint32_t ph = (uint32_t)k * 429496730u + 0x08000000u;
         int32_t l = ph >= 0xB0000000u || ph < 0x10000000u ? R * 3 : R * 5 / 4;   /* (up and right: to the edges, held there) */
-        pl_line(S, HX, HY, HX + mx * pl_pol(a, l, ph + 0x40000000u), HY + my * pl_pol(a, l, ph) - tr, al, PL_INK);
+        pl_line(S, HX, HY, HX + mx * pl_pol(a, l, ph + 0x40000000u), HY + my * pl_pol(a, l, ph) - tr, al, PL_PC(cx, 4));
     }
     for (j = 0; j <= 10 * 7; j++) {                     /* (its spiral: seven rounds, a thread to the next, sagging in) */
         uint32_t ph = (uint32_t)(j % 10) * 429496730u + 0x08000000u;
         int32_t r = R * (6 + j) / 80, nX = HX + mx * pl_pol(a, r, ph + 0x40000000u), nY = HY + my * pl_pol(a, r, ph),
                 mX = (pX + nX) / 2 - (((pX + nX) / 2 - HX) >> 4), mY = (pY + nY) / 2 - (((pY + nY) / 2 - HY) >> 4);
         if (j) {
-            pl_line(S, pX, pY, mX, mY, al * 3 / 4, PL_WT);
-            pl_line(S, mX, mY, nX, nY, al * 3 / 4, PL_WT);
+            pl_line(S, pX, pY, mX, mY, al * 3 / 4, PL_PC(cx, 5));
+            pl_line(S, mX, mY, nX, nY, al * 3 / 4, PL_PC(cx, 5));
         }
         pX = nX;
         pY = nY;
@@ -120,7 +120,7 @@ static void plm_web(const umb_strip_t *S, const umb_api_t *a, const umb_lctx_t *
         uint32_t h = pl_hash((uint32_t)k + 91u + c * 7u), j2 = (h >> 8) % 70u, ph = j2 % 10u * 429496730u + 0x08000000u;
         int32_t r = R * (6 + (int32_t)j2) / 80, g = pl_sine(a, cx->now * 700000u + h);
         pl_glint(S, HX + mx * pl_pol(a, r, ph + 0x40000000u), HY + my * pl_pol(a, r, ph),
-                 (60 + (g > 26000 ? (g - 26000) / 30 : 0) + m->lamp / 2) * al / 90, PL_WT);
+                 (60 + (g > 26000 ? (g - 26000) / 30 : 0) + m->lamp / 2) * al / 90, PL_PC(cx, 5));
     }
 }
 static void plm_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
@@ -129,12 +129,12 @@ static void plm_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     int32_t X = 120 * 256, Y = (cx->bare ? 120 : 142) * 256, i, life = 1200 + cx->k[1] * 76, w = (3 + cx->k[2] * 5 / 50) * 256,
             lg = 90 + cx->level / 3 + m->lamp / 2;
     pl_clear(S);
-    pl_arc(S, a, X, Y, 6 * 256, 0u, 0xFFFFFFFFu, lg, PL_WT);   /* the lamp: its glass, its light, eight rays */
-    pl_glint(S, X, Y, 150 + lg / 2, PL_WARM[0]);
+    pl_arc(S, a, X, Y, 6 * 256, 0u, 0xFFFFFFFFu, lg, PL_PC(cx, 3));   /* the lamp: its glass, its light, eight rays */
+    pl_glint(S, X, Y, 150 + lg / 2, PL_PC(cx, 2));
     for (i = 0; i < 8; i++) {
         uint32_t ph = (uint32_t)i * 536870912u + cx->now * 20000u;
         pl_line(S, X + pl_pol(a, 10 * 256, ph + 0x40000000u), Y + pl_pol(a, 10 * 256, ph), X + pl_pol(a, (13 + lg / 16) * 256, ph + 0x40000000u),
-                Y + pl_pol(a, (13 + lg / 16) * 256, ph), lg / 2, PL_WARM[0]);
+                Y + pl_pol(a, (13 + lg / 16) * 256, ph), lg / 2, PL_PC(cx, 2));
     }
     for (i = 0; i < PLM_N; i++) {                       /* the moths: a body, two wings beating, its wobble its own */
         uint32_t age = cx->now - m->t0[i], ph = (uint32_t)m->a[i] << 16, hd, fl;
@@ -142,7 +142,7 @@ static void plm_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         int32_t r, x, y, e, wa;
         if (!m->t0[i] || age >= (uint32_t)life)
             continue;
-        tc = a->colour[(m->c[i] * 3u) % 8u];
+        tc = pl_rc(cx, a, 0u, m->c[i]);
         r = m->r[i] * 4 + pl_pol(a, 3 * 256, age * 9000000u + m->sd[i] * 16843009u);
         x = X + pl_pol(a, r, ph + 0x40000000u);
         y = Y + pl_pol(a, r, ph);
@@ -151,7 +151,7 @@ static void plm_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         hd = ph + 0x80000000u;                          /* (its heading: along its circle) */
         fl = age * 60000000u + m->sd[i] * 7777777u;     /* (14 beats a second) */
         wa = 0x18000000 + (pl_sine(a, fl) >> 4) * 0x40000;   /* (the wings' angle from its back: 34 +- 45 degrees) */
-        pl_splat(S, x, y, e + 60, PL_WT);
+        pl_splat(S, x, y, e + 60, PL_PC(cx, 1));
         pl_line(S, x, y, x + pl_pol(a, w, hd + (uint32_t)wa + 0x40000000u), y + pl_pol(a, w, hd + (uint32_t)wa), e, tc);
         pl_line(S, x, y, x + pl_pol(a, w, hd - (uint32_t)wa + 0x40000000u), y + pl_pol(a, w, hd - (uint32_t)wa), e, tc);
     }
@@ -168,7 +168,6 @@ static void plm_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         }
 }
 
-#include "splash/moths.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_moths = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plm_t), "MOTHS",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 7u, {0, 0, 0},
@@ -179,7 +178,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_moths = {
     {{"DUSK", {26, 81, 0, 0, 0, 36, 71, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 6u), UMB_LINK(UMB_SRC_LEVEL, 5u)}, {99, 99, 30, 50}},
      {"SWARM", {86, 0, 0, 96, 61, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), UMB_LINK(UMB_SRC_HIT(0), 4u)}, {99, 99, 60, 40}},
      {"FLICKER", {0, 26, 71, 0, 0, 91, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 5u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, -70, 40}}},
-    28u, {0, 0, 0}, SPL_MOTHS,
+    28u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"WEB", 3u, 1u, {0, 0}, {{"ON", 0}, {"SPAN", 50}, {"DEW", 40}},
@@ -187,4 +186,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_moths = {
       {"Web on or off", "How wide the web is", "How many dew drops glint on the webs (0 none)"}},
      {"WEB2", 3u, 1u, {0, 0}, {{"ON", 0}, {"SPAN", 50}, {"BARS", 30}},
       "A second web on the other diagonal, moving between top left and bottom right on its own rhythm",
-      {"Second web on or off", "How wide the web is", "How many bars between its moves (1 to 8)"}}}};
+      {"Second web on or off", "How wide the web is", "How many bars between its moves (1 to 8)"}}},
+    /* (API 7) its colours' parts (WEB: the webs' threads; SILK: their spirals and dew) */
+    6u, {0, 0, 0},
+    {{"MOTHS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"BODY", {236, 250, 246}, 3u}, {"LAMP", {255, 206, 64}, 4u},
+     {"GLASS", {236, 250, 246}, 3u}, {"WEB", {120, 226, 214}, 2u}, {"SILK", {236, 250, 246}, 3u}}};

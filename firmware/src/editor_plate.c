@@ -6,7 +6,11 @@
  * sent as linked for its slot (the page adds the slot's distance to the plate file's absolute words). Every write stops
  * the transport first (a flash erase silences the audio a moment). rc: 0 ok, 1 arguments, 2 the CRC or the header refused
  * (the slot left empty), 3 stop playback first (it did not stop in 100 ms), 4 flash. */
-enum { ED_PLATE_LIST = 96, ED_PLATE_BEGIN, ED_PLATE_WRITE, ED_PLATE_END, ED_PLATE_ERASE };
+enum { ED_PLATE_LIST = 96, ED_PLATE_BEGIN, ED_PLATE_WRITE, ED_PLATE_END, ED_PLATE_ERASE, ED_PAL_GET, ED_PAL_SET };
+/* (plate API 7) the palettes (ui_umbra.c): palette i's six colours read (put 0) or set (1) as 18 bytes, r g b each
+ * halved (0..127: more than the panel's own five and six bits); i past the palettes: the one in use read, or i - 64 put in
+ * use. Back: the palette in use */
+static uint32_t umb_pal_io(uint32_t i, uint8_t *c, int put);
 #define ED_PLATE_SLOTS UPS_NSLOT
 
 static uint32_t ed_pl_u32(const uint8_t *a)             /* u32: 5 x 7 bits, LSB first (the last 0..15) */
@@ -49,6 +53,22 @@ static int ed_plate_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         return 1;
     case ED_PLATE_END:                                  /* slot, CRC-32 (u32) -> slot, rc */
         rc = n != 6u || a[0] >= ED_PLATE_SLOTS || !ed_pl_u32ok(a + 1) ? 1u : ed_flash_stop() ? 3u : ups_end(a[0], ed_pl_u32(a + 1));
+        ed_b(n ? a[0] : 127u); ed_b(rc);
+        return 1;
+    case ED_PAL_GET:                                    /* -> the palettes kept (4), the one in use, then each one's 18 bytes */
+        if (n)
+            return 0;
+        ed_b(4u); ed_b(umb_pal_io(127u, buf, 0));
+        for (k = 0; k < 4u; k++) {
+            (void)umb_pal_io(k, buf, 0);
+            for (rc = 0; rc < 18u; rc++)
+                ed_b(buf[rc]);
+        }
+        return 1;
+    case ED_PAL_SET:                                    /* palette, its 18 bytes -> palette, rc; or 64 + palette: put in use */
+        rc = !((n == 19u && a[0] < 4u) || (n == 1u && a[0] >= 64u && a[0] < 68u));
+        if (!rc)
+            (void)umb_pal_io(a[0], (uint8_t *)(a + 1), 1);
         ed_b(n ? a[0] : 127u); ed_b(rc);
         return 1;
     case ED_PLATE_ERASE:                                /* slot -> slot, rc */

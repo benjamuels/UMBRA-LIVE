@@ -67,8 +67,27 @@ static int header(void)
         if (x->tog >> x->np) { printf("%s: element %s: a toggle bit past its parameters\n", P->name, x->name); return 1; }
     }
     if (strnlen(P->name, 10) > 9 || P->nctl > 8 || P->npre > 3) return fail("header");
+    if (P->api != UMB_API || P->splash || !P->ncol || P->ncol > UMB_NCOL) return fail("API 7 header (its colours' parts, 1..6; no still picture)");
+    for (i = 0; i < P->ncol; i++)                          /* (API 7) a part: a name of 1..7 letters, the tracks' only where flagged */
+        if (!P->col[i].name[0] || strnlen(P->col[i].name, 8) > 7 || ((P->col[i].def & 7u) == UMB_COL_TRK && !(P->col[i].def & UMB_COLF_TRK)))
+            { printf("%s: colour part %d\n", P->name, i); return 1; }
     for (i = 0; i < P->nctl; i++) if (strlen(P->ctl[i].name) > 6 || P->ctl[i].def > 99) return fail("element");
     return 0;
+}
+/* (API 7) a layer's colours as the firmware hands them (ui_umbra.c umb_cols): how 0 each part its own (a part that follows
+ * the notes: the notes' own), 1 every part a colour of a palette's (random), the notes' parts the tracks'; tc six colours
+ * (how 0: the firmware's first palette) */
+static void cols(umb_lctx_t *c, int how)
+{
+    static const uint8_t P1[6][3] = {{64, 110, 230}, {120, 226, 214}, {236, 250, 246}, {255, 206, 64}, {255, 122, 28}, {232, 124, 196}};
+    int j, k;
+    memset(c->pc, 0, sizeof c->pc); memset(c->pm, 0, sizeof c->pm);
+    for (j = 0; j < 6; j++) for (k = 0; k < 3; k++) c->tc[j][k] = how ? rnd() & 255 : P1[j][k];
+    for (j = 0; j < P->ncol && j < (int)UMB_NCOL; j++) {
+        int trk = P->col[j].def & UMB_COLF_TRK;
+        c->pm[j] = trk ? how ? UMB_PM_TRACKS : UMB_PM_NOTES : UMB_PM_ONE;
+        for (k = 0; k < 3; k++) c->pc[j][k] = how ? c->tc[rnd() % 6][k] >> (P->col[j].def & UMB_COLF_DIM ? 1 : 0) : P->col[j].rgb[k];
+    }
 }
 static void xset(umb_lctx_t *c, int how)               /* how: 0 defaults, 1 all low, 2 all high, 3 random */
 {
@@ -92,11 +111,13 @@ static int check(void)
         for (i = 0; i < 8; i++) c.et[i] = run & 4 ? rnd() & 63 : 0;
         xset(&c, run < 3 ? run : run == 3 ? 2 : 3);
         c.bare = run & 1; c.light = 256; c.now = rnd(); c.tracks = 6;
+        cols(&c, run >= 6 && (run & 1));
         P->init(blk, &c, &A);
         for (f = 0; f < 700; f++) {
             int n = run == 3 ? 12 : rnd() % 4, y;
             c.dt = f % 97 == 0 ? 250 : f % 13 == 0 ? 1 : 5 + rnd() % 60; c.now += c.dt; c.level = rnd(); c.beat = rnd();
             if (run >= 5 && f % 50 == 0) { for (i = 0; i < 8; i++) c.k[i] = rnd() % 100; xset(&c, f % 100 ? 3 : (f / 100) % 3); }
+            if (run >= 8 && f % 120 == 60) cols(&c, (f / 120) & 1);   /* (API 7) COLOR turned, another palette, under it */
             while (n--) {
                 umb_note_t nt; memset(&nt, 0, sizeof nt);
                 nt.track = rnd() % 6; nt.note = rnd() % 128; nt.vel = rnd() % 128; nt.drum = rnd() % 3 == 0; nt.lane = nt.drum ? rnd() % 8 : 0;
@@ -153,6 +174,7 @@ static void row(int how, const int *xv, int ry, uint32_t secs)
             if (P->xel[k].tog >> i & 1) c.xk[k][i] = (uint8_t)how;
     if (xv) for (k = 0; k < 9; k++) if (k / 3 < P->nxe && k % 3 < P->xel[k / 3].np) c.xk[k / 3][k % 3] = (uint8_t)xv[k];
     c.bare = 1; c.light = 256; c.tracks = 6; c.now = 1000;
+    cols(&c, 0);                                           /* (the pictures: every part its own colour, as the plate was drawn) */
     P->init(blk, &c, &A);
     for (i = 0; i < 240; i++) vg[i] = 256;
     for (k = 0; k < 3; k++) {

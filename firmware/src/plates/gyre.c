@@ -184,12 +184,12 @@ static void fgy_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     const fgy_t *s = st;
     int32_t C = PL_C2P(FGY_C), re = (2 + (int32_t)cx->k[2] * 8 / 99) * 4 * 256, i, k, rg = pl_clamp(70 + cx->level / 2 + s->surge, 0, 255);
     pl_fdraw(S, s->d, s->cv, a->pal, 0);
-    pl_arc(S, a, C, C, re * 3 / 4, 0u, 0xFFFFFFFFu, rg, PL_WT);   /* the eye's rim (one ring: its dim second one gone for
+    pl_arc(S, a, C, C, re * 3 / 4, 0u, 0xFFFFFFFFu, rg, PL_PC(cx, 3));   /* the eye's rim (one ring: its dim second one gone for
                                                          * the 4 KiB slot, 2026-11-13) */
     for (i = 0; i < FGY_NP; i++) {                      /* the streaks: the arc of the last half second */
         int32_t r = s->pr[i] >> 6, q = pl_clamp((r * r) >> 9, 0, 55);
         uint32_t sp = (uint32_t)((s->W[q] * 10430) >> 16) * 11u + 500u;
-        const uint8_t *c = s->pc[i] ? pl_ncol(a, s->pc[i] - 1u) : PL_WT;
+        const uint8_t *c = s->pc[i] ? pl_rc(cx, a, 2u, s->pc[i] - 1u) : PL_PC(cx, 3);
         if (!s->pv[i])
             continue;
         for (k = 1; k < 4; k += 2)                      /* (dim its whole length, bright its last third) */
@@ -207,7 +207,7 @@ static void fgy_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 int32_t r = R + ((w * pl_sine(a, ph * 5u + cx->now * 1500000u + (uint32_t)j * 0x30000000u)) >> 15),
                         nX = C + pl_pol(a, r, ph + 0x40000000u), nY = C + pl_pol(a, r, ph);
                 if (k)
-                    pl_line(S, pX, pY, nX, nY, al, j ? PL_INK : PL_WT);
+                    pl_line(S, pX, pY, nX, nY, al, PL_PC(cx, j ? 5 : 3));   /* (the first the eye's own) */
                 pX = nX;
                 pY = nY;
             }
@@ -219,19 +219,18 @@ static void fgy_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     if (cx->xk[0][0]) {
         int32_t top = PL_TOP(cx), P = 2 * (237 * 256 + (237 - top) * 256), g = s->fl * cx->xk[0][1] / 99,
                 fa = (cx->beat * cx->xk[0][2] / 99 + (s->surge >> 1) * cx->xk[0][2] / 50) >> 1, t = (int32_t)(cx->now % 12000u) * (P >> 8) / 47;
-        fgy_edge(S, top, 0, 0, P, 90 + fa, PL_WT);
+        fgy_edge(S, top, 0, 0, P, 90 + fa, PL_PC(cx, 4));
         for (k = 0; k < 4; k++) {                       /* (each trace two lines thick, its head brightest) */
             int32_t L = (P >> 2) * (40 + g) / 296;
-            fgy_edge(S, top, 0, t + k * (P >> 2), L, 200 + fa, PL_WT);
-            fgy_edge(S, top, 1, t + k * (P >> 2), L, 160 + fa, PL_INK);
-            fgy_edge(S, top, 0, t + k * (P >> 2) + L - 2048, 2048, 255, PL_WT);
+            fgy_edge(S, top, 0, t + k * (P >> 2), L, 200 + fa, PL_PC(cx, 4));
+            fgy_edge(S, top, 1, t + k * (P >> 2), L, 160 + fa, PL_PC(cx, 5));
+            fgy_edge(S, top, 0, t + k * (P >> 2) + L - 2048, 2048, 255, PL_PC(cx, 4));
         }
         for (k = 1; k <= g / 64; k++)
-            fgy_edge(S, top, 1 + 3 * k, 0, P, (g - 64 * k + 64) * (110 + fa) >> 8, k & 1 ? PL_INK : PL_WT);
+            fgy_edge(S, top, 1 + 3 * k, 0, P, (g - 64 * k + 64) * (110 + fa) >> 8, PL_PC(cx, k & 1 ? 5 : 4));
     }
 }
 
-#include "splash/gyre.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_gyre = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(fgy_t), "GYRE",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 8u, {0, 0, 0},
@@ -242,7 +241,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_gyre = {
     {{"VORTEX", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 50, 25}},
      {"DRAIN", {41, 91, 21, 0, 0, 31, 31, 71}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 2u), 0}, {99, 99, 30, 0}},
      {"GALAXY", {26, 11, 31, 81, 0, 91, 96, 100}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 5u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 60, 30}}},
-    55u, {0, 0, 0}, SPL_GYRE,
+    55u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"FRAME", 3u, 1u, {0, 0}, {{"ON", 0}, {"GROW", 60}, {"FLASH", 50}},
@@ -250,4 +249,9 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_gyre = {
       {"Frame on or off", "How far the traces grow round the edge, and lines within it, with the mix", "How much the beat and the kick flash it"}},
      {"RIPPLE", 3u, 1u, {0, 0}, {{"ON", 0}, {"RINGS", 40}, {"WARP", 30}},
       "Rings run out from the eye with every beat, wavering as they go",
-      {"Ripples on or off", "How many rings follow each other out (1 to 5)", "How much they waver"}}}};
+      {"Ripples on or off", "How many rings follow each other out (1 to 5)", "How much they waver"}}},
+    /* (API 7) its colours' parts: the cold palette's two, the notes' streaks, the eye's rim (the spray, the first ripple
+     * leaving it), the frame's white lines, the ripples' teal (and the frame's teal lines) */
+    6u, {0, 0, 0},
+    {{"WATER", {14, 38, 112}, 1u | UMB_COLF_RAMP}, {"FOAM", {132, 218, 228}, 2u}, {"STREAK", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK},
+     {"EYE", {236, 250, 246}, 3u}, {"FRAME", {236, 250, 246}, 3u}, {"RIPPLE", {120, 226, 214}, 2u}}};

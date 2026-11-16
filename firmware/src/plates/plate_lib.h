@@ -153,9 +153,9 @@ static __attribute__((noinline)) int32_t pl_drive(const umb_lctx_t *c, uint32_t 
 /* the warm tints (CINDER): a track's own (3 yellow, 4 orange; 0: none), as a tint byte: its share (0..127), which (128) */
 static uint32_t pl_tint(uint32_t c) { return c == 2u ? 127u : c == 3u ? 255u : 0u; }
 /* a pixel of light b (0..255) under tint t: its share the tint's colour, the rest the cold palette's */
-static __attribute__((noinline)) uint16_t pl_wpx(const umb_api_t *a, int32_t b, uint32_t t, int32_t vg, int32_t d)
+static __attribute__((noinline)) uint16_t pl_wpx(const umb_api_t *a, const uint8_t (*W)[3], int32_t b, uint32_t t, int32_t vg, int32_t d)
 {
-    const uint8_t *C = PL_WARM[t >> 7];
+    const uint8_t *C = W[t >> 7];                       /* (API 7: W the two tints' colours, a plate's parts: umb_lctx_t.pc + r) */
     int32_t w = (b * (int32_t)(t & 127u)) >> 7, k = (w * w * 541) >> 8;
     return pl_rgb(a, b - w, (C[0] * k) >> 16, (C[1] * k) >> 16, (C[2] * k) >> 16, vg, d);
 }
@@ -306,6 +306,24 @@ static uint32_t pl_owed(uint32_t now, uint32_t *ms, uint32_t per)
 #define PL_C2P(c) ((c) * 4 + 384)
 /* a note's own colour: its track's, a drum's its lane's */
 static const uint8_t *pl_ncol(const umb_api_t *a, uint32_t track) { return a->colour[(track * 3u) % 8u]; }
+/* (API 7) part r's colour: one (its own, or the palette's), or a track's (the notes' own, or the palette's as the tracks');
+ * t: whose note it is */
+#define PL_PC(c, r) ((c)->pc[r])
+static __attribute__((noinline)) const uint8_t *pl_rc(const umb_lctx_t *c, const umb_api_t *a, uint32_t r, uint32_t t)
+{
+    return c->pm[r] == UMB_PM_NOTES ? pl_ncol(a, t) : c->pm[r] ? c->tc[t % UMB_NTRK] : c->pc[r];
+}
+/* .. the parts' colours changed since *sum was kept (a plate with a palette of its own makes it anew) */
+static int pl_pcnew(const umb_lctx_t *c, uint32_t *sum)
+{
+    uint32_t i, h = 1u;
+    for (i = 0; i < sizeof c->pc; i++)
+        h = h * 31u + ((const uint8_t *)c->pc)[i];
+    if (h == *sum)
+        return 0;
+    *sum = h;
+    return 1;
+}
 /* ---- what lies over them (KOI, BOATS, FIZZ, BOKEH, MEDUSA, RIDGE, QUILL, MURMUR) ---- */
 /* light gl of colour b and light e of colour c as one light: its colour into m, how much of it back (255 at most) */
 static __attribute__((noinline)) int32_t pl_mix(uint8_t *m, const uint8_t *b, const uint8_t *c, int32_t gl, int32_t e)

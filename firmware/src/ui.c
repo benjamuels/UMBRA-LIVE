@@ -1979,11 +1979,33 @@ static uint32_t preset_visible(uint32_t cur, uint32_t total, uint32_t row)
  * cards drawn by ui_draw over any page, no layer open: the keys stay notes) until LFO is pressed again (ui_layer.c) */
 static uint8_t mac_latch;
 /* HOME: what KNOB k edits: the engine's four main parameters */
+/* (UMBRA LIVE, the user 2026-11-16: "set what each of the 4 knobs does per BODY while in TOTALITY") the selected track's
+ * knob k: its engine's own (JIANT's), a parameter chosen on HOME > BEING > KNOBS, or a macro (a macro is a byte, a
+ * parameter 16 bits: turned in umk_ms, home_put carries it back) */
+static uint32_t umk_kn(uint32_t t, uint32_t k);        /* (ui_umbra.c) 0: the engine's own; 1 + a parameter; 0x80 + a macro */
+static int16_t umk_ms[4] __attribute__((section(".pool")));   /* (.pool: .bss as it lay, the image no larger for it) */
+static param_desc_t umk_md __attribute__((section(".pool")));   /* (a macro as a parameter: "M2", 0 .. 127 as a share) */
 static const param_desc_t *home_param(uint32_t k, int16_t **vp)
 {
-    uint32_t id = trk_engp(TSEL)->knob[k & 3u];
-    *vp = &TSEL->p[id];
-    return track_desc(TSEL, id);
+    uint32_t v = umk_kn(song.sel % NTRK, k & 3u), id = v ? v - 1u : trk_engp(TSEL)->knob[k & 3u];
+    if (v >= 0x80u) {
+        umk_ms[k & 3u] = macro_v[v & 3u];
+        *vp = &umk_ms[k & 3u];
+        umk_md.label = N_MSRC[MS_M1 + (v & 3u)];
+        umk_md.fmt = F_PCT;
+        umk_md.max = 127;
+        return &umk_md;
+    }
+    *vp = &TSEL->p[id % P_COUNT];
+    return track_desc(TSEL, id % P_COUNT);
+}
+static int home_put(uint32_t k, const int16_t *vp)     /* after a turn; 1: a macro's (no parameter of the track's turned) */
+{
+    uint32_t v = umk_kn(song.sel % NTRK, k & 3u);
+    if (v < 0x80u)
+        return 0;
+    macro_v[v & 3u] = (uint8_t)*vp;
+    return 1;
 }
 
 /* select track i (KNOB 1 on TRACKS, the editor): its sound, pages and pattern from now on */

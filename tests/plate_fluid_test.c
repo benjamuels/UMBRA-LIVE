@@ -17,6 +17,18 @@
 static int16_t sine[1025]; static uint8_t colour[8][3], noise[1024], fade[256]; static uint16_t pal[4][256], lg[160];
 static uint32_t rs = 12345; static uint32_t rnd(void) { rs = rs * 1664525u + 1013904223u; return rs >> 8; }
 static int32_t mv(const umb_note_t *n, uint32_t ax, int32_t v, int32_t span) { (void)n; (void)ax; (void)span; return v; }
+/* (API 7) a layer's colours as the firmware hands them (ui_umbra.c umb_cols): how 0 each part its own (a part that follows
+ * the notes: the notes' own), 1 every part a colour of a palette's (random), the notes' parts the tracks'; tc six colours */
+static void cols(umb_lctx_t *c, const umb_plate_t *p, int how) {
+    int j, k;
+    memset(c->pc, 0, sizeof c->pc); memset(c->pm, 0, sizeof c->pm);
+    for (j = 0; j < 6; j++) for (k = 0; k < 3; k++) c->tc[j][k] = how ? rnd() & 255 : (uint8_t)(255 - 30 * j - 20 * k);
+    for (j = 0; j < p->ncol && j < (int)UMB_NCOL; j++) {
+        int trk = p->col[j].def & UMB_COLF_TRK;
+        c->pm[j] = trk ? how ? UMB_PM_TRACKS : UMB_PM_NOTES : UMB_PM_ONE;
+        for (k = 0; k < 3; k++) c->pc[j][k] = how ? c->tc[rnd() % 6][k] >> (p->col[j].def & UMB_COLF_DIM ? 1 : 0) : p->col[j].rgb[k];
+    }
+}
 int main(void) {
     const umb_plate_t *const P[] = {UMB_RES_FLUID};
     umb_api_t a; int i, f, pi, run, big = 0, tot = 0;
@@ -30,6 +42,10 @@ int main(void) {
         const umb_plate_t *p = P[pi];
         big = p->state > big ? p->state : big; tot += p->state;
         if (strlen(p->name) > 9 || strlen(p->desc) > 39 || p->nctl > 8 || p->npre > 3) { printf("%s: header\n", p->name); return 1; }
+        if (p->api != UMB_API || p->splash || !p->ncol || p->ncol > UMB_NCOL) { printf("%s: API 7 header (its colours' parts, no still picture)\n", p->name); return 1; }
+        for (i = 0; i < p->ncol; i++)
+            if (!p->col[i].name[0] || strnlen(p->col[i].name, 8) > 7 || ((p->col[i].def & 7u) == UMB_COL_TRK && !(p->col[i].def & UMB_COLF_TRK)))
+                { printf("%s: colour part %d\n", p->name, i); return 1; }
         for (i = 0; i < p->npre; i++) if (strlen(p->pre[i].name) > 7) { printf("%s: preset name %s\n", p->name, p->pre[i].name); return 1; }
         for (i = 0; i < p->nctl; i++) if (strlen(p->ctl[i].name) > 6 || p->ctl[i].def > 99) { printf("%s: element %d\n", p->name, i); return 1; }
         for (run = 0; run < 12; run++) {
@@ -39,11 +55,13 @@ int main(void) {
             for (i = 0; i < 8; i++) c.k[i] = run == 0 ? p->ctl[i].def : run == 1 ? 0 : run == 2 ? 99 : rnd() % 100;
             for (i = 0; i < 8; i++) c.et[i] = run & 4 ? rnd() & 63 : 0;
             c.bare = run & 1; c.light = 256; c.now = rnd(); c.tracks = 6;
+            cols(&c, p, run >= 6 && (run & 1));
             p->init(blk, &c, &a);
             for (f = 0; f < 700; f++) {
                 int n = run == 3 ? 12 : rnd() % 4, y;
                 c.dt = f % 97 == 0 ? 250 : f % 13 == 0 ? 1 : 5 + rnd() % 60; c.now += c.dt; c.level = rnd(); c.beat = rnd();
                 if (run >= 5 && f % 50 == 0) for (i = 0; i < 8; i++) c.k[i] = rnd() % 100;   /* the knobs turned under it */
+                if (run >= 8 && f % 120 == 60) cols(&c, p, (f / 120) & 1);   /* (API 7) COLOR turned, another palette, under it */
                 while (n--) {
                     umb_note_t nt; memset(&nt, 0, sizeof nt);
                     nt.track = rnd() % 6; nt.note = rnd() % 128; nt.vel = rnd() % 128; nt.drum = rnd() % 3 == 0; nt.lane = nt.drum ? rnd() % 8 : 0;

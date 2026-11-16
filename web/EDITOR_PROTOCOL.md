@@ -1141,7 +1141,7 @@ into plain ones (stress is not marked in singing) and ñ into "ny" before sendin
 flash write, also while playing): the track's lyric starts over at its next note. Saved with the project (FUNC's
 `L` `Y` block per track that has one; a project without it loads with none) and in the backup's runtime object (id 0).
 
-## Plates (UMBRA LIVE, 96-100)
+## Plates (UMBRA LIVE, 96-102)
 
 UMBRA LIVE's plate bank (`firmware/src/umb_slot.c`, `editor_plate.c`; plans/umbra-plate-bank.md, phase 2): 16 slots of
 8 KiB (two sectors) each, flash 0xB8000..0xD7FFF (JIANT's projects 5..8, retired: UMBRA keeps four projects), each holding a
@@ -1161,6 +1161,8 @@ firmware. The page that sends them is `web/plates.html` (on the site: webapp/pla
 | 98 PLATE_WRITE | slot, offset (u32), the bytes 7-bit packed (as BACKUP_PUT: groups of a top-bits byte and up to 7 bytes), up to 256 | slot, rc. In order: each offset where the last write ended, into BEGIN's slot |
 | 99 PLATE_END | slot, CRC-32 (u32, zlib's) of the image as sent | slot, rc. The slot's record is written last, after the image is read back: the CRC, the header (a plate, an API the firmware has, its names, every entry point inside the slot's image: an image not moved for its slot is refused). Refused (2): the slot is erased |
 | 100 PLATE_ERASE | slot | slot, rc |
+| 101 PAL_GET | — | (plate API 7) 4 (the palettes kept), the palette in use (0..3), then 4 × 18 bytes: each palette's six colours r g b, every channel halved (0..127) |
+| 102 PAL_SET | palette (0..3), then its 18 bytes (six colours r g b, every channel halved); or one byte, 64 + palette: put that palette in use | the first argument, rc (0 ok, 1 arguments). Takes effect at once (RAM, also while playing) |
 
 rc: 0 ok, 1 arguments (a wrong length, slot or order), 2 the CRC or the header refused (the slot left empty), 3 stop
 playback first (the transport did not stop in 100 ms), 4 a flash write failed. A transfer cut short leaves the slot
@@ -1169,3 +1171,15 @@ restarts without the bank (LIST: state 2) until it is switched off and on, and s
 emulator has no bank (it cannot run the FM-1's code): every plate is built into it. A backup leaves projects 5..8 out
 (their ids read empty; a backup's sections for them are taken and not written). Tests: `tests/plate_slot_test.c` (the
 bank and these commands on a simulated flash), `tests/plate_page_test.mjs` (the page's script against them).
+
+**Palettes (plate API 7; 101, 102).** The FM-1 keeps four palettes of six colours and has one of them in use; a plate's
+parts (`umb_plate.h` `umb_colr_t`: KOI's FISH, NOTES, PATCH 1 ..) each take their own colour, one of the six, or the
+tracks' (UMBRA > COLOR). A channel travels halved, 7 bits: the FM-1 makes `v << 1 | v >> 6` of a byte it is sent (127 is
+255, 0 is 0) and sends `channel >> 1`, so a palette read back is what was sent to 7 bits. `PAL_GET` takes no arguments
+(with any: no reply). `PAL_SET` takes either 19 bytes (the palette, its 18) or the one byte 64..67; anything else is rc 1
+and changes nothing. Neither stops the transport or writes flash in its handler: the FM-1 saves the palettes itself a
+moment later, with UMBRA's other settings (not while its song plays). Firmware of before plate API 7 answers neither:
+`PLATE_LIST`'s first reply byte is the plate API, and a sender that asks all the same takes no reply for "no palettes
+yet". Factory palettes: 1 UMBRA, 2 EMBER, 3 AURORA, 4 BONE (`web/plates.html` `PAL0` has their colours); the plates page
+edits, generates, imports and exports them and sends all four, then the one in use. The emulator and the page's player
+set them without SysEx (`web_pal`, `web_pal_cur`, `web_colc`; worklet messages `pal`, `palcur`, `colc`).

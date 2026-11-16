@@ -95,9 +95,9 @@ static void ori_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 X = (int32_t)((h >> 8) % 240u) * 256, Y = (top + 4 + (int32_t)((h >> 18) % (uint32_t)(112 - top))) * 256,
                 e = ((cx->k[0] * (90 + (pl_sine(a, cx->now * (200000u + (h >> 24) * 3000u) + h) >> (h & 3u ? 9 : 8)))) >> 5) * env >> 8;
         if (h >> 29)
-            pl_splat(S, X, Y, e, PL_WT);
+            pl_splat(S, X, Y, e, PL_PC(cx, 1));
         else
-            pl_star(S, X, Y, (env >> 7) * 256 + 256, e, PL_WT);
+            pl_star(S, X, Y, (env >> 7) * 256 + 256, e, PL_PC(cx, 1));
     }
     for (k = 0; k < 2; k++) {                           /* the hills: the far line (the echo along it), the near one */
         int32_t py = ori_y(cx, a, 0, k);
@@ -105,7 +105,7 @@ static void ori_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             int32_t y = ori_y(cx, a, i * 8, k), e = k ? rl / 2 : rl, d = pl_abs(pl_abs(i - 15) * 30 - (int32_t)ea);
             if (!k && s->et && ea < 600u && d < 90)     /* (from the middle to the edges in 0.45 s) */
                 e += pl_out(s->ev, ea, 600u) * (90 - d) / 90;
-            pl_line(S, (i - 1) * 2048, py * 256, i * 2048, y * 256, e > 255 ? 255 : e, PL_INK);
+            pl_line(S, (i - 1) * 2048, py * 256, i * 2048, y * 256, e > 255 ? 255 : e, PL_PC(cx, 0));
             py = y;
         }
     }
@@ -114,35 +114,35 @@ static void ori_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         int32_t x = 6 + (int32_t)((h >> 8) % 228u), y = ori_y(cx, a, x, 1), ht = 9 + (int32_t)((h >> 20) % 10u);
         if (pl_abs(x - ORI_FX) < 9)                     /* (none in the fire) */
             continue;
-        pl_line(S, x * 256, y * 256, x * 256, (y - ht) * 256, pn, PL_INK);
+        pl_line(S, x * 256, y * 256, x * 256, (y - ht) * 256, pn, PL_PC(cx, 0));
         for (k = 1; k <= 3; k++) {
             int32_t ay = (y - ht + (k - 1) * ht / 4) * 256, by = ay + (ht / 4 + 1) * 256, w = (1 + k) * 256;
-            pl_line(S, x * 256, ay, x * 256 - w, by, pn, PL_INK);
-            pl_line(S, x * 256, ay, x * 256 + w, by, pn, PL_INK);
+            pl_line(S, x * 256, ay, x * 256 - w, by, pn, PL_PC(cx, 0));
+            pl_line(S, x * 256, ay, x * 256 + w, by, pn, PL_PC(cx, 0));
         }
     }
     if (cx->k[5])                                       /* the fire: a warm point that flickers; its sparks, 0.9 s up */
-        pl_glint(S, ORI_FX * 256, fy * 256, 110 + (pl_tbil(a, (int32_t)(cx->now * 40u & 0x1FFFu), 0) >> 9), PL_WARM[1]);
+        pl_glint(S, ORI_FX * 256, fy * 256, 110 + (pl_tbil(a, (int32_t)(cx->now * 40u & 0x1FFFu), 0) >> 9), PL_PC(cx, 3));
     for (i = 0; i < ORI_NS; i++) {
         uint32_t age = cx->now - s->st[i];
         if (s->st[i] && age < 900u)
             pl_splat(S, ORI_FX * 256 + pl_pol(a, 3 * 256 + (int32_t)age * 4, age * 3000000u + s->sd[i] * 16843009u) + ((int32_t)s->sd[i] - 128) * (int32_t)age / 50,
-                     fy * 256 - 512 - (int32_t)age * 12, pl_out(s->sv[i], age, 900u), PL_WARM[0]);
+                     fy * 256 - 512 - (int32_t)age * 12, pl_out(s->sv[i], age, 900u), PL_PC(cx, 4));
     }
     if (cx->xk[0][0]) {                                 /* (NEW, API 6) MOON: the lit limb on the right, the dark one faint;
                                                          * the terminator an ellipse's half by PHASE, the lit part hatched
                                                          * row by row; the halo round it with the level, a breath on the beat */
         int32_t X = ORI_MX * 256, Y = (top + 34) * 256, R = ORI_MR * 256, t = 256 - cx->xk[0][1] * 512 / 99, y0, hl;
-        pl_arc(S, a, X, Y, R, 0xC0000000u, 0x80000000u, 230, PL_WT);
-        pl_arc(S, a, X, Y, R, 0x40000000u, 0x80000000u, 40, PL_WT);
+        pl_arc(S, a, X, Y, R, 0xC0000000u, 0x80000000u, 230, PL_PC(cx, 5));
+        pl_arc(S, a, X, Y, R, 0x40000000u, 0x80000000u, 40, PL_PC(cx, 5));
         for (k = -ORI_MR + 1; k < ORI_MR; k++) {        /* (a row of the disc: from the terminator to the limb) */
             int32_t w = (int32_t)pl_isqrt((uint32_t)(ORI_MR * ORI_MR - k * k) << 16);   /* (its half width, px Q8) */
             y0 = Y + k * 256;
-            pl_line(S, X + (w * t >> 8), y0, X + w, y0, 150, PL_WT);
+            pl_line(S, X + (w * t >> 8), y0, X + w, y0, 150, PL_PC(cx, 5));
         }
         hl = (cx->level * (cx->xk[0][2] + 10) >> 7) + (cx->beat * cx->xk[0][2] >> 9);
-        pl_arc(S, a, X, Y, R * 2 + (cx->beat << 2), 0u, 0xFFFFFFFFu, hl / 2, PL_INK);
-        pl_arc(S, a, X, Y, R * 3 / 2 + (cx->beat << 1), 0u, 0xFFFFFFFFu, hl / 3, PL_WT);
+        pl_arc(S, a, X, Y, R * 2 + (cx->beat << 2), 0u, 0xFFFFFFFFu, hl / 2, PL_PC(cx, 0));
+        pl_arc(S, a, X, Y, R * 3 / 2 + (cx->beat << 1), 0u, 0xFFFFFFFFu, hl / 3, PL_PC(cx, 5));
     }
     if (cx->xk[1][0])                                   /* (NEW, API 6) SMOKE: two strands of 14 points up from the fire,
                                                          * curling, leaning with DRIFT; thicker with the level */
@@ -151,7 +151,7 @@ static void ori_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             for (j = 1; j <= 14; j++) {
                 int32_t x = ORI_FX * 256 + dr * j * j / 14 + pl_pol(a, j * 160, cx->now * (2400000u + (uint32_t)k * 1100000u) - (uint32_t)j * 0x16000000u + (uint32_t)k * 0x50000000u),
                         y = fy * 256 - 768 - j * h, e = (70 + (cx->level >> 2)) * (15 - j) / 14;
-                pl_line(S, px, py, x, y, e, j < 3 ? PL_WARM[0] : PL_WT);
+                pl_line(S, px, py, x, y, e, PL_PC(cx, j < 3 ? 4 : 1));
                 px = x;
                 py = y;
             }
@@ -162,13 +162,12 @@ static void ori_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         if (!s->mt[i] || age >= (uint32_t)life || Y > ori_y(cx, a, X >> 8, 0) * 256)   /* (gone behind the hills) */
             continue;
         e = pl_out(s->mv[i], age, (uint32_t)life);
-        pl_line(S, X, Y, X - 2867, Y - 2150, e, pl_ncol(a, s->mc[i]));
-        pl_line(S, X - 2867, Y - 2150, X - 5734, Y - 4301, e / 3, pl_ncol(a, s->mc[i]));
-        pl_glint(S, X, Y, e, PL_WT);
+        pl_line(S, X, Y, X - 2867, Y - 2150, e, pl_rc(cx, a, 2u, s->mc[i]));
+        pl_line(S, X - 2867, Y - 2150, X - 5734, Y - 4301, e / 3, pl_rc(cx, a, 2u, s->mc[i]));
+        pl_glint(S, X, Y, e, PL_PC(cx, 1));
     }
 }
 
-#include "splash/ridge.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_ridge = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(ori_t), "RIDGE",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
@@ -179,7 +178,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_ridge = {
     {{"CAMP", {0, 0, 31, 0, 26, 100, 0, 81}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u), UMB_LINK(UMB_SRC_BEAT, 6u)}, {99, 99, 40, 25}},
      {"SHOWER", {81, 91, 0, 100, 0, 1, 31, 21}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 0u), 0}, {99, 99, 40, 0}},
      {"ALPS", {21, 0, 100, 0, 100, 0, 91, 1}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 4u), UMB_LINK(UMB_SRC_LFO(0), 2u)}, {99, 99, 50, 20}}},
-    42u, {0, 0, 0}, SPL_RIDGE,
+    42u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"MOON", 3u, 1u, {0, 0}, {{"ON", 0}, {"PHASE", 30}, {"HALO", 50}},
@@ -187,4 +186,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_ridge = {
       {"Moon on or off", "How much of it is lit, new to full", "How bright its halo grows"}},
      {"SMOKE", 3u, 1u, {0, 0}, {{"ON", 0}, {"RISE", 50}, {"DRIFT", 60}},
       "Two strands of smoke curl up from the fire, leaning with the wind",
-      {"Smoke on or off", "How high the smoke rises", "Which way the wind leans it (30 straight up)"}}}};
+      {"Smoke on or off", "How high the smoke rises", "Which way the wind leans it (30 straight up)"}}},
+    /* (API 7) its colours' parts */
+    6u, {0, 0, 0},
+    {{"HILLS", {120, 226, 214}, 2u}, {"STARS", {236, 250, 246}, 3u}, {"METEOR", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK},
+     {"FIRE", {255, 122, 28}, 5u}, {"SPARKS", {255, 206, 64}, 4u}, {"MOON", {236, 250, 246}, 3u}}};

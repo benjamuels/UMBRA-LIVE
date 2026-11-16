@@ -39,13 +39,15 @@ static int32_t oqu_gap(const umb_lctx_t *cx, int32_t *first, int32_t *rest)
     *rest = pl_clamp(4 + cx->k[2] * 14 / 50, 4, gap - 10);
     return gap;
 }
-/* colour k of the wheel (the notes' eight) moved on by the drift at now (6 s a colour, blended), into c; half white: w */
-static void oqu_col(const umb_api_t *a, uint32_t k, uint32_t now, int w, uint8_t *c)
+/* track k's ink, into c: (the part its own) its colour of the wheel (the notes' eight) moved on by the drift at now (6 s a
+ * colour, blended); (API 7) else the part's for that track; half the dots' white: w */
+static void oqu_col(const umb_lctx_t *cx, const umb_api_t *a, uint32_t k, int w, uint8_t *c)
 {
-    uint32_t t = now / 6000u + k, f = now % 6000u * 256u / 6000u, j;
+    uint32_t t = cx->now / 6000u + k * 3u, f = cx->now % 6000u * 256u / 6000u, j;
+    const uint8_t *p = pl_rc(cx, a, 0u, k);
     for (j = 0; j < 3; j++) {
-        uint32_t v = (a->colour[t % 8u][j] * (256u - f) + a->colour[(t + 1u) % 8u][j] * f) >> 8;
-        c[j] = (uint8_t)(w ? (v + PL_WT[j]) >> 1 : v);
+        uint32_t v = cx->pm[0] == UMB_PM_NOTES ? (a->colour[t % 8u][j] * (256u - f) + a->colour[(t + 1u) % 8u][j] * f) >> 8 : p[j];
+        c[j] = (uint8_t)(w ? (v + PL_PC(cx, 1)[j]) >> 1 : v);
     }
 }
 static void oqu_init(void *st, const umb_lctx_t *cx, const umb_api_t *a)
@@ -126,7 +128,7 @@ static void oqu_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     int32_t nv = 40 + cx->k[1] * 158 / 99, j;
     uint32_t i;
     uint8_t ink[3], tc[3];
-    oqu_col(a, 0u, cx->now, 1, ink);
+    oqu_col(cx, a, 0u, 1, ink);
     pl_clear(S);
     if (cx->xk[1][0]) {                                 /* (NEW, API 6) PAGE: a rule under each line, the one being written
                                                          * brighter and lit by the beat; the margin down the left, orange */
@@ -134,9 +136,9 @@ static void oqu_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         (void)rest;
         for (j = 0; j < nl; j++) {
             y = (first + j * gap + gap - 5) * 256;
-            pl_line(S, 4 * 256, y, 236 * 256, y, j == s->ln ? pl_clamp(rl + (cx->beat * cx->xk[1][2] >> 7), 0, 255) : rl, PL_INK);
+            pl_line(S, 4 * 256, y, 236 * 256, y, j == s->ln ? pl_clamp(rl + (cx->beat * cx->xk[1][2] >> 7), 0, 255) : rl, PL_PC(cx, 2));
         }
-        pl_line(S, 10 * 256, first * 256, 10 * 256, (first + nl * gap) * 256, rl, PL_WARM[1]);
+        pl_line(S, 10 * 256, first * 256, 10 * 256, (first + nl * gap) * 256, rl, PL_PC(cx, 3));
     }
     for (j = 0; j < nv - 1; j++) {                      /* the writing: from the pen back, going out in sixteen steps */
         uint32_t p1 = (s->hd + OQU_N - (uint32_t)j) % OQU_N, p0 = (p1 + OQU_N - 1u) % OQU_N;
@@ -144,7 +146,7 @@ static void oqu_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         if (s->c[p1] == OQU_UP || !s->y[p0])
             continue;
         if (s->c[p1]) {
-            oqu_col(a, (s->c[p1] - 1u) * 3u, cx->now, 0, tc);
+            oqu_col(cx, a, s->c[p1] - 1u, 0, tc);
             pl_line(S, s->x[p0] * 256, s->y[p0] * 256, s->x[p1] * 256, s->y[p1] * 256, 60 + ((e * 195) >> 8), tc);
         } else
             pl_line(S, s->x[p0] * 256, s->y[p0] * 256, s->x[p1] * 256, s->y[p1] * 256, (e * 150) >> 8, ink);
@@ -153,7 +155,7 @@ static void oqu_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     for (i = 0; i < OQU_ND; i++) {
         uint32_t age = cx->now - s->dt[i];
         if (s->dt[i] && age < 1500u)
-            pl_glint(S, s->dx[i] * 256, s->dy[i] * 256, pl_out(s->dv[i], age, 1500u), PL_WT);
+            pl_glint(S, s->dx[i] * 256, s->dy[i] * 256, pl_out(s->dv[i], age, 1500u), PL_PC(cx, 1));
     }
     if (cx->xk[0][0])                                   /* (NEW, API 6) BLOTS: a blot that spreads in 0.12 s, two rings and a
                                                          * wet point, and seven drops thrown round it; drying over DRY */
@@ -164,18 +166,17 @@ static void oqu_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
                 continue;
             R = ((384 + cx->xk[0][1] * 40) * s->bv[i] >> 8) * (age < 120u ? (int32_t)age : 120) / 120 + 256;
             e = pl_out(s->bv[i], age, life);
-            pl_arc(S, a, X, Y, R, 0u, 0xFFFFFFFFu, e, PL_INK);
-            pl_arc(S, a, X, Y, R / 2, 0u, 0xFFFFFFFFu, e * 3 / 4, PL_INK);
-            pl_glint(S, X, Y, e, PL_WT);
+            pl_arc(S, a, X, Y, R, 0u, 0xFFFFFFFFu, e, PL_PC(cx, 4));
+            pl_arc(S, a, X, Y, R / 2, 0u, 0xFFFFFFFFu, e * 3 / 4, PL_PC(cx, 4));
+            pl_glint(S, X, Y, e, PL_PC(cx, 1));
             for (j = 0; j < 7; j++) {
                 uint32_t h = pl_hash((uint32_t)j + s->bt[i]);
                 int32_t d = R + R * (int32_t)(h >> 25) / 64;
-                pl_glint(S, X + pl_pol(a, d, h), Y + pl_pol(a, d, h + 0x40000000u), e * 3 / 4, PL_INK);
+                pl_glint(S, X + pl_pol(a, d, h), Y + pl_pol(a, d, h + 0x40000000u), e * 3 / 4, PL_PC(cx, 4));
             }
         }
 }
 
-#include "splash/quill.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_quill = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(oqu_t), "QUILL",
     UMB_KIND_OVERLAY, UMB_MODE(UMB_DRAW_REPLACE) | UMB_MODE(UMB_DRAW_ADD), 8u, {0, 0, 0},
@@ -186,7 +187,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_quill = {
     {{"LETTER", {0, 100, 31, 0, 0, 0, 0, 100}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LEVEL, 0u), 0}, {99, 99, 30, 0}},
      {"AUTOGRF", {81, 41, 91, 100, 100, 0, 81, 1}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 4u), UMB_LINK(UMB_SRC_BEAT, 2u)}, {99, 99, 50, 25}},
      {"SCRAWL", {100, 21, 0, 0, 61, 100, 6, 51}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 6u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 60, 40}}},
-    20u, {0, 0, 0}, SPL_QUILL,
+    20u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"BLOTS", 3u, 1u, {0, 0}, {{"ON", 0}, {"SPLAT", 50}, {"DRY", 50}},
@@ -194,4 +195,8 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_quill = {
       {"Blots on or off", "How big a blot spreads", "How long a blot takes to dry"}},
      {"PAGE", 3u, 1u, {0, 0}, {{"ON", 0}, {"RULES", 50}, {"PULSE", 50}},
       "The page's ruled lines and its margin; the line being written lights on the beat",
-      {"Page on or off", "How bright the ruled lines are", "How much the beat lights the line being written"}}}};
+      {"Page on or off", "How bright the ruled lines are", "How much the beat lights the line being written"}}},
+    /* (API 7) its colours' parts */
+    5u, {0, 0, 0},
+    {{"INK", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"DOTS", {236, 250, 246}, 3u}, {"RULES", {120, 226, 214}, 2u},
+     {"MARGIN", {255, 122, 28}, 5u}, {"BLOTS", {120, 226, 214}, 2u}}};

@@ -192,11 +192,10 @@ static void fse_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     }
     if (cx->xk[0][0]) {                                 /* (NEW, API 6) PIPETTE: the dropper, a faint ring, bright as it drips */
         int32_t X = 7680 + (pl_sine(a, cx->now * 52000u) >> 7) * 22, Y = 7680 + (pl_sine(a, cx->now * 33000u + 0x40000000u) >> 7) * 22;
-        pl_arc(S, a, PL_C2P(X), PL_C2P(Y), (5 * 256) - cx->beat * 4, 0u, 0xFFFFFFFFu, 60 + (cx->beat >> 1), PL_WT);
+        pl_arc(S, a, PL_C2P(X), PL_C2P(Y), (5 * 256) - cx->beat * 4, 0u, 0xFFFFFFFFu, 60 + (cx->beat >> 1), PL_PC(cx, 2));
     }
 }
 
-#include "splash/sepia.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_sepia = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(fse_t), "SEPIA",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 7u, {0, 0, 0},
@@ -207,7 +206,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_sepia = {
     {{"MARBLE", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 4u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 50, 30}},
      {"STILL", {16, 86, 21, 0, 21, 31, 81, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 6u), 0}, {99, 99, 30, 0}},
      {"SQUALL", {91, 36, 91, 0, 96, 81, 21, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 4u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 60, 40}}},
-    30u, {0, 0, 0}, SPL_SEPIA,
+    30u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"PIPETTE", 3u, 1u, {0, 0}, {{"ON", 0}, {"DRIPS", 50}, {"BLOT", 40}},
@@ -215,4 +214,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_sepia = {
       {"Pipette on or off", "How often it drips: every 4th beat, 2nd, every beat", "How big each drop spreads"}},
      {"COLOR", 3u, 1u, {0, 0}, {{"ON", 0}, {"HUE", 50}, {"SHARE", 40}},
       "A second colour of ink: a share of the drops falls in it, and the flow marbles the two together",
-      {"Second colour on or off", "Which colour: amber, rose, violet, sea green, gold, orange", "How many of the drops take it"}}}};
+      {"Second colour on or off", "Which colour: amber, rose, violet, sea green, gold, orange", "How many of the drops take it"}}},
+    /* (API 7) its colours' parts: the cold palette's two, the dropper's ring (COLOR's second ink stays HUE's) */
+    3u, {0, 0, 0},
+    {{"WATER", {14, 38, 112}, 1u | UMB_COLF_RAMP}, {"INK", {132, 218, 228}, 2u}, {"PIPETTE", {236, 250, 246}, 3u}}};

@@ -215,7 +215,8 @@ static __attribute__((noinline)) int16_t *mom_vp(uint32_t k, const param_desc_t 
     if (ui.menu || ui.confirm || gen_on() || mac_latch || lock_held())
         return 0;
     if (ui.home) {
-        if (home_macros() || (UMB_ON && home_bare()))   /* ((UMBRA LIVE) WELCOME, the MACROS pages: no knobs) */
+        if (home_macros() || (UMB_ON && home_bare()) || umk_kn(song.sel % NTRK, k) >= 0x80u)   /* ((UMBRA LIVE) WELCOME,
+                                                         * UMBRA's pages, KNOBS: no parameter's knobs; nor a knob on a macro) */
             return 0;
         *d = home_param(k, &vp);
     } else {

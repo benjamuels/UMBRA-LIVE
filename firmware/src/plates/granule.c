@@ -129,7 +129,8 @@ PL_SMALL static void plg_note(void *st, const umb_lctx_t *cx, const umb_api_t *a
     uint32_t g, k, c = nt->track, n = nt->note, lane = nt->lane, o = n / 12u,
              nt6 = cx->tracks < 1u ? 1u : cx->tracks > UMB_NTRK ? UMB_NTRK : cx->tracks;
     int32_t v;
-    const uint8_t *col = a->colour[nt->drum ? PL_LANE_POS[lane] : (c * 3u) % 8u];
+    /* (API 7) GRAINS: its own a drum's lane's colour, else its track's */
+    const uint8_t *col = cx->pm[2] == UMB_PM_NOTES ? a->colour[nt->drum ? PL_LANE_POS[lane] : (c * 3u) % 8u] : pl_rc(cx, a, 2u, c);
     if (!nt->vel)
         return;
     if ((v = pl_drive(cx, 4u, nt, nt->drum && lane < 3u)) != 0) {   /* BURST */
@@ -147,7 +148,7 @@ PL_SMALL static void plg_note(void *st, const umb_lctx_t *cx, const umb_api_t *a
         s->bx[i] = (uint8_t)((s->sx[p] + s->sx[b]) >> 1);
         s->by[i] = (uint8_t)((s->sy[p] + s->sy[b]) >> 1);
         s->bv[i] = (uint8_t)v;
-        s->bc[i] = (uint8_t)lane;
+        s->bc[i] = (uint8_t)(lane | c << 4);            /* (API 7: and the track, for POINTS) */
         s->bt[i] = cx->now;
     }
     if (!(v = pl_drive(cx, 3u, nt, !nt->drum)))         /* GRAIN */
@@ -294,9 +295,9 @@ PL_SMALL __attribute__((noinline)) static void plg_xdraw(const plg_t *s, const u
             al = al * (1600 - age) / 1200;
         for (k = 1; k < n; k++)
             pl_line(S, s->kp[i][k - 1][0] * 256 + 128, s->kp[i][k - 1][1] * 256 + 128, s->kp[i][k][0] * 256 + 128, s->kp[i][k][1] * 256 + 128,
-                    al * (96 + 160 * k / n) >> 8, k & 4 ? PL_INK : PL_WT);
+                    al * (96 + 160 * k / n) >> 8, PL_PC(cx, k & 4 ? 5 : 4));
         if (!s->kd[i])
-            pl_dot(S, s->kp[i][n - 1][0], s->kp[i][n - 1][1], 255, PL_WT);
+            pl_dot(S, s->kp[i][n - 1][0], s->kp[i][n - 1][1], 255, PL_PC(cx, 4));
     }
 }
 static void plg_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const umb_strip_t *S)
@@ -304,6 +305,7 @@ static void plg_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     const plg_t *s = st;
     uint8_t xi[240], xf[240];
     int32_t vv[PL_N + 1], i, x0 = S->x0, cxx, cy;
+    const uint8_t *WT = PL_PC(cx, 4);                   /* (API 7) CORE: a lit granule's white heart, the echo */
     pl_cols(S, xi, xf);
     for (cy = 0; cy < S->h; cy++) {
         int32_t py = S->y0 + cy, vg = S->vg[cy], dq = (py & 1) << 1;
@@ -317,7 +319,7 @@ static void plg_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             uint32_t g = lab[px >> 2];
             if (s->ev[g] && p > 40) {                   /* (NEW, API 6) ECHO: its shape cut hard, a black ring round it */
                 e = p > 110 ? s->ev[g] : 0;
-                row[cxx] = pl_rgb(a, 0, (s->col[g][0] + PL_WT[0]) * e >> 8, (s->col[g][1] + PL_WT[1]) * e >> 8, (s->col[g][2] + PL_WT[2]) * e >> 8, vg, 0);
+                row[cxx] = pl_rgb(a, 0, (s->col[g][0] + WT[0]) * e >> 8, (s->col[g][1] + WT[1]) * e >> 8, (s->col[g][2] + WT[2]) * e >> 8, vg, 0);
                 qg = PLG_N;
                 continue;
             }
@@ -336,9 +338,9 @@ static void plg_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             G = (s->col[g][1] * e) >> 8;
             B = (s->col[g][2] * e) >> 8;
             if (e > 115) {
-                R += (PL_WT[0] * (e - 115) * 230) >> 16;
-                G += (PL_WT[1] * (e - 115) * 230) >> 16;
-                B += (PL_WT[2] * (e - 115) * 230) >> 16;
+                R += (WT[0] * (e - 115) * 230) >> 16;
+                G += (WT[1] * (e - 115) * 230) >> 16;
+                B += (WT[2] * (e - 115) * 230) >> 16;
             }
             row[cxx] = pl_rgb(a, (p * s->gb[g]) >> 8, R, G, B, vg, PL_D2[dq | (px & 1)]);
         }
@@ -347,12 +349,12 @@ static void plg_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
         int32_t f = pl_fade(cx->now - s->bt[i], 400u, 8u);
         if (f && s->bv[i])
             pl_dot(S, s->bx[i], s->by[i], (f * (128 + (s->bv[i] >> 1)) * 384) >> 16,
-                     s->bc[i] == 4u ? PL_WT : a->colour[PL_LANE_POS[s->bc[i] % PL_NLANE]]);
+                     cx->pm[3] != UMB_PM_NOTES ? pl_rc(cx, a, 3u, s->bc[i] >> 4)   /* (API 7) POINTS: its own the lane's */
+                     : (s->bc[i] & 7u) == 4u ? WT : a->colour[PL_LANE_POS[s->bc[i] % PL_NLANE]]);
     }
     plg_xdraw(s, cx, S);                                /* (NEW, API 6) CRACKS */
 }
 
-#include "splash/granule.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_granule = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plg_t), "GRANULE",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 6u, {0, 0, 0},
@@ -363,7 +365,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_granule = {
     {{"SIMMER", {16, 81, 36, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 0u), UMB_LINK(UMB_SRC_LEVEL, 2u)}, {99, 99, 25, 40}},
      {"FLARES", {61, 0, 0, 31, 96, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 2u), UMB_LINK(UMB_SRC_BEAT, 0u)}, {99, 99, 50, 30}},
      {"PULSE", {0, 0, 0, 0, 0, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 2u), UMB_LINK(UMB_SRC_LEVEL, 0u)}, {99, 99, 70, 40}}},
-    72u, {0, 0, 0}, SPL_GRANULE,
+    72u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"CRACKS", 3u, 1u, {0, 0}, {{"ON", 0}, {"MANY", 60}, {"SPEED", 60}},
@@ -371,4 +373,9 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_granule = {
       {"Cracks on or off", "How many trace at once (1 to 8)", "How fast they trace"}},
      {"ECHO", 3u, 1u, {0, 0}, {{"ON", 0}, {"DELAY", 30}, {"FLASH", 60}},
       "As a lit cell fades away, a sharper, harder copy of it flashes once in its place",
-      {"Echo on or off", "How long after the fade it flashes (0 to 0.9 s)", "How bright the echo flashes"}}}};
+      {"Echo on or off", "How long after the fade it flashes (0 to 0.9 s)", "How bright the echo flashes"}}},
+    /* (API 7) its colours' parts: the cold palette's two, the notes' granules, the kit's points, the white of a lit heart
+     * (and the echo, a white point, a crack's bright pieces), a crack's teal */
+    6u, {0, 0, 0},
+    {{"SUN", {14, 38, 112}, 1u | UMB_COLF_RAMP}, {"GLOW", {132, 218, 228}, 2u}, {"GRAINS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK},
+     {"POINTS", {0, 0, 0}, UMB_COL_TRK | UMB_COLF_TRK}, {"CORE", {236, 250, 246}, 3u}, {"CRACKS", {120, 226, 214}, 2u}}};

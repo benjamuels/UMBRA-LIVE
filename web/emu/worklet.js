@@ -46,6 +46,26 @@ export function xels(ex, h) {
   return out;
 }
 
+/* (API 7) a plate module's colours' parts (umb_plate.h umb_colr_t), read from the wasm's memory: [{ name, rgb: [r, g, b],
+ * def }] (def: bits 0..2 the choice at first, 0x80 follows the notes, 0x40 a ground's ramp, 0x20 at half light) */
+export function cols(ex, h) {
+  if (!ex.web_umx_xoff || !ex.web_colc_get) return [];
+  const mem = new Uint8Array(ex.memory.buffer), off = ex.web_umx_xoff(4), sz = ex.web_umx_xoff(5);
+  if ((mem[h + 4] | mem[h + 5] << 8) < 7 || !off || !sz) return [];   // (an older wasm's web_umx_xoff knows no 4: not read)
+  const out = [], n = Math.min(6, mem[h + off]);         // (UMB_NCOL)
+  for (let j = 0; j < n; j++) {
+    const b = h + off + 4 + j * sz; let name = "";
+    for (let i = 0; i < 8 && mem[b + i]; i++) name += String.fromCharCode(mem[b + i]);
+    out.push({ name, rgb: [mem[b + 8], mem[b + 9], mem[b + 10]], def: mem[b + 11] });
+  }
+  return out;
+}
+/* .. the four palettes kept, each colour [r, g, b] */
+export function pals(ex) {
+  if (!ex.web_pal_get) return null;
+  return [0, 1, 2, 3].map((i) => [0, 1, 2, 3, 4, 5].map((j) => { const c = ex.web_pal_get(i, j); return [c >> 16 & 255, c >> 8 & 255, c & 255]; }));
+}
+
 if (typeof registerProcessor === "function") {
   const clock = globalThis.performance ? () => globalThis.performance.now() : () => Date.now();
   class Felucca extends AudioWorkletProcessor {
@@ -100,10 +120,16 @@ if (typeof registerProcessor === "function") {
         const mem = new Uint8Array(ex.memory.buffer), str = (p) => { let s = ""; for (; p && mem[p]; p++) s += String.fromCharCode(mem[p]); return s; };
         const pages = [];
         for (let pl = 0; pl < ex.web_umb_get(90); pl++)
-          if (ex.web_umb_get(100 + pl)) { const h = ex.web_umx_mod(pl); pages.push({ pl, name: str(ex.web_umb_name(pl)), head: h ? mem.slice(h, h + 240) : null, xel: h ? xels(ex, h) : [] }); }
+          if (ex.web_umb_get(100 + pl)) { const h = ex.web_umx_mod(pl); const col = h ? cols(ex, h) : [];          // (API 7) its colours' parts, each one's choice now
+            pages.push({ pl, name: str(ex.web_umb_name(pl)), head: h ? mem.slice(h, h + 240) : null, xel: h ? xels(ex, h) : [],
+                         col, cc: col.map((c, j) => ex.web_colc_get(pl, j)) }); }
         const genres = []; for (let i = 0; i < ex.web_gen_count(); i++) genres.push(str(ex.web_gen_name(i)));
-        this.port.postMessage({ type: "umxinfo", pages, genres });
-      } else if (m.type === "gen" && ex.web_gen) {                     // .. a song made and played (the generator's)
+        this.port.postMessage({ type: "umxinfo", pages, genres, pal: pals(ex), palcur: ex.web_pal_cur ? ex.web_pal_cur(255) : 0,
+                                coff: ex.web_colc_get ? [ex.web_umx_xoff(4), ex.web_umx_xoff(5)] : null });   // (where the parts lie: the page checks its own)
+      } else if (m.type === "pal" && ex.web_pal) ex.web_pal(m.i & 3, (m.j | 0) % 6, m.rgb & 0xFFFFFF);   // (API 7) a palette's colour
+      else if (m.type === "palcur" && ex.web_pal_cur) ex.web_pal_cur(m.i & 3);   // .. the palette in use
+      else if (m.type === "colc" && ex.web_colc) ex.web_colc(m.pl | 0, m.j | 0, m.v | 0);   // .. a plate's part: its choice (0 own, 1..6, 7 tracks)
+      else if (m.type === "gen" && ex.web_gen) {                     // .. a song made and played (the generator's)
         const lie = () => [ex.web_umb_get(99), ex.web_umb_get(80)];   // (the ground, OVER: 63 none)
         const was = lie(), W = [1, 2];
         ex.web_gen(m.genre | 0, m.seed | 0, m.energy | 0, m.form | 0);

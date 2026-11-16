@@ -77,6 +77,28 @@ static uint32_t ed_unpack7(const uint8_t *a, uint32_t na, uint8_t *out, uint32_t
     return na ? 0u : n;
 }
 #include "editor_plate.c"
+/* (plate API 7) the palettes editor_plate.c asks ui_umbra.c for (umb_pal_io, as there), for cmds 101 and 102 */
+static uint8_t t_pal[4][6][3] = {
+    { { 64, 110, 230 }, { 120, 226, 214 }, { 236, 250, 246 }, { 255, 206, 64 }, { 255, 122, 28 }, { 232, 124, 196 } },
+    { { 210, 44, 20 }, { 255, 122, 28 }, { 255, 236, 200 }, { 255, 206, 64 }, { 255, 80, 120 }, { 176, 70, 255 } },
+    { { 96, 64, 232 }, { 40, 220, 140 }, { 214, 255, 226 }, { 110, 255, 150 }, { 60, 200, 255 }, { 255, 120, 220 } },
+    { { 120, 124, 140 }, { 204, 204, 210 }, { 255, 255, 255 }, { 168, 164, 150 }, { 96, 100, 116 }, { 236, 224, 200 } } };
+static uint8_t t_cur;
+static uint32_t umb_pal_io(uint32_t i, uint8_t *c, int put)
+{
+    uint32_t k;
+    if (i >= 4u) {
+        if (put && i - 64u < 4u)
+            t_cur = (uint8_t)(i - 64u);
+        return t_cur;
+    }
+    for (k = 0; k < 18u; k++)
+        if (put)
+            t_pal[i][k / 3u][k % 3u] = (uint8_t)(c[k] << 1 | c[k] >> 6);
+        else
+            c[k] = t_pal[i][k / 3u][k % 3u] >> 1;
+    return t_cur;
+}
 
 static int fails;
 static void check(int ok, const char *what)

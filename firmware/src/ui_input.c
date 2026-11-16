@@ -92,7 +92,7 @@ static uint32_t oct_leds(void)
         return umw_pg == UMW_NP - 1u ? OCT_BREATH_DN : OCT_BREATH;   /* (the last page: OCT- alone, which held takes it away) */
     if (UMB_ON && umk_on())                             /* (LIVE AUDIO / VIZ CTRLS: OCT+ adds a control, OCT- removes one;
                                                          * PLATES: neither) */
-        return ui.hset[0] == HOME_PLATES ? 0u : 1u | OCT_BREATH;
+        return ui.hset[0] == HOME_PLATES || ui.hset[0] == HOME_COLOR ? 0u : 1u | OCT_BREATH;
     if (name_on() && !ui.confirm && !ui.menu)           /* NAME: OCT- cancels, OCT+ (breathing) writes */
         return 1u | OCT_BREATH;
     if (layer_set_open())                               /* a SET layer: OCT± do nothing (TONIC: no put back); */
@@ -3210,7 +3210,7 @@ static void ui_input_frame(void)
             continue;
         }
         if (UMB_ON && umt.on) {                         /* (UMBRA LIVE) TOTALITY: the macros M1..M4; FX: the effects */
-            umt_knob(k, accel(EN_K1 + k, s, umt.fx ? (k ? 99 : 0) : 127));
+            umt_knob(k, umt.fx ? accel(EN_K1 + k, s, k ? 99 : 0) : s);
             continue;
         }
         if (ui.entry_open && !ui.home && cur_page()->graph == GR_ROLL && !grid_on() && lock_held() &&
@@ -3240,15 +3240,17 @@ static void ui_input_frame(void)
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40, ui.knob_ms = fm1_ms;
         }
-        if (home_macros()) {                            /* (0.8.5) HOME's MACROS / ROUTES: M1..M4 */
-            macro_v[k] = (uint8_t)clamp(macro_v[k] + accel(EN_K1 + k, s, 127), 0, 127);
+        if (home_macros()) {                            /* ((UMBRA LIVE) HOME > BEING > KNOBS: what KNOB k turns) */
+            umk_kturn(k, s);
         } else if (ui.home) {
             int16_t *vp;
             const param_desc_t *d = home_param(k, &vp);
             int32_t was = *vp;
             *vp = (int16_t)param_turn(d, *vp, accel(EN_K1 + k, s, d->fmt == F_ENUM ? 0 : d->max - d->min));
-            knob_cap(TSEL, (uint32_t)(vp - TSEL->p));
-            excite_turn(TSEL, vp, was);
+            if (!home_put(k, vp)) {
+                knob_cap(TSEL, (uint32_t)(vp - TSEL->p));
+                excite_turn(TSEL, vp, was);
+            }
         } else {
             edit_param(k, s);
         }

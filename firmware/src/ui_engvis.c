@@ -110,11 +110,14 @@ static void vx_arc(const vxf_t *f, int32_t cx, int32_t cy, int32_t rx, int32_t r
 static uint32_t vx_rnd(uint32_t *r) { *r ^= *r << 13; *r ^= *r >> 17; *r ^= *r << 5; return *r; }
 /* the level of track t now (0..256: its part's peak, slewed: a hit at once, a quick fall), k: which drawing; its time
  * runs with it (once a frame) */
+static uint16_t umb_pal_trk(uint32_t t);              /* (ui_umbra.c) */
 static int32_t vx_level(const track_t *t, uint32_t k, int32_t en_home)
 {
     uint32_t dt = ui.frame - vxs.fr[k], dm = fm1_ms - vxs.ms[k];
     int32_t v;
-    vx_acc = VX_ACC[(uint32_t)(t - trk) % 6u];           /* ((UMBRA LIVE) every figure asks its level first: its track's accent) */
+    vx_acc = umb_pal_trk((uint32_t)(t - trk) % 6u);     /* ((UMBRA LIVE) every figure asks its level first: its track's accent;
+                                                         * 2026-11-16: the palette in use's colour of that track, VX_ACC the
+                                                         * palettes' first at heart) */
     if (!dt)
         return vxs.en[k];
     if (dt > 8u) dt = 8u;

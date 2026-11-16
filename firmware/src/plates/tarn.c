@@ -15,7 +15,6 @@
 #define PLT_RX 120                                      /* the reflection's centre (px) and its moon's radius */
 #define PLT_RY 126
 #define PLT_RR 30
-static const uint8_t PLT_SH[3] = {70, 150, 160};        /* the water's sheen */
 typedef struct {
     int16_t h[2][PLT_N * PLT_N];                        /* its height, now and a step before (swapped) */
     uint8_t rl[1024];                                   /* the reflection by r^2 / 32 */
@@ -159,6 +158,7 @@ static void plt_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     int32_t m = ((102 + 819 * (int32_t)cx->k[1] / 99) * 164) >> 8, i, sj = -1;   /* (BEND: px a slope unit, Q16) */
     int32_t q = (1 << 24) / (sc * sc);                  /* (SIZE: the reflection read nearer or further, Q8) */
     int32_t x0 = S->x0, cxx, cy;
+    const uint8_t *PLT_SH = PL_PC(cx, 2), *WT = PL_PC(cx, 3);   /* (API 7) the water's sheen; the stars' and the glints' white */
     for (cxx = 0; cxx < S->w; cxx++) {
         int32_t t = pl_clamp(((x0 + cxx - 2) * 256) / 5, 0, (PLT_N - 1) * 256 - 1);
         xi[cxx] = (uint8_t)(t >> 8);
@@ -224,13 +224,13 @@ static void plt_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
     for (i = 0; i < 8; i++) {                           /* the stars glinting: 0.35 s, 6 steps */
         int32_t f = s->tv[i] ? pl_fade(cx->now - s->tt[i], 350u, 6u) : 0;
         if (f)
-            pl_dot(S, s->tx[i], s->ty[i], (f * (128 + (s->tv[i] >> 1)) * 230) >> 16, PL_WT);
+            pl_dot(S, s->tx[i], s->ty[i], (f * (128 + (s->tv[i] >> 1)) * 230) >> 16, WT);
     }
     if (cx->xk[0][0])                                   /* (NEW, API 6) DRIZZLE: each drop's glint, 0.25 s */
         for (i = 0; i < 8; i++) {
             int32_t f = s->zt[i] ? pl_fade(cx->now - s->zt[i], 250u, 5u) : 0;
             if (f) {
-                pl_dot(S, s->zx[i], s->zy[i], (f * (150 + cx->xk[0][2])) >> 8, PL_WT);
+                pl_dot(S, s->zx[i], s->zy[i], (f * (150 + cx->xk[0][2])) >> 8, WT);
                 pl_arc(S, a, s->zx[i] * 256, s->zy[i] * 256, (9 - f / 36) * 256, 0u, 0xFFFFFFFFu, f * 2 / 3, PLT_SH);
             }
         }
@@ -253,14 +253,13 @@ static void plt_draw(void *st, const umb_lctx_t *cx, const umb_api_t *a, const u
             Y -= oy;
             ox = 3 * 256 + pl_abs(ox) / 2;              /* (its rays drawn out as the water tilts) */
             oy = 3 * 256 + pl_abs(oy) / 2;
-            pl_glint(S, X, Y, e, PL_WT);
-            pl_line(S, X - ox, Y, X + ox, Y, e / 2, PL_WT);
-            pl_line(S, X, Y - oy, X, Y + oy, e / 2, PL_WT);
+            pl_glint(S, X, Y, e, WT);
+            pl_line(S, X - ox, Y, X + ox, Y, e / 2, WT);
+            pl_line(S, X, Y - oy, X, Y + oy, e / 2, WT);
         }
     }
 }
 
-#include "splash/tarn.h"                             /* (API 5) its still picture (.tools/harness/splash.mjs made it) */
 UMB_PLATE_HEAD const umb_plate_t umb_plate_tarn = {
     UMB_PLATE_MAGIC, UMB_API, (uint16_t)sizeof(plt_t), "TARN",
     UMB_KIND_FIELD, UMB_MODE(UMB_DRAW_REPLACE), 6u, {0, 0, 0},
@@ -271,7 +270,7 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_tarn = {
     {{"STILL", {86, 21, 0, 31, 0, 26, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_LFO(0), 1u), 0}, {99, 99, 20, 0}},
      {"RAIN", {36, 0, 0, 96, 31, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_HIT(0), 1u), UMB_LINK(UMB_SRC_LEVEL, 5u)}, {99, 99, 30, 50}},
      {"SWELL", {0, 81, 0, 0, 91, 0, 0, 0}, {UMB_LINK(UMB_SRC_KNOB(0), 0u), UMB_LINK(UMB_SRC_KNOB(1), 1u), UMB_LINK(UMB_SRC_BEAT, 2u), UMB_LINK(UMB_SRC_LEVEL, 1u)}, {99, 99, 20, 40}}},
-    12u, {0, 0, 0}, SPL_TARN,
+    12u, {0, 0, 0}, 0,
     /* (API 6, the test) its new elements */
     2u, {0, 0, 0},
     {{"DRIZZLE", 3u, 1u, {0, 0}, {{"ON", 0}, {"PACE", 50}, {"HEFT", 50}},
@@ -279,4 +278,9 @@ UMB_PLATE_HEAD const umb_plate_t umb_plate_tarn = {
       {"Drizzle on or off", "How many drops a second (1 to 14)", "How heavy the drops are"}},
      {"STARS", 3u, 1u, {0, 0}, {{"ON", 0}, {"COUNT", 50}, {"RADIUS", 40}},
       "Stars stand evenly round the eclipse in the water, bent and shaken by the ripples like the reflection",
-      {"Stars on or off", "How many stars (4 to 16)", "How far from the eclipse they stand"}}}};
+      {"Stars on or off", "How many stars (4 to 16)", "How far from the eclipse they stand"}}},
+    /* (API 7) its colours' parts: the cold palette's two, the crests' sheen (the drizzle's rings, a star's streak), the
+     * glints and the stars */
+    4u, {0, 0, 0},
+    {{"WATER", {14, 38, 112}, 1u | UMB_COLF_RAMP}, {"LIGHT", {132, 218, 228}, 2u}, {"SHEEN", {70, 150, 160}, 2u},
+     {"STARS", {236, 250, 246}, 3u}}};
